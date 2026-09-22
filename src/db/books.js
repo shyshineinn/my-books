@@ -43,8 +43,8 @@ function getBook(id) {
 function addBook(values) {
   const ts = now();
   const result = db.prepare(`
-    INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, created_at, updated_at)
-    VALUES (@title, @author, @status, @summary, @tags, @start_date, @finish_date, @cover, @notes_url, @read_count, @read_logs, @ts, @ts)
+    INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, created_at, updated_at)
+    VALUES (@title, @author, @status, @summary, @tags, @start_date, @finish_date, @cover, @notes_url, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @ts, @ts)
   `).run({ ...values, ts });
   const created = getBook(result.lastInsertRowid);
   search.indexBook(db, created); // 同步全文索引
@@ -61,7 +61,9 @@ function updateBook(id, merged) {
   db.prepare(`
     UPDATE books SET title = @title, author = @author, status = @status,
       summary = @summary, tags = @tags, start_date = @start_date, finish_date = @finish_date,
-      cover = @cover, notes_url = @notes_url, read_count = @read_count, read_logs = @read_logs, updated_at = @ts
+      cover = @cover, notes_url = @notes_url, read_count = @read_count, read_logs = @read_logs,
+      publisher = @publisher, pub_year = @pub_year, isbn = @isbn, rating = @rating, douban_id = @douban_id,
+      updated_at = @ts
     WHERE id = @id
   `).run({ ...merged, ts: now(), id });
   const updated = getBook(id);

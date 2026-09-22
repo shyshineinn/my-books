@@ -96,8 +96,19 @@ function migrateV3(db, dataDir) {
   if (!cols.includes('file_size')) db.exec('ALTER TABLE books ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0');
 }
 
+// v4:豆瓣元数据字段(来源:calibre 插件 NewDouban 的字段设计)
+//     publisher / pub_year / isbn / rating(5分制,一位小数)/ douban_id
+function migrateV4(db, dataDir) {
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+  if (!cols.includes('publisher')) db.exec("ALTER TABLE books ADD COLUMN publisher TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('pub_year')) db.exec("ALTER TABLE books ADD COLUMN pub_year TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('isbn')) db.exec("ALTER TABLE books ADD COLUMN isbn TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('rating')) db.exec('ALTER TABLE books ADD COLUMN rating REAL NOT NULL DEFAULT 0');
+  if (!cols.includes('douban_id')) db.exec("ALTER TABLE books ADD COLUMN douban_id TEXT NOT NULL DEFAULT ''");
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

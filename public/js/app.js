@@ -713,6 +713,14 @@ function openBookModal(book) {
   setCoverPreview(book ? book.cover : '');
   resetCoverEditor();
   renderEbookInfo(book && book.file_path ? book : null);
+  // 豆瓣隐藏字段回填(编辑已有书时带上,提交时保留)
+  $('#fPublisher').value = book ? (book.publisher || '') : '';
+  $('#fPubYear').value = book ? (book.pub_year || '') : '';
+  $('#fIsbn').value = book ? (book.isbn || '') : '';
+  $('#fRating').value = book ? (book.rating || 0) : 0;
+  $('#fDoubanId').value = book ? (book.douban_id || '') : '';
+  doubanStatus.textContent = '';
+  doubanCandidates.classList.add('hidden');
   openModal('#bookModal');
   setTimeout(() => $('#fTitle').focus(), 60);
 }
@@ -894,6 +902,74 @@ $('#fStatus').addEventListener('click', (e) => {
   if (btn) setStatus(btn.dataset.value);
 });
 
+/* ============ 豆瓣元数据填充(NewDouban 移植) ============ */
+const doubanBtn = $('#doubanFetchBtn');
+const doubanStatus = $('#doubanStatus');
+const doubanCandidates = $('#doubanCandidates');
+let doubanSearching = false;
+
+// 把豆瓣候选的元数据写进编辑表单(隐藏字段带 publisher 等新字段)
+function applyDoubanBook(d) {
+  $('#fTitle').value = d.title || '';
+  $('#fAuthor').value = d.author || '';
+  $('#fSummary').value = d.summary || '';
+  $('#fTags').value = (d.tags || []).join(', ');
+  if (d.cover) {
+    $('#fCoverUrl').value = d.cover;
+    setCoverPreview(d.cover);
+  }
+  $('#fPublisher').value = d.publisher || '';
+  $('#fPubYear').value = d.pubYear || '';
+  $('#fIsbn').value = d.isbn || '';
+  $('#fRating').value = d.rating || 0;
+  $('#fDoubanId').value = d.doubanId || '';
+}
+
+doubanBtn.addEventListener('click', async () => {
+  if (doubanSearching) return;
+  const q = $('#fTitle').value.trim();
+  if (!q) {
+    doubanStatus.textContent = '先填书名(或 ISBN)再检索';
+    return;
+  }
+  doubanSearching = true;
+  doubanBtn.disabled = true;
+  doubanStatus.textContent = '正在检索豆瓣…';
+  doubanCandidates.classList.add('hidden');
+  doubanCandidates.innerHTML = '';
+  try {
+    const data = await api('/api/v1/metadata/search?q=' + encodeURIComponent(q));
+    if (!data.results.length) {
+      doubanStatus.textContent = '豆瓣没有找到,试试换个关键词';
+      return;
+    }
+    if (data.cookieless) doubanStatus.textContent = '提示:配置豆瓣 Cookie 可提高成功率(见 README)';
+    else doubanStatus.textContent = `找到 ${data.results.length} 个候选,点击选用:`;
+    doubanCandidates.innerHTML = data.results.map((d, i) => `
+      <button type="button" class="douban-candidate" data-i="${i}">
+        <span>
+          <strong>${esc(d.title)}</strong>
+          <div class="dc-meta">${esc([d.author, d.publisher, d.pubYear].filter(Boolean).join(' · '))}${d.rating ? ' · ★ ' + d.rating : ''}</div>
+        </span>
+        <span>${d.cover ? `<img src="${esc(d.cover)}" alt="" style="width:32px;height:44px;object-fit:cover;border-radius:3px">` : ''}</span>
+      </button>`).join('');
+    doubanCandidates.classList.remove('hidden');
+    doubanCandidates.querySelectorAll('.douban-candidate').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        applyDoubanBook(data.results[Number(btn.dataset.i)]);
+        doubanCandidates.classList.add('hidden');
+        doubanStatus.textContent = '已填充,可继续修改';
+      });
+    });
+  } catch (err) {
+    doubanStatus.textContent = '';
+    toast(err.message, true);
+  } finally {
+    doubanSearching = false;
+    doubanBtn.disabled = false;
+  }
+});
+
 /* ============ 阅读记录(唯一数据源:起止日期与读过次数由记录自动推导) ============ */
 let formLogs = [];
 
@@ -994,6 +1070,11 @@ $('#bookForm').addEventListener('submit', async (e) => {
     read_count: 0,
     summary: $('#fSummary').value.trim(),
     cover: $('#fCoverUrl').value.trim(),
+    publisher: $('#fPublisher').value,
+    pub_year: $('#fPubYear').value,
+    isbn: $('#fIsbn').value,
+    rating: Number($('#fRating').value) || 0,
+    douban_id: $('#fDoubanId').value,
   };
 
   const id = $('#bookId').value;

@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="css/style.css?v=26">
+  <link rel="stylesheet" href="css/style.css?v=27">
 </head>
 <body>
   <header class="topbar">
@@ -134,6 +134,16 @@
       </div>
       <form id="bookForm" novalidate>
         <input type="hidden" id="bookId">
+        <input type="hidden" id="fPublisher">
+        <input type="hidden" id="fPubYear">
+        <input type="hidden" id="fIsbn">
+        <input type="hidden" id="fRating">
+        <input type="hidden" id="fDoubanId">
+        <div class="douban-fetch-row">
+          <button type="button" id="doubanFetchBtn" class="btn btn-ghost douban-btn">✨ 从豆瓣填充元数据</button>
+          <span id="doubanStatus" class="douban-status"></span>
+        </div>
+        <div id="doubanCandidates" class="douban-candidates hidden"></div>
         <div class="form-grid">
           <div class="field field-full">
             <label for="fTitle">书名 <i class="req">*</i></label>
@@ -278,7 +288,7 @@
   <script src="/vendor/marked.umd.js"></script>
   <script src="/vendor/purify.min.js"></script>
   <script src="js/endless-gallery.js?v=6"></script>
-  <script src="js/app.js?v=32"></script>
+  <script src="js/app.js?v=33"></script>
   <script>
     /* PWA Service Worker 注册:仅 HTTPS(或 localhost)环境;
        失败静默 —— 不支持 SW 的老浏览器只是没有离线能力,功能一切照旧 */

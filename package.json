@@ -11,6 +11,7 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
+    "cheerio": "1.1.2",
     "dompurify": "3.4.14",
     "express": "4.21.2",
     "marked": "18.0.11",

@@ -92,8 +92,21 @@ function parseBook(body) {
       notes_url: String(body.notes_url || '').trim(),
       read_count: readCount,
       read_logs: JSON.stringify(readLogs),
+      // 豆瓣元数据字段(v4 列;可选,由前端"从豆瓣填充"或 API 传入)
+      publisher: String(body.publisher || '').trim().slice(0, 200),
+      pub_year: String(body.pub_year || body.pubYear || '').trim().slice(0, 20),
+      isbn: String(body.isbn || '').trim().slice(0, 20),
+      rating: clampRating(body.rating),
+      douban_id: String(body.douban_id || body.doubanId || '').trim().slice(0, 32),
     },
   };
+}
+
+// 评分:0~5,一位小数;非法输入归 0(与豆瓣折算规则一致)
+function clampRating(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(5, Math.round(n * 10) / 10);
 }
 
 // PUT 局部更新语义:表单未提供的字段保留数据库旧值,
@@ -105,6 +118,11 @@ function mergeUpdate(existing, values, body) {
   if (!('cover' in body)) merged.cover = existing.cover;
   if (!('read_count' in body)) merged.read_count = existing.read_count;
   if (!('read_logs' in body)) merged.read_logs = existing.read_logs;
+  if (!('publisher' in body)) merged.publisher = existing.publisher;
+  if (!('pub_year' in body)) merged.pub_year = existing.pub_year;
+  if (!('isbn' in body)) merged.isbn = existing.isbn;
+  if (!('rating' in body)) merged.rating = existing.rating;
+  if (!('douban_id' in body)) merged.douban_id = existing.douban_id;
   return merged;
 }
 
