@@ -19,7 +19,14 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// 静态资源缓存策略:HTML 一律 no-cache(每次向服务器验证新鲜度),
+// 解决"备案号/新功能要强制刷新才出现"—— index.html 自身没有 ?v= 缓存戳,
+// 浏览器会缓存它,导致新发布的页面内容看不到。其余资源靠 ?v= 长缓存不受影响。
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
