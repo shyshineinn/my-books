@@ -1353,6 +1353,24 @@ main {
 
 .cover-actions { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
+/* 电子书文件编辑:横向条状布局(与封面预览区分——这里没有图,只有文件信息) */
+.ebook-editor { padding: 10px 14px; border: 1px dashed var(--hairline); border-radius: 10px; background: var(--paper-2); }
+
+.ebook-actions { display: flex; flex-direction: column; gap: 8px; }
+
+.ebook-info { font-size: 12.5px; color: var(--ink-3); letter-spacing: 0.02em; }
+
+.ebook-info .ebook-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(0, 102, 204, 0.08);
+}
+
 .cover-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .cover-btns .btn { padding: 6px 14px; min-height: 34px; font-size: 13px; }
 

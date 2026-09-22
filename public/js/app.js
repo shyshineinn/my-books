@@ -811,7 +811,7 @@ let ebookUploading = false;
 function renderEbookInfo(book) {
   const box = $('#ebookInfo');
   if (book && book.file_path) {
-    box.innerHTML = `<span style="font-size:13px">已关联 .${esc((book.file_format || '').toUpperCase())} · ${Math.max(1, Math.round((book.file_size || 0) / 1024))} KB</span>`;
+    box.innerHTML = `<span class="ebook-tag">.${esc((book.file_format || '').toUpperCase())}</span>已关联 · ${Math.max(1, Math.round((book.file_size || 0) / 1024))} KB`;
     $('#ebookRemove').disabled = false;
   } else {
     box.textContent = '未上传文件';

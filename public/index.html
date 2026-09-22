@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="css/style.css?v=25">
+  <link rel="stylesheet" href="css/style.css?v=26">
 </head>
 <body>
   <header class="topbar">
@@ -184,10 +184,9 @@
             </div>
           </div>
           <div class="field field-full">
-            <label>电子书文件 <span class="label-sub">epub / pdf / mobi / azw3 / txt,≤80MB;保存后详情页可在线阅读</span></label>
-            <div class="cover-editor">
-              <div id="ebookInfo" class="cover-preview">未上传文件</div>
-              <div class="cover-actions">
+            <label>电子书文件 <span class="label-sub">epub / pdf / mobi / azw3 / txt,≤80MB;保存后书架卡片出现「📖 在线阅读」</span></label>
+            <div class="ebook-editor">
+              <div class="ebook-actions">
                 <div class="cover-btns">
                   <label class="btn btn-ghost">
                     <span id="ebookUploadText">选择文件上传</span>
@@ -195,6 +194,7 @@
                   </label>
                   <button type="button" id="ebookRemove" class="btn btn-ghost">移除文件</button>
                 </div>
+                <div id="ebookInfo" class="ebook-info">未上传文件</div>
               </div>
             </div>
           </div>
@@ -278,7 +278,7 @@
   <script src="/vendor/marked.umd.js"></script>
   <script src="/vendor/purify.min.js"></script>
   <script src="js/endless-gallery.js?v=6"></script>
-  <script src="js/app.js?v=31"></script>
+  <script src="js/app.js?v=32"></script>
   <script>
     /* PWA Service Worker 注册:仅 HTTPS(或 localhost)环境;
        失败静默 —— 不支持 SW 的老浏览器只是没有离线能力,功能一切照旧 */
