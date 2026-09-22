@@ -13,7 +13,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -21,9 +21,10 @@ const IMG_LIMIT = 60;
 
 // App Shell 资源清单:与 index.html 引用的资源保持同步
 // (改了 css/js 记得同步这里 —— 与 index.html 的 ?v= 同理)
+// 注意:**不缓存 / 和 *.html** —— HTML 必须每次向服务器验证,
+// 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/',
-  '/css/style.css?v=23',
+  '/css/style.css?v=24',
   '/js/app.js?v=28',
   '/js/endless-gallery.js?v=6',
   '/vendor/marked.umd.js',
@@ -114,7 +115,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App Shell 与其他静态资源:cache-first,后台可被 install 时更新
+  // HTML 文档:network-first(与 API 同策略)—— 内容更新立即可见,
+  // 离线时回退缓存版本。绝不 cache-first,否则发布新内容用户看不到。
+  if (req.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(API_CACHE).then((cache) => cache.put(req, clone));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match(req).then((cached) =>
+            cached || caches.match('/').then((root) => root ||
+              new Response('当前离线', { status: 503, headers: { 'Content-Type': 'text/plain; charset=UTF-8' } }))
+          )
+        )
+    );
+    return;
+  }
+
+  // App Shell 与其他静态资源(?v= 版本号管理):cache-first
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;
