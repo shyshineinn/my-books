@@ -24,14 +24,26 @@ const DOUBAN_SUBJECT_RE = /book\.douban\.com\/subject\/(\d+)/;
 /* ---------- 解析层(纯函数) ---------- */
 
 // 搜索页 → [{ doubanId, title }]
+// www.douban.com/search 的 nbg 链接是 link2/?url=<编码后的 subject 地址>,
+// 需要先解 query 里的 url 参数(与插件 calc_url 一致)
 function parseSearchPage(html) {
   const $ = cheerio.load(html);
   const out = [];
-  // 豆瓣的统一搜索页里书籍条目在 a.nbg(data-href 指向真实 subject 链接)
+  const seen = new Set();
   $('a.nbg').each((_, el) => {
-    const href = $(el).attr('data-href') || $(el).attr('href') || '';
+    let href = $(el).attr('data-href') || $(el).attr('href') || '';
+    if (!href) return;
+    // link2 跳转链接:解出真实地址
+    if (href.includes('/link2/')) {
+      try {
+        const q = new URL(href, 'https://www.douban.com').searchParams;
+        const real = q.get('url');
+        if (real) href = real;
+      } catch { /* 保持原 href */ }
+    }
     const m = DOUBAN_SUBJECT_RE.exec(href);
-    if (m) {
+    if (m && !seen.has(m[1])) {
+      seen.add(m[1]);
       const title = $(el).attr('title') || $(el).find('img').attr('alt') || '';
       out.push({ doubanId: m[1], title });
     }

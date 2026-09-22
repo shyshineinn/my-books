@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
  * 豆瓣元数据解析测试(core/douban.js 纯函数,不联网)
  * fixture 按豆瓣真实页面结构精简构造
  * ============================================================ */
@@ -9,8 +9,8 @@ const { parseSearchPage, parseBookPage, mapToBook, cleanSummary } = require('../
 
 const SEARCH_HTML = `
 <div class="result">
-  <div class="result-op"><a class="nbg" data-href="https://book.douban.com/subject/2567698/" href="https://www.douban.com/link2/?url=https%3A%2F%2Fbook.douban.com%2Fsubject%2F2567698%2F"><img alt="三体" src="x.jpg"></a></div>
-  <div class="result-op"><a class="nbg" data-href="https://book.douban.com/subject/5363767/"><img alt="三体Ⅱ·黑暗森林" src="y.jpg"></a></div>
+  <div class="result-op"><a class="nbg" href="https://www.douban.com/link2/?url=https%3A%2F%2Fbook.douban.com%2Fsubject%2F2567698%2F&amp;query=%E4%B8%89%E4%BD%93&amp;cat_id=1001&amp;type=search&amp;pos=0" title="三体"><img alt="三体" src="x.jpg"></a></div>
+  <div class="result-op"><a class="nbg" href="https://www.douban.com/link2/?url=https%3A%2F%2Fbook.douban.com%2Fsubject%2F5363767%2F"><img alt="三体Ⅱ·黑暗森林" src="y.jpg"></a></div>
   <a class="nbg" href="https://movie.douban.com/subject/1/"><img alt="电影,应被过滤"></a>
   <a class="other">非 nbg 条目</a>
 </div>`;

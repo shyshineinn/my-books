@@ -50,3 +50,6 @@ calibre-master/
 # å¤‡ä»½ç›®å½•ä¸æ†ç»‘æ–‡ä»¶(ä¸¥ç¦å…¥åº“)
 data/backup/
 *.bundle
+
+# ¶¹°êµÇÂ¼ Cookie(Ãô¸Ğ,ÑÏ½ûÈë¿â)
+data/douban-cookie
