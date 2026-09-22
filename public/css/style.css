@@ -1698,6 +1698,19 @@ footer .footer-legal a:focus-visible {
   text-underline-offset: 3px;
 }
 
+/* 公安联网备案:图标 + 文字,与 ICP 备案并排(公安备案要求图标随行悬挂) */
+footer .footer-legal a.beian-ps {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+footer .footer-legal a.beian-ps img {
+  width: 14px;
+  height: 15px;
+  display: block;
+}
+
 /* 阅读记录(每次读的起止时间) */
 .label-sub { font-weight: 400; color: var(--ink-3); font-size: 12px; letter-spacing: 0.02em; margin-left: 4px; }
 
