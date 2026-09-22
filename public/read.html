@@ -17,46 +17,39 @@
     .bar a:hover { text-decoration: underline; }
     .bar .title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .bar .fmt { font-size: 12px; color: rgba(245,245,247,0.6); }
-    #stage { position: absolute; top: 44px; bottom: 0; left: 0; right: 0; overflow: auto; background: #fff; }
+    .bar .pageinfo { font-size: 13px; min-width: 70px; text-align: center; }
+    #stage { position: absolute; top: 48px; bottom: 0; left: 0; right: 0; overflow: auto; background: #525659; text-align: center; }
     #stage.dark { background: #1d1d1f; }
-    #pdfFrame { width: 100%; height: 100%; border: 0; }
     #epubContainer { height: 100%; display: flex; align-items: center; justify-content: center; }
-    #error { position: absolute; inset: 44px 0 0; display: flex; align-items: center; justify-content: center;
+    #pdfContainer { height: 100%; overflow-y: auto; padding: 10px 0; }
+    #pdfContainer canvas { margin: 0 auto 8px; display: block; box-shadow: 0 2px 10px rgba(0,0,0,0.4); max-width: 96%; }
+    #error { position: absolute; inset: 48px 0 0; display: flex; align-items: center; justify-content: center;
              color: rgba(245,245,247,0.7); font-size: 15px; padding: 20px; text-align: center; }
-    #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7);
+    #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75);
            color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 12px; display: none; z-index: 20; }
+    .pbtn { background: rgba(245,245,247,0.12); border: 1px solid rgba(245,245,247,0.4); color: #f5f5f7;
+            border-radius: 12px; padding: 3px 12px; font-size: 13px; cursor: pointer; }
+    .pbtn:hover { background: rgba(245,245,247,0.25); }
   </style>
 </head>
 <body>
   <div class="bar">
-    <a href="/">‹ 返回书架</a>
+    <a href="/">‹ 书架</a>
     <span class="title" id="title">加载中…</span>
     <span class="fmt" id="fmt"></span>
-    <button id="themeBtn" style="background:none;border:1px solid rgba(245,245,247,0.4);color:#f5f5f7;border-radius:12px;padding:2px 10px;font-size:12px;cursor:pointer;">夜间</button>
+    <span class="pageinfo" id="pageinfo" hidden></span>
+    <button class="pbtn" id="prevBtn" hidden>‹ 上一页</button>
+    <button class="pbtn" id="nextBtn" hidden>下一页 ›</button>
+    <button class="pbtn" id="themeBtn">夜间</button>
   </div>
-  <div id="stage"><div id="epubContainer"></div><iframe id="pdfFrame" hidden></iframe></div>
+  <div id="stage"><div id="epubContainer"></div><div id="pdfContainer" hidden></div></div>
   <div id="error" hidden></div>
   <div id="msg"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs" type="module"></script>
   <script>
     const id = location.pathname.split('/').pop();
     const API = '/api/v1/books/' + id;
-
-    async function init() {
-      const book = await fetch(API).then(r => r.json()).catch(() => null);
-      if (!book || !book.title) { return showError('书籍不存在或已被删除'); }
-      document.title = '阅读 · ' + book.title;
-      document.getElementById('title').textContent = book.title;
-      document.getElementById('fmt').textContent = (book.file_format || '').toUpperCase();
-
-      if (!book.file_path) return showError('这本书还没有上传电子书文件');
-      const fmt = (book.file_format || '').toLowerCase();
-      const url = '/books-files/' + book.file_path;
-
-      if (fmt === 'epub') return renderEpub(url);
-      if (fmt === 'pdf')  return renderPdf(url);
-      return showError(`.${fmt.toUpperCase()} 暂不支持站内阅读,请使用页面的下载按钮获取文件`);
-    }
 
     function showError(msg) {
       document.getElementById('error').hidden = false;
@@ -68,26 +61,86 @@
       setTimeout(() => el.style.display = 'none', 1800);
     }
 
-    function renderPdf(url) {
-      document.getElementById('epubContainer').hidden = true;
-      const f = document.getElementById('pdfFrame');
-      f.hidden = false;
-      f.src = url; // 浏览器内置 PDF 查看器,零依赖
+    async function init() {
+      const book = await fetch(API).then(r => r.json()).catch(() => null);
+      if (!book || !book.title) return showError('书籍不存在或已被删除');
+      document.title = '阅读 · ' + book.title;
+      document.getElementById('title').textContent = book.title;
+      document.getElementById('fmt').textContent = (book.file_format || '').toUpperCase();
+
+      if (!book.file_path) return showError('这本书还没有上传电子书文件');
+      const fmt = (book.file_format || '').toLowerCase();
+      const url = '/books-files/' + book.file_path;
+
+      if (fmt === 'pdf')  return renderPdf(url);
+      if (fmt === 'epub') return renderEpub(url);
+      return showError(`.${fmt.toUpperCase()} 暂不支持站内阅读,请下载后阅读`);
     }
 
-    function renderEpub(url) {
-      document.getElementById('pdfFrame').hidden = true;
-      // ePub.js 从 CDN 加载(按需;离线时提示)
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js';
-      s.onload = () => {
-        const book = ePub(url);
-        const rendition = book.renderTo('epubContainer', {
-          width: '100%', height: '100%',
-          spread: 'auto', flow: 'paginated',
+    /* ---- PDF:pdf.js 逐页渲染(所有浏览器一致,不依赖内置查看器) ---- */
+    async function renderPdf(url) {
+      document.getElementById('epubContainer').hidden = true;
+      const container = document.getElementById('pdfContainer');
+      container.hidden = false;
+      document.getElementById('prevBtn').hidden = false;
+      document.getElementById('nextBtn').hidden = false;
+      document.getElementById('pageinfo').hidden = false;
+
+      try {
+        const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs');
+        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs';
+        const pdf = await pdfjs.getDocument(url).promise;
+
+        let current = 1;
+        document.getElementById('pageinfo').textContent = `1 / ${pdf.numPages}`;
+
+        async function renderPage(n) {
+          const page = await pdf.getPage(n);
+          const scale = Math.min(2, (window.innerWidth - 40) / page.getViewport({ scale: 1 }).width) || 1.5;
+          const viewport = page.getViewport({ scale: scale * 1.5 });
+          const canvas = document.createElement('canvas');
+          canvas.dataset.page = n;
+          const ctx = canvas.getContext('2d');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          // 只保留当前页的 canvas(逐页模式,内存可控)
+          container.querySelectorAll('canvas').forEach(c => { if (c !== canvas) c.remove(); });
+          container.appendChild(canvas);
+          document.getElementById('pageinfo').textContent = `${n} / ${pdf.numPages}`;
+        }
+
+        await renderPage(1);
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+          if (current > 1) { current--; renderPage(current).then(() => flash('第 ' + current + ' 页')); }
         });
-        rendition.display();
-        // 翻页:左右方向键 + 边缘点击
+        document.getElementById('nextBtn').addEventListener('click', () => {
+          if (current < pdf.numPages) { current++; renderPage(current).then(() => flash('第 ' + current + ' 页')); }
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowRight' && current < pdf.numPages) { current++; renderPage(current); }
+          if (e.key === 'ArrowLeft' && current > 1) { current--; renderPage(current); }
+        });
+      } catch (e) {
+        console.error(e);
+        showError('PDF 渲染失败:' + e.message);
+      }
+    }
+
+    /* ---- EPUB:epub.js ---- */
+    async function renderEpub(url) {
+      document.getElementById('pdfContainer').hidden = true;
+      try {
+        const pdfjsMod = null; // epub 不需要 pdf.js
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js';
+        const loaded = new Promise((res, rej) => { s.onload = res; s.onerror = () => rej(new Error('epub 渲染库加载失败(需要网络)')); });
+        document.head.appendChild(s);
+        await loaded;
+        const book = ePub(url);
+        const rendition = book.renderTo('epubContainer', { width: '100%', height: '100%', spread: 'auto', flow: 'paginated' });
+        await rendition.display();
         rendition.on('keydown', ev => {
           if (ev.key === 'ArrowRight') rendition.next();
           if (ev.key === 'ArrowLeft') rendition.prev();
@@ -97,17 +150,15 @@
           if (ev.clientX > window.innerWidth * 0.75) rendition.next();
           else if (ev.clientX < window.innerWidth * 0.25) rendition.prev();
         });
-      };
-      s.onerror = () => showError('epub 渲染库加载失败(需要网络),可先下载文件离线阅读');
-      document.head.appendChild(s);
+      } catch (e) {
+        showError(e.message + ';可先下载文件离线阅读');
+      }
     }
 
-    // 夜间模式:只改背景,epub 主题可选进阶
     document.getElementById('themeBtn').addEventListener('click', function () {
       const stage = document.getElementById('stage');
       stage.classList.toggle('dark');
       this.textContent = stage.classList.contains('dark') ? '日间' : '夜间';
-      flash(stage.classList.contains('dark') ? '夜间模式(epub 正文颜色不变)' : '日间模式');
     });
 
     init();
