@@ -25,7 +25,7 @@ const IMG_LIMIT = 60;
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
   '/css/style.css?v=24',
-  '/js/app.js?v=28',
+  '/js/app.js?v=30',
   '/js/endless-gallery.js?v=6',
   '/vendor/marked.umd.js',
   '/vendor/purify.min.js',

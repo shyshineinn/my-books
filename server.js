@@ -11,6 +11,7 @@ const path = require('node:path');
 const routesBooks = require('./src/http/routes.books');
 const routesMisc = require('./src/http/routes.misc');
 const routesProxy = require('./src/http/routes.proxy');
+const routesFiles = require('./src/http/routes.files');
 const { requireAdmin } = require('./src/http/middleware.auth');
 
 const app = express();
@@ -28,10 +29,19 @@ app.use(express.static(path.join(__dirname, 'public'), {
   },
 }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// 电子书文件:GET 下载/阅读用(上传经 /api/* 走鉴权);原文件名不落盘
+app.use('/books-files', express.static(path.join(__dirname, 'books-files')));
+// 阅读器页面:/read/12 → public/read.html(前端按路径取书 id)
+app.get('/read/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'read.html'));
+});
 
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
 // token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。
 app.use('/api', requireAdmin);
+
+// 电子书文件路由(multipart 上传/删除/查询)
+app.use(routesFiles);
 
 // API 版本化:多端(小程序/PWA/CLI)长期演进的保险。
 // v1 是对多端承诺的稳定契约;老的 /api/* 路径继续工作,现有前端(网页端)零改动。
@@ -46,6 +56,7 @@ apiV1.use((req, res, next) => {
 apiV1.use(routesBooks);
 apiV1.use(routesMisc);
 apiV1.use(routesProxy);
+apiV1.use(routesFiles);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);

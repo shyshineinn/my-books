@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>阅读 · My books</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #1d1d1f; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; align-items: center; gap: 14px;
+      padding: 8px 14px; background: rgba(29,29,31,0.92); color: #f5f5f7;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    .bar a { color: #2997ff; text-decoration: none; font-size: 14px; }
+    .bar a:hover { text-decoration: underline; }
+    .bar .title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .bar .fmt { font-size: 12px; color: rgba(245,245,247,0.6); }
+    #stage { position: absolute; top: 44px; bottom: 0; left: 0; right: 0; overflow: auto; background: #fff; }
+    #stage.dark { background: #1d1d1f; }
+    #pdfFrame { width: 100%; height: 100%; border: 0; }
+    #epubContainer { height: 100%; display: flex; align-items: center; justify-content: center; }
+    #error { position: absolute; inset: 44px 0 0; display: flex; align-items: center; justify-content: center;
+             color: rgba(245,245,247,0.7); font-size: 15px; padding: 20px; text-align: center; }
+    #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7);
+           color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 12px; display: none; z-index: 20; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <a href="/">‹ 返回书架</a>
+    <span class="title" id="title">加载中…</span>
+    <span class="fmt" id="fmt"></span>
+    <button id="themeBtn" style="background:none;border:1px solid rgba(245,245,247,0.4);color:#f5f5f7;border-radius:12px;padding:2px 10px;font-size:12px;cursor:pointer;">夜间</button>
+  </div>
+  <div id="stage"><div id="epubContainer"></div><iframe id="pdfFrame" hidden></iframe></div>
+  <div id="error" hidden></div>
+  <div id="msg"></div>
+
+  <script>
+    const id = location.pathname.split('/').pop();
+    const API = '/api/v1/books/' + id;
+
+    async function init() {
+      const book = await fetch(API).then(r => r.json()).catch(() => null);
+      if (!book || !book.title) { return showError('书籍不存在或已被删除'); }
+      document.title = '阅读 · ' + book.title;
+      document.getElementById('title').textContent = book.title;
+      document.getElementById('fmt').textContent = (book.file_format || '').toUpperCase();
+
+      if (!book.file_path) return showError('这本书还没有上传电子书文件');
+      const fmt = (book.file_format || '').toLowerCase();
+      const url = '/books-files/' + book.file_path;
+
+      if (fmt === 'epub') return renderEpub(url);
+      if (fmt === 'pdf')  return renderPdf(url);
+      return showError(`.${fmt.toUpperCase()} 暂不支持站内阅读,请使用页面的下载按钮获取文件`);
+    }
+
+    function showError(msg) {
+      document.getElementById('error').hidden = false;
+      document.getElementById('error').textContent = msg;
+    }
+    function flash(msg) {
+      const el = document.getElementById('msg');
+      el.textContent = msg; el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 1800);
+    }
+
+    function renderPdf(url) {
+      document.getElementById('epubContainer').hidden = true;
+      const f = document.getElementById('pdfFrame');
+      f.hidden = false;
+      f.src = url; // 浏览器内置 PDF 查看器,零依赖
+    }
+
+    function renderEpub(url) {
+      document.getElementById('pdfFrame').hidden = true;
+      // ePub.js 从 CDN 加载(按需;离线时提示)
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js';
+      s.onload = () => {
+        const book = ePub(url);
+        const rendition = book.renderTo('epubContainer', {
+          width: '100%', height: '100%',
+          spread: 'auto', flow: 'paginated',
+        });
+        rendition.display();
+        // 翻页:左右方向键 + 边缘点击
+        rendition.on('keydown', ev => {
+          if (ev.key === 'ArrowRight') rendition.next();
+          if (ev.key === 'ArrowLeft') rendition.prev();
+        });
+        document.getElementById('stage').addEventListener('click', ev => {
+          if (ev.target.closest('a')) return;
+          if (ev.clientX > window.innerWidth * 0.75) rendition.next();
+          else if (ev.clientX < window.innerWidth * 0.25) rendition.prev();
+        });
+      };
+      s.onerror = () => showError('epub 渲染库加载失败(需要网络),可先下载文件离线阅读');
+      document.head.appendChild(s);
+    }
+
+    // 夜间模式:只改背景,epub 主题可选进阶
+    document.getElementById('themeBtn').addEventListener('click', function () {
+      const stage = document.getElementById('stage');
+      stage.classList.toggle('dark');
+      this.textContent = stage.classList.contains('dark') ? '日间' : '夜间';
+      flash(stage.classList.contains('dark') ? '夜间模式(epub 正文颜色不变)' : '日间模式');
+    });
+
+    init();
+  </script>
+</body>
+</html>

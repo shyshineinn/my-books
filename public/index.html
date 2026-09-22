@@ -184,6 +184,21 @@
             </div>
           </div>
           <div class="field field-full">
+            <label>电子书文件 <span class="label-sub">epub / pdf / mobi / azw3 / txt,≤80MB;保存后详情页可在线阅读</span></label>
+            <div class="cover-editor">
+              <div id="ebookInfo" class="cover-preview">未上传文件</div>
+              <div class="cover-actions">
+                <div class="cover-btns">
+                  <label class="btn btn-ghost">
+                    <span id="ebookUploadText">选择文件上传</span>
+                    <input type="file" id="fEbookFile" accept=".epub,.pdf,.mobi,.azw3,.txt" hidden>
+                  </label>
+                  <button type="button" id="ebookRemove" class="btn btn-ghost">移除文件</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field field-full">
             <label>读书心得</label>
             <p class="field-hint">在右上角 ⚙ 配置 GitHub 仓库后,把 .md 文件按书名(如 三体.md)放入仓库即可自动关联,详情页点"读书心得"查看</p>
           </div>
@@ -263,7 +278,7 @@
   <script src="/vendor/marked.umd.js"></script>
   <script src="/vendor/purify.min.js"></script>
   <script src="js/endless-gallery.js?v=6"></script>
-  <script src="js/app.js?v=29"></script>
+  <script src="js/app.js?v=30"></script>
   <script>
     /* PWA Service Worker 注册:仅 HTTPS(或 localhost)环境;
        失败静默 —— 不支持 SW 的老浏览器只是没有离线能力,功能一切照旧 */

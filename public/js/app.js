@@ -492,6 +492,10 @@ async function openDetail(id) {
         ${tags.length ? `<div class="detail-row"><span class="k">标签</span><span class="v detail-tags">${tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join('')}</span></div>` : ''}
       </div>
       ${book.summary ? `<div class="detail-block"><div class="detail-block-k">简介</div><p class="detail-block-v">${esc(book.summary)}</p></div>` : ''}
+      ${book.file_path ? `<div class="detail-actions" style="margin-bottom:10px">
+        <a class="btn btn-primary" style="text-decoration:none" href="/read/${book.id}">📖 在线阅读(.${esc((book.file_format || '').toUpperCase())})</a>
+        <a class="btn btn-ghost" style="text-decoration:none" href="/books-files/${esc(book.file_path)}" download="《${esc(book.title)}》.${esc((book.file_format || '').toLowerCase())}">⬇ 下载</a>
+      </div>` : ''}
       <button type="button" class="notes-entry" id="detailNotesEntry" title="${autoNotes ? '自动匹配《' + esc(book.title) + '》.md' : '打开读书心得'}">读书心得</button>
       <div class="detail-actions">
         <button type="button" class="btn btn-ghost" id="detailEdit">✎ 编辑</button>
@@ -707,6 +711,7 @@ function openBookModal(book) {
   renderStatusUI();
   setCoverPreview(book ? book.cover : '');
   resetCoverEditor();
+  renderEbookInfo(book && book.file_path ? book : null);
   openModal('#bookModal');
   setTimeout(() => $('#fTitle').focus(), 60);
 }
@@ -793,6 +798,93 @@ $('#fCoverFile').addEventListener('change', async (e) => {
     if (stale()) return;
     toast(err.message, true);
     restore();
+  }
+});
+
+/* ============ 电子书文件上传(路 B:存储与阅读) ============
+ * 直接上传:编辑前必须已保存书籍(有 bookId 才能关联)。
+ * 上传即时生效(不走表单保存),成功后详情页出现"在线阅读/下载"。 */
+const ebookFileEl = $('#fEbookFile');
+let ebookUploading = false;
+
+function renderEbookInfo(book) {
+  const box = $('#ebookInfo');
+  if (book && book.file_path) {
+    box.innerHTML = `<span style="font-size:13px">已关联 .${esc((book.file_format || '').toUpperCase())} · ${Math.max(1, Math.round((book.file_size || 0) / 1024))} KB</span>`;
+    $('#ebookRemove').disabled = false;
+  } else {
+    box.textContent = '未上传文件';
+    $('#ebookRemove').disabled = true;
+  }
+}
+
+ebookFileEl.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  const bookId = $('#bookId').value;
+  if (!file) return;
+  if (ebookUploading) return;
+  if (!bookId) {
+    toast('请先保存书籍,再上传电子书文件', true);
+    return;
+  }
+
+  ebookUploading = true;
+  const text = $('#ebookUploadText');
+  text.textContent = '上传中…';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(`/api/books/${bookId}/file`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+      body: fd,
+    });
+    if (res.status === 401) {
+      const t = askForToken();
+      if (!t) throw new Error('需要管理令牌');
+      localStorage.setItem(TOKEN_KEY, t.trim());
+      const retry = await fetch(`/api/books/${bookId}/file`, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + t.trim() },
+        body: fd,
+      });
+      if (!retry.ok) {
+        const d = await retry.json().catch(() => ({}));
+        throw new Error(d.error || '上传失败');
+      }
+      const d = await retry.json();
+      renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
+      toast('电子书已上传');
+      return;
+    }
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.error || '上传失败');
+    }
+    const d = await res.json();
+    renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
+    toast('电子书已上传');
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    ebookUploading = false;
+    text.textContent = '选择文件上传';
+  }
+});
+
+$('#ebookRemove').addEventListener('click', async () => {
+  const bookId = $('#bookId').value;
+  if (!bookId || ebookUploading) return;
+  ebookUploading = true;
+  try {
+    await fetch(`/api/books/${bookId}/file`, { method: 'DELETE', headers: { ...authHeaders() } });
+    renderEbookInfo(null);
+    toast('已移除电子书文件');
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    ebookUploading = false;
   }
 });
 

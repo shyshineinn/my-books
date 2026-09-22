@@ -85,8 +85,19 @@ function migrateV2(db, dataDir) {
   reindexAll(db);
 }
 
+// v3:电子书文件字段(路 B 第一步:存储与阅读)
+//     file_path  = 文件相对 books-files/ 目录的路径(如 `12-abc.epub`)
+//     file_format = 大写格式名(EPUB/PDF/MOBI/AZW3/TXT…),空 = 未上传
+//     file_size  = 字节数(列表/详情展示用,便于提示"文件过大"前自查)
+function migrateV3(db, dataDir) {
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+  if (!cols.includes('file_path')) db.exec("ALTER TABLE books ADD COLUMN file_path TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('file_format')) db.exec("ALTER TABLE books ADD COLUMN file_format TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('file_size')) db.exec('ALTER TABLE books ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2];
+const migrations = [migrateV1, migrateV2, migrateV3];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
