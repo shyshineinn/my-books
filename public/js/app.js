@@ -109,9 +109,12 @@ function phHtml(title, author) {
 
 function coverHtml(book) {
   // 封面唯一来源:书籍自身保存的封面地址,为空或加载失败走渐变占位图
+  // 外链封面(如豆瓣图床)统一走 /api/img-proxy:规避防盗链(Referer 检查)
+  // 与 Canvas 取色跨域限制;本站 /uploads 相对路径直接用
   const url = String(book.cover ?? '').trim();
   if (url) {
-    return `<img src="${esc(url)}" alt="${esc(book.title)} 封面" loading="lazy" referrerpolicy="no-referrer" data-ph="${esc(book.title)}" data-ph-author="${esc(book.author || '')}">`;
+    const src = /^https?:\/\//i.test(url) ? '/api/img-proxy?url=' + encodeURIComponent(url) : url;
+    return `<img src="${esc(src)}" alt="${esc(book.title)} 封面" loading="lazy" referrerpolicy="no-referrer" data-ph="${esc(book.title)}" data-ph-author="${esc(book.author || '')}">`;
   }
   return phHtml(esc(book.title), esc(book.author || ''));
 }
