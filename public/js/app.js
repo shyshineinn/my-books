@@ -815,14 +815,17 @@ $('#fCoverFile').addEventListener('change', async (e) => {
 
 /* ============ 电子书文件上传(路 B:存储与阅读) ============
  * 直接上传:编辑前必须已保存书籍(有 bookId 才能关联)。
- * 上传即时生效(不走表单保存),成功后详情页出现"在线阅读/下载"。 */
+ * 上传即时生效(不走表单保存),成功后详情页出现"在线阅读/下载"。
+ * 用 XMLHttpRequest 而非 fetch:支持上传进度回调,大文件(几十 MB)不卡页面。 */
 const ebookFileEl = $('#fEbookFile');
 let ebookUploading = false;
 
 function renderEbookInfo(book) {
   const box = $('#ebookInfo');
   if (book && book.file_path) {
-    box.innerHTML = `<span class="ebook-tag">.${esc((book.file_format || '').toUpperCase())}</span>已关联 · ${Math.max(1, Math.round((book.file_size || 0) / 1024))} KB`;
+    const kb = Math.max(1, Math.round((book.file_size || 0) / 1024));
+    const sizeText = kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
+    box.innerHTML = `<span class="ebook-tag">.${esc((book.file_format || '').toUpperCase())}</span>已关联 · ${sizeText}`;
     $('#ebookRemove').disabled = false;
   } else {
     box.textContent = '未上传文件';
@@ -830,59 +833,71 @@ function renderEbookInfo(book) {
   }
 }
 
-ebookFileEl.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
+// multipart 上传 + 进度显示;返回 Promise,失败抛带 code 的错误
+function uploadEbookWithProgress(bookId, file, authHeadersObj) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/books/${bookId}/file`);
+    if (authHeadersObj.Authorization) xhr.setRequestHeader('Authorization', authHeadersObj.Authorization);
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        $('#ebookUploadText').textContent = `上传中 ${pct}%`;
+      }
+    });
+    xhr.addEventListener('load', () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* 非 JSON 响应 */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.error || '上传失败'), { code: data.code, status: xhr.status }));
+    });
+    xhr.addEventListener('error', () => reject(new Error('网络错误,上传失败')));
+    xhr.addEventListener('abort', () => reject(new Error('上传已取消')));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+async function handleEbookUpload(file) {
   const bookId = $('#bookId').value;
-  if (!file) return;
-  if (ebookUploading) return;
   if (!bookId) {
     toast('请先保存书籍,再上传电子书文件', true);
     return;
   }
-
   ebookUploading = true;
   const text = $('#ebookUploadText');
-  text.textContent = '上传中…';
   try {
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch(`/api/books/${bookId}/file`, {
-      method: 'POST',
-      headers: { ...authHeaders() },
-      body: fd,
-    });
-    if (res.status === 401) {
-      const t = askForToken();
-      if (!t) throw new Error('需要管理令牌');
-      localStorage.setItem(TOKEN_KEY, t.trim());
-      const retry = await fetch(`/api/books/${bookId}/file`, {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + t.trim() },
-        body: fd,
-      });
-      if (!retry.ok) {
-        const d = await retry.json().catch(() => ({}));
-        throw new Error(d.error || '上传失败');
-      }
-      const d = await retry.json();
+    try {
+      const d = await uploadEbookWithProgress(bookId, file, authHeaders());
       renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
       toast('电子书已上传');
-      return;
+    } catch (err) {
+      if (err.status === 401) {
+        forgetToken();
+        const t = askForToken();
+        if (t === null) throw new Error('需要管理令牌');
+        localStorage.setItem(TOKEN_KEY, t);
+        const d = await uploadEbookWithProgress(bookId, file, { Authorization: 'Bearer ' + t });
+        renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
+        toast('电子书已上传');
+      } else {
+        throw err;
+      }
     }
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      throw new Error(d.error || '上传失败');
-    }
-    const d = await res.json();
-    renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
-    toast('电子书已上传');
   } catch (err) {
     toast(err.message, true);
   } finally {
     ebookUploading = false;
     text.textContent = '选择文件上传';
   }
+}
+
+ebookFileEl.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || ebookUploading) return;
+  handleEbookUpload(file);
 });
 
 $('#ebookRemove').addEventListener('click', async () => {

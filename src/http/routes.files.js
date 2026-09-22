@@ -17,16 +17,22 @@ const path = require('node:path');
 
 const books = require('../db/books');
 const { validateEbookFile, ebookFileName } = require('../core/ebook');
-const { atomicWrite } = require('../core/fs-utils');
 
 const router = express.Router();
 
 const FILES_DIR = path.join(__dirname, '..', '..', 'books-files');
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 
-// 内存存储:先校验再落盘,拒绝的请求不产生任何磁盘文件
-// (80MB 文件进内存瞬时可行;文件写盘后 buffer 即被 GC)
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 80 * 1024 * 1024 } });
+// 磁盘流式存储:大文件(PDF 可达 80MB)不再整份读进内存,
+// 避免服务器内存尖峰;文件先写临时名,校验通过后原子改名。
+// 磁盘缓冲上限 20MB:超过这个大小的剩余部分直接流写磁盘。
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, FILES_DIR),
+    filename: (req, file, cb) => cb(null, `uploading-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+  }),
+  limits: { fileSize: 80 * 1024 * 1024 },
+});
 
 // 删除磁盘上的旧文件(忽略不存在/已删除的异常)
 function removeFileQuiet(relPath) {
@@ -34,8 +40,14 @@ function removeFileQuiet(relPath) {
   try { fs.unlinkSync(path.join(FILES_DIR, relPath)); } catch { /* 文件可能已不存在 */ }
 }
 
-// 上传/替换电子书
-router.post('/api/books/:id/file', upload.single('file'), (req, res) => {
+// 上传/替换电子书。multer 的错误(超 80MB 触发 LIMIT_FILE_SIZE)有专属 code,
+// 包一层捕获,把 multer 错误转成规范 JSON,而不是掉进兜底 500。
+router.post('/api/books/:id/file', upload.single('file'), (err, req, res, next) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: '文件不能超过 80MB', code: 'VALIDATION' });
+  }
+  next(err);
+}, (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) {
     return res.status(400).json({ error: '书籍 id 应为正整数', code: 'VALIDATION' });
@@ -45,10 +57,16 @@ router.post('/api/books/:id/file', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: '未收到文件', code: 'VALIDATION' });
 
   const v = validateEbookFile(req.file.originalname, req.file.size);
-  if (!v.ok) return res.status(400).json({ error: v.error, code: v.code });
+  if (!v.ok) {
+    // 校验失败:删掉磁盘上的临时上传文件,不留垃圾
+    fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: v.error, code: v.code });
+  }
 
+  // multer 已流式写到磁盘(临时名),rename 到正式名 —— 同目录 rename 是原子操作
   const filename = ebookFileName(id, v.format);
-  atomicWrite(path.join(FILES_DIR, filename), req.file.buffer);
+  const finalPath = path.join(FILES_DIR, filename);
+  fs.renameSync(req.file.path, finalPath);
 
   // 替换场景:登记成功后再删旧文件(失败也不丢新文件)
   const oldPath = book.file_path;
