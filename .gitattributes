@@ -1,0 +1,13 @@
+# 统一换行符:仓库内一律 LF
+# 服务器是 Linux,shell 脚本若带 CRLF 会直接报
+#   bash: deploy/update.sh: /usr/bin/env bash^M: bad interpreter
+# 这里强制 LF,Nginx 配置与 systemd 单元同理。
+* text=auto eol=lf
+
+# 二进制文件不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.db binary

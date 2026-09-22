@@ -1,0 +1,56 @@
+# ============================================================
+# My books · systemd 服务单元(备选方案)
+#
+# ⚠️ 本机已经用 PM2 管 ecook,推荐 my-books 也走 PM2
+#    (见 deploy/ecosystem.config.js 与 README.md「部署与运维 · 阶段 5」)。
+#    本文件只在「你更想用 systemd 而不想用 PM2」时使用 ——
+#    两者二选一,不要同时启用,否则会争抢 3002 端口。
+#
+# 放置路径:/etc/systemd/system/my-books.service
+# 启用:  sudo systemctl daemon-reload
+#         sudo systemctl enable --now my-books
+# 查看:  sudo systemctl status my-books
+#         journalctl -u my-books -f
+# ============================================================
+
+[Unit]
+Description=My books - 个人图书记录网站 (Node.js + Express)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# 用与 PM2 相同的账号 —— 本机实测 PM2 God Daemon 跑在 root 下,故此处用 root
+User=root
+Group=root
+
+WorkingDirectory=/root/my-books
+
+Environment=NODE_ENV=production
+Environment=PORT=3002
+Environment=HOST=127.0.0.1
+Environment=TZ=Asia/Shanghai
+
+# Node 22 由 NodeSource 安装为 /usr/bin/node;若不一致用
+# `readlink -f $(which node)` 的结果替换
+ExecStart=/usr/bin/node /root/my-books/server.js
+
+# 崩溃自动拉起
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=my-books
+
+# 基础加固:不开新权限、独立临时目录。
+# 注意:不要再加 ProtectSystem / ReadWritePaths 之类的路径限制 ——
+# 应用要往自己的目录写 data/books.db 与 uploads/,限制过度会导致服务起不来。
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

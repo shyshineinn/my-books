@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#fafafc">
+  <title>My books · 图书记录</title>
+  <link rel="icon" type="image/png" href="/logo.png?v=2">
+  <link rel="manifest" href="/manifest.json">
+  <!-- iOS 添加到主屏幕的支持(Safari 不读 manifest 的部分用 meta 补齐) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="My books">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="stylesheet" href="css/style.css?v=23">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+        <button type="button" class="brand" id="brandBtn" title="返回首页"><span class="logo"><img src="/logo-mark.png?v=4" alt=""></span><span>My books</span></button>
+      <nav class="view-switch" id="viewSwitch">
+        <button type="button" data-view="home" class="active">首页</button>
+        <button type="button" data-view="shelf">书架</button>
+        <button type="button" data-view="rank">榜单</button>
+        <button type="button" data-view="stats">统计</button>
+      </nav>
+      <div class="topbar-actions">
+        <button type="button" id="searchBtn" class="icon-btn" title="搜索" aria-label="搜索">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="10.3" cy="10.3" r="8.4"></circle>
+            <path d="M16.3 16.3 22 22"></path>
+          </svg>
+        </button>
+        <div class="search-box">
+          <input type="search" id="searchInput" placeholder="搜索书名 / 作者" autocomplete="off">
+          <button type="button" id="searchCancel" class="search-cancel">取消</button>
+        </div>
+        <button type="button" id="settingsBtn" class="icon-btn" title="设置心得仓库" aria-label="设置">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+        <button type="button" id="addBtn" class="icon-btn" title="添加书籍" aria-label="添加书籍">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="1.75" y="1.75" width="20.5" height="20.5" rx="6.35"></rect>
+            <path d="M12 8.1v7.8M8.1 12h7.8"></path>
+          </svg>
+        </button>
+      </div>
+      <button type="button" id="menuBtn" class="mobile-menu-btn" aria-label="打开菜单">
+        <span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 首页(Apple 式展示页) -->
+    <section id="homeView">
+      <div id="homeContent"></div>
+    </section>
+
+    <!-- 书架视图 -->
+    <section id="shelfView" class="hidden">
+      <h1 class="page-title">书架</h1>
+      <p class="page-sub">记录每一本读过的书,和它带给你的想法。</p>
+      <div class="toolbar">
+        <div class="status-tabs" id="statusTabs">
+          <button type="button" data-status="" class="active">全部 <em id="countAll"></em></button>
+          <button type="button" data-status="wish">想读 <em id="countWish"></em></button>
+          <button type="button" data-status="reading">在读 <em id="countReading"></em></button>
+          <button type="button" data-status="done">已读 <em id="countDone"></em></button>
+        </div>
+        <div class="toolbar-right">
+          <select id="tagFilter" aria-label="按标签筛选">
+            <option value="">全部标签</option>
+          </select>
+          <select id="sortSelect" aria-label="排序方式">
+            <option value="updated">最近更新</option>
+            <option value="finish">读完日期</option>
+            <option value="title">书名</option>
+          </select>
+        </div>
+      </div>
+      <div id="bookGrid" class="book-grid"></div>
+      <div id="emptyState" class="empty hidden">
+        <div class="empty-icon">书</div>
+        <p id="emptyTitle">书架还是空的</p>
+        <p class="hint" id="emptyText">添加第一本书,开始你的阅读记录之旅。</p>
+        <button type="button" id="emptyAddBtn" class="btn btn-primary">＋ 添加书籍</button>
+      </div>
+    </section>
+
+    <!-- 榜单视图 -->
+    <section id="rankView" class="hidden">
+      <div id="rankContent"></div>
+    </section>
+
+    <!-- 统计视图 -->
+    <section id="statsView" class="hidden">
+      <h1 class="page-title">统计</h1>
+      <p class="page-sub">看看这段时间,你和书的缘分。</p>
+      <div id="statsHero" class="stats-hero"></div>
+      <div class="stats-panels">
+        <div class="panel panel-wide">
+          <h3>每年读完</h3>
+          <div id="yearChart" class="chart"></div>
+        </div>
+        <div class="panel">
+          <h3>标签分布</h3>
+          <div id="tagCloud" class="tag-cloud"></div>
+        </div>
+      </div>
+    </section>
+    <!-- 读书心得子页面 -->
+    <section id="notesView" class="hidden">
+      <div class="notes-page-head">
+        <button type="button" id="notesBack" class="btn btn-ghost">返回</button>
+        <div class="notes-book">
+          <div class="notes-book-cover" id="notesCover"></div>
+          <div class="notes-book-info">
+            <h1 id="notesTitle"></h1>
+            <div class="notes-book-meta" id="notesMeta"></div>
+          </div>
+        </div>
+      </div>
+      <div class="notes-page-body" id="notesPageBody"></div>
+    </section>
+  </main>
+
+  <!-- 添加 / 编辑书籍弹窗 -->
+  <div id="bookModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="modalTitle">添加书籍</h2>
+        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+      </div>
+      <form id="bookForm" novalidate>
+        <input type="hidden" id="bookId">
+        <div class="form-grid">
+          <div class="field field-full">
+            <label for="fTitle">书名 <i class="req">*</i></label>
+            <input type="text" id="fTitle" maxlength="120" placeholder="例如:三体" required>
+          </div>
+          <div class="field">
+            <label for="fAuthor">作者</label>
+            <input type="text" id="fAuthor" maxlength="80" placeholder="例如:刘慈欣">
+          </div>
+          <div class="field">
+            <label>状态</label>
+            <div class="seg" id="fStatus">
+              <button type="button" data-value="wish">想读</button>
+              <button type="button" data-value="reading">在读</button>
+              <button type="button" data-value="done">已读</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="fTags">分类标签</label>
+            <input type="text" id="fTags" placeholder="用逗号分隔,如:小说, 科幻" list="tagSuggestions">
+            <datalist id="tagSuggestions"></datalist>
+          </div>
+          <div class="field field-full">
+            <label>阅读记录 <span class="label-sub">每次读的起止时间,开始/读完日期与读过次数据此自动生成</span></label>
+            <div id="readLogs" class="read-logs"></div>
+            <div id="readLogsSummary" class="read-logs-summary"></div>
+            <button type="button" id="addLogBtn" class="btn btn-ghost add-log-btn">＋ 添加一次阅读</button>
+          </div>
+          <div class="field field-full">
+            <label for="fSummary">图书简介 <span class="label-sub">这本书讲什么,可选</span></label>
+            <textarea id="fSummary" rows="3" maxlength="1000" placeholder="例如:一段跨越半个多世纪的爱情史诗……"></textarea>
+          </div>
+          <div class="field field-full">
+            <label for="fCoverUrl">封面图片</label>
+            <p class="field-hint">可粘贴图片链接，或上传本地图片（支持 png/jpg/gif/webp，不超过 5MB），保存后生效</p>
+            <div class="cover-editor">
+              <div id="coverPreview" class="cover-preview">暂无封面</div>
+              <div class="cover-actions">
+                <input type="text" id="fCoverUrl" placeholder="粘贴图片链接 https://…">
+                <div class="cover-btns">
+                  <label class="btn btn-ghost">
+                    <span class="cover-upload-text">上传本地图片</span>
+                    <input type="file" id="fCoverFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+                  </label>
+                  <button type="button" id="coverRemove" class="btn btn-ghost">移除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="field field-full">
+            <label>读书心得</label>
+            <p class="field-hint">在右上角 ⚙ 配置 GitHub 仓库后,把 .md 文件按书名(如 三体.md)放入仓库即可自动关联,详情页点"读书心得"查看</p>
+          </div>
+        </div>
+        <div class="form-foot">
+          <span id="formError" class="form-error"></span>
+          <div class="form-foot-btns">
+            <button type="button" class="btn btn-ghost" data-close>取消</button>
+            <button type="submit" class="btn btn-primary" id="saveBtn">保存</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 书籍详情弹窗 -->
+  <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box detail-box">
+      <button type="button" class="icon-btn detail-close" data-close aria-label="关闭">✕</button>
+      <div class="detail-body" id="detailBody"></div>
+    </div>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box settings-box">
+      <div class="modal-head">
+        <h2>设置</h2>
+        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+      </div>
+      <div class="form-grid">
+        <div class="field field-full">
+          <label for="sRepo">心得仓库(GitHub)</label>
+          <input type="text" id="sRepo" placeholder="例如:yourname/reading-notes">
+          <p class="field-hint">把读书心得放进这个 GitHub 公开仓库：心得按书名命名（如 三体.md）放根目录。保存后详情页将按《书名》自动获取心得；留空则不获取。</p>
+        </div>
+        <div class="field">
+          <label for="sBranch">分支</label>
+          <input type="text" id="sBranch" placeholder="main">
+        </div>
+      </div>
+      <div class="form-foot">
+        <span id="settingsError" class="form-error"></span>
+        <div class="form-foot-btns">
+          <button type="button" class="btn btn-ghost" data-close>取消</button>
+          <button type="button" class="btn btn-primary" id="settingsSave">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 移动端全屏菜单(apple.com 风)——只承载导航;搜索已独立为顶栏一级入口 -->
+  <div id="mobileMenu" class="mobile-menu" role="dialog" aria-modal="true" tabindex="-1">
+    <nav class="mm-links">
+      <button type="button" data-view="home">首页</button>
+      <button type="button" data-view="shelf">书架</button>
+      <button type="button" data-view="rank">榜单</button>
+      <button type="button" data-view="stats">统计</button>
+    </nav>
+    <div class="mm-foot">
+      <button type="button" id="mmSettings">⚙ 设置心得仓库</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <footer>
+    <p class="footer-tagline"><span class="orn">❖</span>My books<span class="orn">❖</span>记录每一本读过的书</p>
+    <p class="footer-legal">
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">豫ICP备2026045565号</a>
+    </p>
+  </footer>
+
+  <script src="/vendor/marked.umd.js"></script>
+  <script src="/vendor/purify.min.js"></script>
+  <script src="js/endless-gallery.js?v=6"></script>
+  <script src="js/app.js?v=28"></script>
+  <script>
+    /* PWA Service Worker 注册:仅 HTTPS(或 localhost)环境;
+       失败静默 —— 不支持 SW 的老浏览器只是没有离线能力,功能一切照旧 */
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+# 依赖
+node_modules/
+
+# 数据库（本地数据，不要上传）
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/*.backup-*
+
+# 用户上传的文件
+uploads/
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+
+# 环境变量（可能含密钥）
+.env
+.env.*
+
+# 本地工具 / 编辑器
+.workbuddy/
+.codeartsdoer/
+.office-claw/
+.merkle-snapshot.json
+.vscode/
+.idea/
+
+# 本地进展 / 项目记忆笔记(个人工作清单,不进仓库)
+PROGRESS.md
+PROJECT_MEMORY.md
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 开发过程产物(截图 / 临时测试页)
+__shot_*.png
+public/__*.html
+
+# ��������(����д�ӿڼ�Ȩ,�Ͻ����)
+data/admin-token
+
+# calibre 参考源码(只读借鉴,严禁入库)
+calibre-master/
+.npm-cache/
+
+# 备份目录与捆绑文件(严禁入库)
+data/backup/
+*.bundle

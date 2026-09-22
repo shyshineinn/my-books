@@ -1,0 +1,87 @@
+/* ============================================================
+ * My books 服务入口(薄壳)
+ *
+ * 职责只剩:创建 app、挂中间件、注册路由、监听端口。
+ * 业务规则在 src/core/,数据访问在 src/db/,HTTP 适配在 src/http/。
+ * ============================================================ */
+
+const express = require('express');
+const path = require('node:path');
+
+const routesBooks = require('./src/http/routes.books');
+const routesMisc = require('./src/http/routes.misc');
+const routesProxy = require('./src/http/routes.proxy');
+const { requireAdmin } = require('./src/http/middleware.auth');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+// 线上建议 HOST=127.0.0.1:只监听本机,由 Nginx 反代对外,不把 Node 端口暴露到公网
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
+// token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。
+app.use('/api', requireAdmin);
+
+// API 版本化:多端(小程序/PWA/CLI)长期演进的保险。
+// v1 是对多端承诺的稳定契约;老的 /api/* 路径继续工作,现有前端(网页端)零改动。
+// 实现:挂载在 /api/v1 时 express 已把 req.url 剥成 "/books" 这类相对路径,
+// 而路由定义在 "/api/books" 上 —— 所以挂载前把 "/api" 加回去,两套前缀共用同一套路由。
+const apiV1 = express.Router();
+apiV1.use((req, res, next) => {
+  req.url = '/api' + req.url;   // /books → /api/books;缺失尾斜杠时补全
+  if (req.url === '/api') req.url = '/api/';
+  next();
+});
+apiV1.use(routesBooks);
+apiV1.use(routesMisc);
+apiV1.use(routesProxy);
+app.use('/api/v1', apiV1);
+
+app.use(routesBooks);
+app.use(routesMisc);
+app.use(routesProxy);
+
+// Markdown 渲染库(浏览器版;marked v16+ 的 exports 限制子路径,需手动拼接包内路径)
+const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')), 'lib', 'marked.umd.js');
+app.get('/vendor/marked.umd.js', (req, res) => res.sendFile(MARKED_UMD));
+app.get('/vendor/purify.min.js', (req, res) => res.sendFile(require.resolve('dompurify/dist/purify.min.js')));
+
+// 统一错误处理(必须挂在所有路由之后):
+// 完整堆栈只进日志;对外只回通用文案,不泄漏内部路径/依赖细节
+// (借鉴 calibre srv/errors.py 的对外简洁、对内详尽原则)
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ->`, err.stack || err);
+  if (res.headersSent) return; // 响应已开始输出,交给 express 默认终止
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: '服务器内部错误,请稍后重试', code: 'INTERNAL' });
+});
+
+const server = app.listen(PORT, HOST, () => {
+  console.log(`My books 已启动: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+});
+
+// 优雅退出(借鉴 calibre srv/standalone.py 的 HandleInterrupt):
+// SIGTERM(pm2 stop/restart)与 SIGINT(Ctrl+C)先停止接新请求,给在途请求
+// 最多 3s 完成;之后兜底强杀。与 ecosystem.config.js 的 kill_timeout: 5000 呼应。
+// WAL 模式下数据库本就崩溃安全,这里主要避免在途请求被硬切、临时文件残留。
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] 收到 ${signal},停止接受新请求,等待在途请求完成…`);
+  server.close(() => {
+    console.log('[shutdown] 全部连接已结束,进程退出');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.log('[shutdown] 等待超时,强制退出');
+    process.exit(1);
+  }, 3000);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
