@@ -24,8 +24,8 @@ const IMG_LIMIT = 60;
 // 注意:**不缓存 / 和 *.html** —— HTML 必须每次向服务器验证,
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/css/style.css?v=24',
-  '/js/app.js?v=30',
+  '/css/style.css?v=25',
+  '/js/app.js?v=31',
   '/js/endless-gallery.js?v=6',
   '/vendor/marked.umd.js',
   '/vendor/purify.min.js',

@@ -184,6 +184,7 @@ function renderGrid() {
       <div class="card-cover">
         ${coverHtml(book)}
         <span class="status-badge ${book.status}">${STATUS_LABEL[book.status]}</span>
+        ${book.file_path ? `<a class="card-read-btn" href="/read/${book.id}" title="在线阅读(.${esc((book.file_format || '').toUpperCase())})" aria-label="在线阅读《${esc(book.title)}》" onclick="event.stopPropagation()">📖 在线阅读</a>` : ''}
       </div>
       <div class="card-info">
         <div class="card-title">${esc(book.title)}</div>
