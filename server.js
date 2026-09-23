@@ -76,6 +76,20 @@ const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')
 app.get('/vendor/marked.umd.js', (req, res) => res.sendFile(MARKED_UMD));
 app.get('/vendor/purify.min.js', (req, res) => res.sendFile(require.resolve('dompurify/dist/purify.min.js')));
 
+// PDF 渲染库(阅读器用)—— 从 node_modules 直出,不走 CDN:
+// 走 CDN 时首次打开要下载 330KB 主库 + 1.3MB worker,实测 5.6MB PDF 首屏达 23 秒;
+// 且受网络环境影响,慢网络/CDN 不可达时 PDF 打不开。本地自持与 marked/purify 同策略。
+const PDFJS_DIR = path.dirname(require.resolve('pdfjs-dist/package.json'));
+app.get('/vendor/pdf.min.mjs', (req, res) => res.sendFile(path.join(PDFJS_DIR, 'build', 'pdf.min.mjs')));
+app.get('/vendor/pdf.worker.min.mjs', (req, res) => res.sendFile(path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs')));
+
+// EPUB 渲染库(阅读器用)+ 它依赖的 JSZip,同样本地自持。
+// 顺序很重要:epub.js 的浏览器版从全局取 JSZip 解压,必须先加载 JSZip
+const EPUBJS_DIST = path.dirname(require.resolve('epubjs/package.json'));
+app.get('/vendor/epub.min.js', (req, res) => res.sendFile(path.join(EPUBJS_DIST, 'dist', 'epub.min.js')));
+const JSZIP_DIST = path.dirname(require.resolve('jszip/package.json'));
+app.get('/vendor/jszip.min.js', (req, res) => res.sendFile(path.join(JSZIP_DIST, 'dist', 'jszip.min.js')));
+
 // 统一错误处理(必须挂在所有路由之后):
 // 完整堆栈只进日志;对外只回通用文案,不泄漏内部路径/依赖细节
 // (借鉴 calibre srv/errors.py 的对外简洁、对内详尽原则)

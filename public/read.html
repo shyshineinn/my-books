@@ -489,10 +489,12 @@
 
       let pdfjs;
       try {
-        pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs');
-        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs';
+        // 本地 vendor(由 server.js 从 node_modules 直出),不走 CDN:
+        // CDN 首次需下载 330KB + 1.3MB worker,慢网络下首屏可达 20s+
+        pdfjs = await import('/vendor/pdf.min.mjs');
+        pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.mjs';
       } catch (e) {
-        return showError('PDF 渲染库加载失败(需要网络):' + e.message);
+        return showError('PDF 渲染库加载失败:' + e.message);
       }
 
       let pdf;
@@ -626,9 +628,10 @@
       // 若未先加载 JSZip,ePub 仍是 function(不会报错)、但打开书时内部解压失败,
       // 表现为 book.ready 永不 resolve —— 页面看着正常、内容却空白(实测确认)。
       // 因此必须「先 JSZip,后 epub.js」,且两者都加载完才继续。
-      const CDN = {
-        jszip: 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
-        epubjs: 'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js',
+      // 两个库都由 server.js 从 node_modules 直出(本地自持,不依赖 CDN)。
+      const LIB = {
+        jszip: '/vendor/jszip.min.js',
+        epubjs: '/vendor/epub.min.js',
       };
 
       function loadScript(src) {
@@ -636,14 +639,14 @@
           const s = document.createElement('script');
           s.src = src;
           s.onload = () => res();
-          s.onerror = () => rej(new Error('脚本加载失败(需要网络): ' + src));
+          s.onerror = () => rej(new Error('脚本加载失败: ' + src));
           document.head.appendChild(s);
         });
       }
 
       try {
-        if (typeof window.JSZip === 'undefined') await loadScript(CDN.jszip);
-        if (typeof window.ePub === 'undefined') await loadScript(CDN.epubjs);
+        if (typeof window.JSZip === 'undefined') await loadScript(LIB.jszip);
+        if (typeof window.ePub === 'undefined') await loadScript(LIB.epubjs);
       } catch (e) {
         return showError(e.message + ';可先下载文件离线阅读');
       }

@@ -13,7 +13,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -63,6 +63,35 @@ async function trimImageCache() {
   }
 }
 
+/* 哪些响应可以放进 Cache。
+ *
+ * 关键:**206 Partial Content 不能缓存** —— Cache API 会抛
+ *   TypeError: Failed to execute 'put' on 'Cache': Partial response (status code 206) is unsupported
+ * 而 `res.ok` 对 206 是 true(ok = 200~299),所以只判断 res.ok 拦不住。
+ * 这在 pdf.js 上必现:它用 Range 请求分块读 PDF,服务器回 206 →
+ * cache.put 抛异常 → respondWith 的 Promise 被 reject → 浏览器判定
+ * SW 处理失败 → 阅读器拿到空响应 → PDF 永远空白(且 console 无报错)。
+ */
+function isCacheable(res) {
+  // 只缓存完整的 200;206/部分响应一律不缓存
+  if (!res || res.status !== 200) return false;
+  // 明确带 Content-Range 的响应也排除(防御性)
+  if (res.headers.get('Content-Range')) return false;
+  return true;
+}
+
+/* 安全的缓存写入:任何失败都吞掉,绝不影响响应本身。
+ * 缓存是「锦上添花」,不能因为写缓存失败而让用户拿不到内容。 */
+function putCacheQuietly(cacheName, req, res) {
+  if (!isCacheable(res)) return;
+  try {
+    const clone = res.clone();
+    caches.open(cacheName)
+      .then((cache) => cache.put(req, clone))
+      .catch(() => { /* 空间不足/206/不支持等:忽略,不影响响应 */ });
+  } catch { /* clone 失败等:忽略 */ }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
@@ -70,15 +99,20 @@ self.addEventListener('fetch', (event) => {
   // 只处理同源 GET(外链/POST/PUT/DELETE 直接放行)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
 
+  // Range 请求(断点/分块读取,如 pdf.js 读 PDF、音视频拖动)一律不拦截:
+  // 交给浏览器直连,避免 206 引发的缓存异常
+  if (req.headers.has('range')) return;
+
+  // 电子书文件不拦截:单本可达 80MB,不适合放 Cache API;
+  // 且 pdf.js 会按 Range 分块取,交给网络层最稳妥
+  if (url.pathname.startsWith('/books-files/')) return;
+
   // API:network-first —— 在线时拿最新,离线回退缓存
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(API_CACHE).then((cache) => cache.put(req, clone));
-          }
+          putCacheQuietly(API_CACHE, req, res);
           return res;
         })
         .catch(() =>
@@ -102,8 +136,8 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         try {
           const res = await fetch(req);
-          if (res.ok) {
-            await cache.put(req, res.clone());
+          if (isCacheable(res)) {
+            await cache.put(req, res.clone()).catch(() => { /* 写缓存失败不影响响应 */ });
             trimImageCache();
           }
           return res;
@@ -121,10 +155,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(API_CACHE).then((cache) => cache.put(req, clone));
-          }
+          putCacheQuietly(API_CACHE, req, res);
           return res;
         })
         .catch(() =>
@@ -137,15 +168,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App Shell 与其他静态资源(?v= 版本号管理):cache-first
+  // App Shell 与其他静态资源(?v= 版本号管理):cache-first。
+  // 注意:此分支兜住所有剩余同源 GET —— 必须保证任何异常都不会让
+  // respondWith 的 Promise reject,否则请求会整个失败。
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;
       return fetch(req).then((res) => {
-        if (res.ok) {
-          const clone = res.clone();
-          caches.open(SHELL_CACHE).then((cache) => cache.put(req, clone));
-        }
+        putCacheQuietly(SHELL_CACHE, req, res);
         return res;
       });
     })
