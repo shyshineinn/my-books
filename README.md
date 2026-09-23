@@ -134,7 +134,7 @@ npm start     # 启动服务
    │  Nginx 443(TLS 终结 │  ← 80 端口只留 ACME 路径   │
    │  gzip / 安全响应头    │                    回源外网(GitHub raw / 图床)
    │  写接口 Basic 口令    │
-   │  client_max_body 10m │
+   │  client_max_body 100m│
    └──────────┬──────────┘
               │ proxy_pass http://127.0.0.1:3002
               ▼
@@ -269,7 +269,7 @@ npm start     # 启动服务
 | 传输 | TLS 1.2/1.3(免费 DV 单域名证书,不做 www);HTTP 80 一律 301 到 HTTPS |
 | 响应头 | Nginx 统一加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin` |
 | 外链图片 | 封面 `<img>` 带 `referrerpolicy="no-referrer"` |
-| 请求体 | `express.json` 限 10MB;Nginx `client_max_body_size 10m`(超限 413) |
+| 请求体 | `express.json` 限 10MB(封面 base64);电子书走 multipart,上限 80MB;Nginx `client_max_body_size 100m`(需 ≥ 应用层上限,否则超限先被 Nginx 以 413 拦下) |
 
 ---
 
@@ -347,9 +347,11 @@ my-books/
 
 ## 数据与备份
 
-- 所有书籍数据保存在 **`data/books.db` 单个文件**中,备份该文件即可;上传的封面在 `uploads/` 目录
-- `deploy/update.sh` 每次更新前自动备份数据库到 `data/backup/`(保留最近 10 份)
-- 线上另有 cron 每日 03:30 全量打包 `data + uploads`(保留 7 份),见[线上运维](#线上运维)
+- 书籍数据保存在 **`data/books.db` 单个文件**;上传的封面在 `uploads/`,上传的电子书在 `books-files/`
+- `deploy/update.sh` 每次更新前自动备份到 `data/backup/`(各保留最近 10 份):
+  - 数据库 `books-*.db`,并做 `integrity_check` 对账(校验失败即中止更新)
+  - 文件快照 `files-*/(uploads/ + books-files/)`,优先用硬链接(`cp -al`)——瞬时完成、不占额外空间;因应用写文件一律「先写临时名再原子 rename」,被替换的旧文件在快照里仍是完整旧版本
+- 线上另有 cron 每日 03:30 全量打包 `data + uploads + books-files`(保留 7 份),见[线上运维](#线上运维)
 - 旧库升级(补列 / 删列)在启动时自动完成;`rating` 列删除前会留一份 `data/books.backup-before-drop-rating`
 
 ---
@@ -767,8 +769,11 @@ ecook 现在还监听 `0.0.0.0:3001`(它自己绑的),想彻底改掉要动它�
 **8.5 备份**(每天 03:30,`crontab -e` 追加一行):
 
 ```bash
-30 3 * * * cd /root/my-books && tar -czf ~/backup-mybooks-$(date +\%F).tar.gz data uploads && find ~ -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
+30 3 * * * cd /root/my-books && tar -czf ~/backup-mybooks-$(date +\%F).tar.gz data uploads books-files && find ~ -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
 ```
+
+> 注意必须包含 `books-files/`:电子书正文(单本可达 80MB)此前不在备份范围,硬盘故障会连同文件一起丢失(库里只会剩指向空文件的 `file_path`)。
+> 若该目录较大,可改为只备份数据库与封面、电子书另行用对象存储同步。
 
 **8.6 以后更新代码**:
 
@@ -806,7 +811,7 @@ sudo cp /root/node20.bak /usr/bin/node && pm2 restart all && pm2 save
 | `nginx -t` 报 duplicate server name | 还有文件绑着 `helloac.top`:`grep -rn server_name /etc/nginx/conf.d/` |
 | 打开域名是 ecook 的接口输出 | ecook.conf 的 server_name 没改成功,回阶段 7.2 |
 | 502 Bad Gateway | `pm2 ls` 看 my-books 是否 online;`pm2 logs my-books --lines 50` |
-| 上传封面报 413 | 配置里的 `client_max_body_size 10m` 被覆盖了,检查编辑是否保存 |
+| 上传封面/电子书报 413 | 配置里的 `client_max_body_size` 被覆盖或调小了(应为 `100m`,需 ≥ 应用层上限);检查编辑是否保存,改后 `nginx -s reload` |
 | 小程序请求失败 | request 合法域名没加、小程序没重新发布、或 ecook 还是自签证书 |
 | 数据不见了 | 从 `data/backup/` 或你本地的 `data/books.db` 重新上传(先 `pm2 stop my-books`) |
 
@@ -827,7 +832,7 @@ bash /root/my-books/deploy/update.sh    # 更新代码(先备份 books.db,再拉
 - **每日备份**:`crontab -e` 追加一行(每天 03:30,保留 7 份):
 
   ```
-  30 3 * * * cd /root/my-books && tar -czf /root/backup-mybooks-$(date +\%F).tar.gz data uploads && find /root -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
+  30 3 * * * cd /root/my-books && tar -czf /root/backup-mybooks-$(date +\%F).tar.gz data uploads books-files && find /root -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
   ```
 
 ### 一句话版流程

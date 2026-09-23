@@ -24,6 +24,17 @@ function esc(s) {
   }[c]));
 }
 
+// 评分星级(0~5,支持半星);只渲染图形,数值由调用处决定是否展示
+function starHtml(rating) {
+  const r = Math.max(0, Math.min(5, Number(rating) || 0));
+  let out = '';
+  for (let i = 1; i <= 5; i++) {
+    const cls = r >= i ? 'on' : (r >= i - 0.5 ? 'half' : '');
+    out += `<span class="star${cls ? ' ' + cls : ''}">★</span>`;
+  }
+  return out;
+}
+
 function toast(msg, isError = false) {
   const el = $('#toast');
   el.textContent = msg;
@@ -482,6 +493,10 @@ async function openDetail(id) {
     : [];
   const autoNotes = !book.notes_url && !!state.settings.notesRepo;
   const notesSrc = book.notes_url || (autoNotes ? book.title + '.md' : '');
+
+  // 出版信息(豆瓣抓取落库的字段;此前只入库不展示)
+  const pubBits = [book.publisher, book.pub_year].filter(Boolean);
+  const rating = Number(book.rating) || 0;
   $('#detailBody').innerHTML = `
     <div class="detail-cover">${coverHtml(book)}</div>
     <div class="detail-info">
@@ -489,11 +504,15 @@ async function openDetail(id) {
       ${book.author ? `<div class="detail-author">${esc(book.author)}</div>` : ''}
       <div class="card-meta">
         <span class="status-inline ${book.status}">${STATUS_LABEL[book.status]}</span>
+        ${rating > 0 ? `<span class="detail-rating" title="豆瓣评分 ${rating} / 5">${starHtml(rating)}<b>${rating}</b></span>` : ''}
       </div>
       <div class="detail-rows">
         ${legacyDates.length ? `<div class="detail-row"><span class="k">日期</span><span class="v">${esc(legacyDates.join(' · '))}</span></div>` : ''}
         ${logs.length ? `<div class="detail-row"><span class="k">阅读记录</span><span class="v detail-logs">${logs.map((l) => `<span class="log-chip">${esc(l.start || '开始未记')}${l.finish ? ' 至 ' + esc(l.finish) : ' · 进行中'}</span>`).join('')}</span></div>` : ''}
         ${tags.length ? `<div class="detail-row"><span class="k">标签</span><span class="v detail-tags">${tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join('')}</span></div>` : ''}
+        ${pubBits.length ? `<div class="detail-row"><span class="k">出版</span><span class="v">${esc(pubBits.join(' · '))}</span></div>` : ''}
+        ${book.isbn ? `<div class="detail-row"><span class="k">ISBN</span><span class="v detail-isbn">${esc(book.isbn)}</span></div>` : ''}
+        ${book.douban_id ? `<div class="detail-row"><span class="k">豆瓣</span><span class="v"><a class="detail-link" href="https://book.douban.com/subject/${esc(book.douban_id)}/" target="_blank" rel="noopener noreferrer">查看豆瓣条目 ↗</a></span></div>` : ''}
       </div>
       ${book.summary ? `<div class="detail-block"><div class="detail-block-k">简介</div><p class="detail-block-v">${esc(book.summary)}</p></div>` : ''}
       ${book.file_path ? `<div class="detail-actions" style="margin-bottom:10px">

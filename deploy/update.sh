@@ -5,8 +5,8 @@
 #   bash /root/my-books/deploy/update.sh
 # 首次执行前:chmod +x deploy/update.sh
 #
-# 流程:备份数据库 → 拉最新代码 → 装依赖 → 重启进程 → 自检
-# data/ 与 uploads/ 已在 .gitignore 中,git pull 不会动线上数据。
+# 流程:备份数据库与电子书 → 拉最新代码 → 装依赖 → 重启进程 → 自检
+# data/、uploads/ 与 books-files/ 已在 .gitignore 中,git pull 不会动线上数据。
 # ============================================================
 set -euo pipefail
 
@@ -15,7 +15,7 @@ APP_NAME="${APP_NAME:-my-books}"
 
 cd "$APP_DIR"
 
-echo "==> 1/5 备份数据库"
+echo "==> 1/5 备份数据(数据库 + 电子书文件)"
 if [ -f data/books.db ]; then
   mkdir -p data/backup
   BACKUP_FILE="data/backup/books-$(date +%Y%m%d-%H%M%S).db"
@@ -41,6 +41,34 @@ if [ -f data/books.db ]; then
 else
   echo "    未发现 data/books.db,跳过"
 fi
+
+# —— 电子书与封面:与数据库同级的重要数据,此前完全不在备份范围内 ——
+# uploads/ 是封面,books-files/ 是电子书正文(单本可达 80MB)。
+# 用硬链接快照(-al)代替复制:同一文件系统上几乎瞬时完成、不占额外空间;
+# 由于应用写文件一律"先写临时名再原子 rename"(routes.files.js / fs-utils.js),
+# 被替换的旧文件在备份目录里仍是完整旧版本,不会被写坏。
+# 注意:硬链接要求备份目录与源目录位于同一文件系统(同盘),否则自动回退为复制。
+BACKUP_FILES="data/backup/files-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_FILES"
+for d in uploads books-files; do
+  if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then
+    if cp -al "$d" "$BACKUP_FILES/$d" 2>/dev/null; then
+      mode="硬链接"
+    elif cp -a "$d" "$BACKUP_FILES/$d"; then
+      mode="复制"
+    else
+      echo "    !! $d 备份失败,中止更新(数据安全优先)" >&2
+      exit 1
+    fi
+    n=$(find "$BACKUP_FILES/$d" -type f | wc -l)
+    echo "    已备份 $d/($n 个文件,$mode)"
+  else
+    echo "    $d/ 为空或不存在,跳过"
+  fi
+done
+# 保留最近 10 份文件快照(与数据库备份的保留策略一致)
+ls -1dt data/backup/files-* 2>/dev/null | tail -n +11 | xargs -r rm -rf --
+echo "    文件快照保留最近 10 份:$BACKUP_FILES"
 
 echo "==> 2/5 拉取最新代码"
 git pull --ff-only
@@ -72,4 +100,5 @@ pm2 status 2>/dev/null | grep -E "name|$APP_NAME" || true
 
 echo
 echo "完成。外网验证:https://helloac.top"
+echo "备份内容:数据库 data/backup/books-*.db + 文件快照 data/backup/files-*(uploads/ 与 books-files/)"
 echo "可选:数据自检 node data-check.js(检查 JSON 字段/日期格式/孤儿记录)"

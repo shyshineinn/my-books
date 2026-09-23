@@ -10,6 +10,8 @@ data/*.backup-*
 
 # 用户上传的文件
 uploads/
+# 电子书文件(体积大,严禁入库;与 uploads/ 同类)
+books-files/
 
 # 日志
 logs/
