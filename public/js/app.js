@@ -124,10 +124,19 @@ function coverHtml(book) {
   // 与 Canvas 取色跨域限制;本站 /uploads 相对路径直接用
   const url = String(book.cover ?? '').trim();
   if (url) {
-    const src = /^https?:\/\//i.test(url) ? '/api/img-proxy?url=' + encodeURIComponent(url) : url;
-    return `<img src="${esc(src)}" alt="${esc(book.title)} 封面" loading="lazy" referrerpolicy="no-referrer" data-ph="${esc(book.title)}" data-ph-author="${esc(book.author || '')}">`;
+    return `<img src="${esc(coverSrc(url))}" alt="${esc(book.title)} 封面" loading="lazy" referrerpolicy="no-referrer" data-ph="${esc(book.title)}" data-ph-author="${esc(book.author || '')}">`;
   }
   return phHtml(esc(book.title), esc(book.author || ''));
+}
+
+// 外链封面统一转同源代理地址。
+// 必须走代理:豆瓣图床对直连(无 Referer)回 418 防盗链,且 <img referrerpolicy="no-referrer">
+// 只会让浏览器一个 Referer 都不带 —— 直连必然加载失败。
+// 代理侧按域名定向补 Referer(见 src/http/routes.proxy.js 的 refererFor)。
+// 本站相对路径(/uploads/...)原样返回。
+function coverSrc(url) {
+  const u = String(url ?? '').trim();
+  return /^https?:\/\//i.test(u) ? '/api/img-proxy?url=' + encodeURIComponent(u) : u;
 }
 
 // 图片加载失败时替换为占位封面(error 事件不冒泡,需捕获阶段监听)
@@ -750,7 +759,8 @@ function openBookModal(book) {
 function setCoverPreview(url) {
   const box = $('#coverPreview');
   if (url) {
-    box.innerHTML = `<img src="${esc(url)}" alt="封面预览"
+    // 走 coverSrc 代理:豆瓣图床直连会被防盗链拒绝(418),预览会显示不出来
+    box.innerHTML = `<img src="${esc(coverSrc(url))}" alt="封面预览"
       onerror="this.parentElement.innerHTML='图片无法加载'" referrerpolicy="no-referrer">`;
   } else {
     box.innerHTML = '暂无封面';
@@ -988,7 +998,7 @@ doubanBtn.addEventListener('click', async () => {
           <strong>${esc(d.title)}</strong>
           <div class="dc-meta">${esc([d.author, d.publisher, d.pubYear].filter(Boolean).join(' · '))}${d.rating ? ' · ★ ' + d.rating : ''}</div>
         </span>
-        <span>${d.cover ? `<img src="${esc(d.cover)}" alt="" style="width:32px;height:44px;object-fit:cover;border-radius:3px">` : ''}</span>
+        <span>${d.cover ? `<img src="${esc(coverSrc(d.cover))}" alt="" style="width:32px;height:44px;object-fit:cover;border-radius:3px">` : ''}</span>
       </button>`).join('');
     doubanCandidates.classList.remove('hidden');
     doubanCandidates.querySelectorAll('.douban-candidate').forEach((btn) => {
@@ -1296,10 +1306,9 @@ function homeStatusLabel(b) {
 }
 
 /* ---------- 封面取色:卡片背景根据封面真实颜色渲染 ---------- */
-// 外链封面经服务端代理转成同源图片(规避 Canvas 跨域限制),本站 /uploads 直接用
-function imgSampleUrl(u) {
-  return /^https?:\/\//i.test(u) ? '/api/img-proxy?url=' + encodeURIComponent(u) : u;
-}
+// 外链封面经服务端代理转成同源图片(规避 Canvas 跨域限制与防盗链),本站 /uploads 直接用
+// (与 coverSrc 同一策略,统一复用避免两处逻辑漂移)
+const imgSampleUrl = coverSrc;
 
 const coverColorCache = new Map(); // url -> Promise<{r,g,b}|null>(成功与失败都缓存,避免重复请求)
 

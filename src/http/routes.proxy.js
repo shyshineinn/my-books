@@ -87,6 +87,22 @@ function isPrivateHost(hostname) {
   return false;
 }
 
+/* 防盗链 Referer:只对豆瓣图床添加,不能一刀切给所有图床。
+ *
+ * 豆瓣图床(doubanio.com)对无 Referer 的请求直接回 418 I'm a Teapot:
+ *   实测同一 URL,不带 Referer → 418;带 https://book.douban.com/ → 200 + 真实 JPEG。
+ * 而另一些图床是反过来的 —— 百度系(bkimg.cdn.bcebos.com)要求 Referer 属于自家,
+ * 给它发豆瓣 Referer 会被 403(实测 4 个百度封面在加 Referer 后全部失败)。
+ * 故此处按域名定向添加,对非豆瓣图床不发送 Referer。
+ */
+function refererFor(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  // 豆瓣图床域:img1/img3/img9.doubanio.com、*.douban.com 等
+  if (h === 'doubanio.com' || h.endsWith('.doubanio.com')) return 'https://book.douban.com/';
+  if (h === 'douban.com' || h.endsWith('.douban.com')) return 'https://book.douban.com/';
+  return '';
+}
+
 router.get('/api/img-proxy', async (req, res) => {
   const raw = String(req.query.url || '').trim();
   let url;
@@ -108,9 +124,14 @@ router.get('/api/img-proxy', async (req, res) => {
 
   try {
     // 部分图床偶发超时,自动重试一次
+    // Referer 按目标域名定向添加(豆瓣必须带、百度系不能带,见 refererFor 注释)
+    const ref = refererFor(url.hostname);
     const fetchImg = () => fetch(url, {
       signal: AbortSignal.timeout(15000),
-      headers: { 'User-Agent': 'MyBooks/1.0' },
+      headers: {
+        'User-Agent': 'MyBooks/1.0',
+        ...(ref ? { Referer: ref } : {}),
+      },
     });
     let resp;
     try {

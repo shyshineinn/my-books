@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
  * My books · Service Worker(PWA 离线与缓存层)
  *
  * 缓存策略(与 API 缓存头正交,只管"端上"的体验):
@@ -13,7 +13,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -25,7 +25,7 @@ const IMG_LIMIT = 60;
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
   '/css/style.css?v=28',
-  '/js/app.js?v=36',
+  '/js/app.js?v=37',
   '/js/endless-gallery.js?v=6',
   '/vendor/marked.umd.js',
   '/vendor/purify.min.js',
