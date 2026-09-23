@@ -499,7 +499,17 @@
 
       let pdf;
       try {
-        pdf = await pdfjs.getDocument(url).promise;
+        // cMapUrl / standardFontDataUrl 是中文(CJK)PDF 的必需项:
+        // 中文 PDF 多用 Type0/CIDFontType2 字体,字形要靠 cmaps 映射;
+        // 不指定时 pdf.js 会去请求不存在的路径(404),并报
+        //   Warning: Required "glyf" table is not found -- trying to recover
+        // 结果页面能打开但文字显示不出来。
+        pdf = await pdfjs.getDocument({
+          url,
+          cMapUrl: '/vendor/cmaps/',
+          cMapPacked: true,
+          standardFontDataUrl: '/vendor/standard_fonts/',
+        }).promise;
       } catch (e) {
         return showError('PDF 打开失败:' + e.message);
       }

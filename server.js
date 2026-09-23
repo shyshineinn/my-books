@@ -79,9 +79,18 @@ app.get('/vendor/purify.min.js', (req, res) => res.sendFile(require.resolve('dom
 // PDF 渲染库(阅读器用)—— 从 node_modules 直出,不走 CDN:
 // 走 CDN 时首次打开要下载 330KB 主库 + 1.3MB worker,实测 5.6MB PDF 首屏达 23 秒;
 // 且受网络环境影响,慢网络/CDN 不可达时 PDF 打不开。本地自持与 marked/purify 同策略。
+//
+// cmaps 与 standard_fonts 是**中文/CJK PDF 必需的资源**,不能只暴露主库:
+//   · cmaps/           CID 字体(中文 PDF 常见的 Type0/CIDFontType2)的字形映射表
+//   · standard_fonts/  PDF 内 14 个标准字体的回退字型
+// 缺它们时 pdf.js 会去请求不存在的路径 → 404,并报
+//   Warning: Required "glyf" table is not found -- trying to recover
+// 结果是页面能渲染但**文字显示不出来**。
 const PDFJS_DIR = path.dirname(require.resolve('pdfjs-dist/package.json'));
 app.get('/vendor/pdf.min.mjs', (req, res) => res.sendFile(path.join(PDFJS_DIR, 'build', 'pdf.min.mjs')));
 app.get('/vendor/pdf.worker.min.mjs', (req, res) => res.sendFile(path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs')));
+app.use('/vendor/cmaps', express.static(path.join(PDFJS_DIR, 'cmaps'), { maxAge: '30d', immutable: true }));
+app.use('/vendor/standard_fonts', express.static(path.join(PDFJS_DIR, 'standard_fonts'), { maxAge: '30d', immutable: true }));
 
 // EPUB 渲染库(阅读器用)+ 它依赖的 JSZip,同样本地自持。
 // 顺序很重要:epub.js 的浏览器版从全局取 JSZip 解压,必须先加载 JSZip
