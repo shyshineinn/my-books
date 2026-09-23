@@ -2,34 +2,110 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1d1d1f">
   <title>阅读 · My books</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: #1d1d1f; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+    /* ---------- 顶栏 ---------- */
     .bar {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
-      display: flex; align-items: center; gap: 14px;
+      position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+      display: flex; align-items: center; gap: 10px;
       padding: 8px 14px; background: rgba(29,29,31,0.92); color: #f5f5f7;
       backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(245,245,247,0.1);
     }
-    .bar a { color: #2997ff; text-decoration: none; font-size: 14px; }
+    .bar a { color: #2997ff; text-decoration: none; font-size: 14px; white-space: nowrap; }
     .bar a:hover { text-decoration: underline; }
-    .bar .title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-    .bar .fmt { font-size: 12px; color: rgba(245,245,247,0.6); }
-    .bar .pageinfo { font-size: 13px; min-width: 70px; text-align: center; }
+    .bar .title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .bar .fmt { font-size: 11px; color: rgba(245,245,247,0.5); padding: 2px 7px; border: 1px solid rgba(245,245,247,0.2); border-radius: 6px; }
+    .bar .pageinfo { font-size: 12.5px; color: rgba(245,245,247,0.75); min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; }
+    .icon-btn {
+      background: rgba(245,245,247,0.12); border: 1px solid rgba(245,245,247,0.35); color: #f5f5f7;
+      border-radius: 10px; padding: 4px 11px; font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    .icon-btn:hover { background: rgba(245,245,247,0.25); }
+    .icon-btn[aria-expanded="true"] { background: rgba(41,151,255,0.3); border-color: #2997ff; }
+    .bar .pnav { display: flex; gap: 6px; }
+
+    /* ---------- 阅读区 ---------- */
     #stage { position: absolute; top: 48px; bottom: 0; left: 0; right: 0; overflow: auto; background: #525659; text-align: center; }
     #stage.dark { background: #1d1d1f; }
+    #stage.sepia { background: #d9cdb8; }
+    #stage.gray { background: #3a3a3c; }
     #epubContainer { height: 100%; display: flex; align-items: center; justify-content: center; }
     #pdfContainer { height: 100%; overflow-y: auto; padding: 10px 0; }
     #pdfContainer canvas { margin: 0 auto 8px; display: block; box-shadow: 0 2px 10px rgba(0,0,0,0.4); max-width: 96%; }
+
     #error { position: absolute; inset: 48px 0 0; display: flex; align-items: center; justify-content: center;
-             color: rgba(245,245,247,0.7); font-size: 15px; padding: 20px; text-align: center; }
-    #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75);
-           color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 12px; display: none; z-index: 20; }
-    .pbtn { background: rgba(245,245,247,0.12); border: 1px solid rgba(245,245,247,0.4); color: #f5f5f7;
-            border-radius: 12px; padding: 3px 12px; font-size: 13px; cursor: pointer; }
-    .pbtn:hover { background: rgba(245,245,247,0.25); }
+             color: rgba(245,245,247,0.7); font-size: 15px; padding: 20px; text-align: center; z-index: 5; }
+    #msg { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.78);
+           color: #fff; padding: 7px 15px; border-radius: 16px; font-size: 12.5px; display: none; z-index: 40;
+           max-width: 86%; text-align: center; }
+
+    /* 恢复进度的提示条(比 toast 持久,可点掉) */
+    #resumeTip {
+      position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 35;
+      background: rgba(41,151,255,0.95); color: #fff; padding: 8px 14px; border-radius: 12px;
+      font-size: 12.5px; display: none; max-width: 88%; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+      align-items: center; gap: 10px;
+    }
+    #resumeTip button { background: rgba(255,255,255,0.22); border: 0; color: #fff; border-radius: 8px;
+                        padding: 3px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+    #resumeTip button:hover { background: rgba(255,255,255,0.35); }
+
+    /* ---------- 设置 / 目录 侧栏 ---------- */
+    #panel {
+      position: fixed; top: 0; right: 0; bottom: 0; width: 330px; max-width: 92vw; z-index: 50;
+      background: #2a2a2c; color: #f5f5f7; border-left: 1px solid rgba(245,245,247,0.12);
+      transform: translateX(100%); transition: transform 0.26s cubic-bezier(0.4,0,0.2,1);
+      overflow-y: auto; padding: 16px 18px 28px; text-align: left;
+      box-shadow: -8px 0 28px rgba(0,0,0,0.4);
+    }
+    #panel.open { transform: translateX(0); }
+    #panel h3 { font-size: 13px; font-weight: 600; color: #f5f5f7; margin: 18px 0 10px; letter-spacing: 0.04em; }
+    #panel h3:first-of-type { margin-top: 6px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .panel-head strong { font-size: 15px; }
+    .panel-head button { background: transparent; border: 0; color: #2997ff; font-size: 13px; cursor: pointer; }
+
+    .row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .row label { flex: 0 0 58px; font-size: 12.5px; color: rgba(245,245,247,0.65); }
+    .row .val { flex: 0 0 46px; text-align: right; font-size: 12px; color: rgba(245,245,247,0.85); font-variant-numeric: tabular-nums; }
+    input[type="range"] { flex: 1; min-width: 0; accent-color: #2997ff; }
+
+    .seg { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+    .seg button {
+      background: rgba(245,245,247,0.1); border: 1px solid rgba(245,245,247,0.2); color: #f5f5f7;
+      border-radius: 8px; padding: 5px 11px; font-size: 12.5px; cursor: pointer;
+    }
+    .seg button.on { background: #2997ff; border-color: #2997ff; color: #fff; }
+    .seg button:hover { border-color: #2997ff; }
+
+    /* 目录树 */
+    #tocList { font-size: 13.5px; }
+    #tocList .toc-item {
+      display: block; width: 100%; text-align: left; background: transparent; border: 0;
+      color: rgba(245,245,247,0.88); padding: 7px 8px; border-radius: 7px; cursor: pointer;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px;
+    }
+    #tocList .toc-item:hover { background: rgba(245,245,247,0.1); color: #2997ff; }
+    #tocList .toc-item.sub { padding-left: 22px; font-size: 12.5px; color: rgba(245,245,247,0.66); }
+    #tocList .toc-item.sub2 { padding-left: 36px; font-size: 12px; color: rgba(245,245,247,0.55); }
+    .toc-empty { font-size: 12.5px; color: rgba(245,245,247,0.5); padding: 6px 8px; }
+
+    #scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 45; display: none; }
+    #scrim.open { display: block; }
+
+    /* 竖屏:侧栏铺满,顶栏收紧 */
+    @media (max-width: 819px) {
+      #panel { width: 100%; max-width: none; }
+      .bar .title { font-size: 13px; }
+      .bar { gap: 8px; padding: 8px 10px; }
+      .bar .pageinfo { min-width: 52px; font-size: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -38,128 +114,670 @@
     <span class="title" id="title">加载中…</span>
     <span class="fmt" id="fmt"></span>
     <span class="pageinfo" id="pageinfo" hidden></span>
-    <button class="pbtn" id="prevBtn" hidden>‹ 上一页</button>
-    <button class="pbtn" id="nextBtn" hidden>下一页 ›</button>
-    <button class="pbtn" id="themeBtn">夜间</button>
+    <span class="pnav" id="pnav" hidden>
+      <button class="icon-btn" id="prevBtn" aria-label="上一页">‹</button>
+      <button class="icon-btn" id="nextBtn" aria-label="下一页">›</button>
+    </span>
+    <button class="icon-btn" id="panelBtn" aria-expanded="false" aria-controls="panel">Aa 目录</button>
   </div>
+
   <div id="stage"><div id="epubContainer"></div><div id="pdfContainer" hidden></div></div>
   <div id="error" hidden></div>
   <div id="msg"></div>
+  <div id="resumeTip"><span id="resumeText"></span><button type="button" id="resumeGo">继续</button><button type="button" id="resumeDismiss">×</button></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs" type="module"></script>
-  <script>
-    const id = location.pathname.split('/').pop();
-    const API = '/api/v1/books/' + id;
+  <div id="scrim"></div>
+  <aside id="panel" aria-label="阅读设置与目录">
+    <div class="panel-head">
+      <strong>阅读设置</strong>
+      <button type="button" id="panelClose">关闭</button>
+    </div>
 
+    <h3>显示</h3>
+    <div class="row">
+      <label for="fontSize">字号</label>
+      <input type="range" id="fontSize" min="12" max="32" step="1">
+      <span class="val" id="fontSizeVal"></span>
+    </div>
+    <div class="row">
+      <label for="lineHeight">行距</label>
+      <input type="range" id="lineHeight" min="1.2" max="2.4" step="0.1">
+      <span class="val" id="lineHeightVal"></span>
+    </div>
+    <div class="row">
+      <label for="marginSize">边距</label>
+      <input type="range" id="marginSize" min="0" max="64" step="4">
+      <span class="val" id="marginSizeVal"></span>
+    </div>
+    <div class="row">
+      <label>主题</label>
+      <div class="seg" id="themeSeg">
+        <button type="button" data-value="day">日间</button>
+        <button type="button" data-value="sepia">米黄</button>
+        <button type="button" data-value="gray">灰色</button>
+        <button type="button" data-value="night">夜间</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>翻页</label>
+      <div class="seg" id="modeSeg">
+        <button type="button" data-value="paged">分页</button>
+        <button type="button" data-value="scrolled">滚动</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>字体</label>
+      <div class="seg" id="fontSeg">
+        <button type="button" data-value="serif">衬线</button>
+        <button type="button" data-value="sans">黑体</button>
+      </div>
+    </div>
+
+    <h3>目录</h3>
+    <div id="tocList"><div class="toc-empty">加载中…</div></div>
+  </aside>
+
+  <script type="module">
+    /* ============================================================
+     * My books 阅读器
+     *
+     * P1 阅读进度记忆:
+     *   采集  —— epub.js 的 relocated 事件 / pdf.js 的翻页与滚动
+     *   落盘  —— 先 localStorage(即时、离线可用),再节流同步到服务端
+     *   恢复  —— 服务端 → localStorage → 从头开始(逐级降级,绝不阻断阅读)
+     *   分区  —— device 标识持久化在 localStorage,换设备各存各的位置
+     *
+     * P2 阅读设置与导航:
+     *   字号 / 行距 / 边距 / 主题 / 字体 / 分页与滚动模式,均存 localStorage
+     *   目录(TOC)来自 epub.js 的 navigation 或 pdf.js 的 outline
+     *
+     * 设计约定:
+     *   · 阅读功能永远不被进度同步的失败阻断 —— 服务端不可达时静默降级
+     *   · 设置是「设备级偏好」,只存本地,不上服务端
+     * ============================================================ */
+
+    const bookId = location.pathname.split('/').pop();
+    const API = '/api/v1/books/' + bookId;
+    const TOKEN_KEY = 'mybooks.adminToken';       // 与 app.js 同一键,站内写过书就已有
+    const SETTINGS_KEY = 'mybooks.readerSettings';
+    const DEVICE_KEY = 'mybooks.readerDevice';
+    const POS_KEY = (fmt) => `mybooks.pos.${bookId}.${fmt}`;   // 本地兜底位置
+    const SYNC_INTERVAL = 3000;                    // 服务端同步节流间隔(毫秒)
+
+    const $ = (s) => document.querySelector(s);
+
+    /* ---------- 通用 UI ---------- */
     function showError(msg) {
-      document.getElementById('error').hidden = false;
-      document.getElementById('error').textContent = msg;
+      $('#error').hidden = false;
+      $('#error').textContent = msg;
     }
     function flash(msg) {
-      const el = document.getElementById('msg');
+      const el = $('#msg');
       el.textContent = msg; el.style.display = 'block';
-      setTimeout(() => el.style.display = 'none', 1800);
+      clearTimeout(flash._t);
+      flash._t = setTimeout(() => { el.style.display = 'none'; }, 1800);
     }
 
+    /* ---------- 设备标识(持久化,用于进度分区) ---------- */
+    function deviceId() {
+      let d = localStorage.getItem(DEVICE_KEY);
+      if (!d) {
+        // 生成一个短标识;不做精确设备指纹,只求同一浏览器稳定
+        const ua = navigator.userAgent || '';
+        const kind = /Android|iPhone|iPad|iPod|Mobile/i.test(ua) ? 'phone'
+          : /Macintosh/i.test(ua) ? 'mac'
+          : /Windows/i.test(ua) ? 'pc' : 'device';
+        d = kind + '-' + Math.random().toString(36).slice(2, 6);
+        localStorage.setItem(DEVICE_KEY, d);
+      }
+      return d;
+    }
+
+    /* ---------- 阅读设置(设备级偏好,只存本地) ---------- */
+    const DEFAULT_SETTINGS = {
+      fontSize: 18, lineHeight: 1.7, margin: 24,
+      theme: 'day', mode: 'paged', font: 'serif',
+    };
+    let settings = loadSettings();
+
+    function loadSettings() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+        return { ...DEFAULT_SETTINGS, ...raw };
+      } catch { return { ...DEFAULT_SETTINGS }; }
+    }
+    function saveSettings() {
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* 隐私模式等 */ }
+    }
+
+    /* ---------- 进度同步(节流 + 降级)---------- */
+    let lastSyncAt = 0;
+    let syncTimer = null;
+    let pendingPayload = null;
+    let syncDisabled = false;    // 401/403 后停掉服务端同步,只留本地
+
+    function authHeaders() {
+      const t = localStorage.getItem(TOKEN_KEY) || '';
+      return t ? { Authorization: 'Bearer ' + t } : {};
+    }
+
+    // 本地兜底:任何情况都能记住位置(离线、未配 token、服务端挂了)
+    function saveLocal(format, payload) {
+      try { localStorage.setItem(POS_KEY(format), JSON.stringify(payload)); } catch { /* ignore */ }
+    }
+    function loadLocal(format) {
+      try { return JSON.parse(localStorage.getItem(POS_KEY(format)) || 'null'); } catch { return null; }
+    }
+
+    async function pushToServer(payload) {
+      if (syncDisabled) return;
+      try {
+        const res = await fetch(`${API}/position`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(payload),
+          keepalive: true,
+        });
+        // 未配置 token 时服务端放行;401 表示 token 失效/缺失(双层模式)
+        if (res.status === 401 || res.status === 403) {
+          syncDisabled = true;
+          return;
+        }
+      } catch { /* 网络问题:静默,本地兜底已写 */ }
+    }
+
+    // 节流:阅读中位置变化很频繁,不必每次都打服务端
+    function queueSync(format, locator, locatorKind, frac) {
+      const payload = {
+        format, device: deviceId(),
+        locator, locator_kind: locatorKind, pos_frac: frac,
+      };
+      saveLocal(format, payload);        // 本地即时写
+      pendingPayload = payload;          // 服务端节流写
+
+      const now = Date.now();
+      const wait = SYNC_INTERVAL - (now - lastSyncAt);
+      if (wait <= 0) {
+        lastSyncAt = now;
+        pushToServer(pendingPayload);
+      } else if (!syncTimer) {
+        syncTimer = setTimeout(() => {
+          syncTimer = null;
+          lastSyncAt = Date.now();
+          if (pendingPayload) pushToServer(pendingPayload);
+        }, wait);
+      }
+    }
+
+    // 离开页面时把最后一次位置送出去(fetch keepalive 允许在卸载中发出)
+    function flushSync() {
+      if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+      if (pendingPayload) pushToServer(pendingPayload);
+    }
+    window.addEventListener('pagehide', flushSync);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) flushSync(); });
+
+    /* ---------- 恢复位置:服务端 → 本地 → 从头 ---------- */
+    // 返回 { locator, locator_kind, pos_frac, source, others }
+    async function resolveStartPosition(format) {
+      let server = null, others = [];
+      try {
+        const res = await fetch(`${API}/position?format=${encodeURIComponent(format)}&device=${encodeURIComponent(deviceId())}`);
+        if (res.ok) {
+          const data = await res.json();
+          server = data.position || null;
+          others = data.others || [];
+        }
+      } catch { /* 服务端不可达:走本地兜底 */ }
+
+      if (server && server.locator) {
+        return { ...server, source: 'server', others };
+      }
+      const local = loadLocal(format);
+      if (local && local.locator) {
+        return { ...local, source: 'local', others: [] };
+      }
+      return { source: 'none', others };
+    }
+
+    // 提示「上次在另一设备读到 x%」(不强行跳转,由用户点「继续」)
+    function showOtherDeviceTip(others) {
+      if (!others || !others.length) return;
+      const o = others[0];
+      const pct = Math.round((o.pos_frac || 0) * 100);
+      if (pct <= 0) return;
+      $('#resumeText').textContent = `另一设备读到 ${pct}%`;
+      $('#resumeTip').style.display = 'flex';
+      $('#resumeGo').onclick = () => { hideResumeTip(); onResumeOther(o); };
+      $('#resumeDismiss').onclick = hideResumeTip;
+      setTimeout(hideResumeTip, 12000);
+    }
+    function hideResumeTip() { $('#resumeTip').style.display = 'none'; }
+    let onResumeOther = () => {};   // 由具体渲染器赋值
+
+    /* ---------- 主题(EPUB 内容色 / PDF 底色)---------- */
+    const THEME_BG = { day: '#ffffff', sepia: '#f4ecd8', gray: '#2f2f31', night: '#1d1d1f' };
+    const THEME_FG = { day: '#1d1d1f', sepia: '#3a3226', gray: '#e8e8ea', night: '#d8d8dc' };
+
+    function stageClass(theme) {
+      return theme === 'night' ? 'dark' : theme === 'sepia' ? 'sepia' : theme === 'gray' ? 'gray' : '';
+    }
+    function applyStageTheme() {
+      const stage = $('#stage');
+      stage.className = stageClass(settings.theme);
+    }
+    function fontFamily() {
+      return settings.font === 'sans'
+        ? '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
+        : 'Georgia, "Songti SC", "SimSun", serif';
+    }
+
+    /* ---------- 设置面板 UI ---------- */
+    function renderSettingsUI() {
+      $('#fontSize').value = settings.fontSize;
+      $('#fontSizeVal').textContent = settings.fontSize + 'px';
+      $('#lineHeight').value = settings.lineHeight;
+      $('#lineHeightVal').textContent = Number(settings.lineHeight).toFixed(1);
+      $('#marginSize').value = settings.margin;
+      $('#marginSizeVal').textContent = settings.margin + 'px';
+      document.querySelectorAll('#themeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.value === settings.theme));
+      document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.value === settings.mode));
+      document.querySelectorAll('#fontSeg button').forEach((b) => b.classList.toggle('on', b.dataset.value === settings.font));
+    }
+
+    function openPanel() {
+      $('#panel').classList.add('open');
+      $('#scrim').classList.add('open');
+      $('#panelBtn').setAttribute('aria-expanded', 'true');
+    }
+    function closePanel() {
+      $('#panel').classList.remove('open');
+      $('#scrim').classList.remove('open');
+      $('#panelBtn').setAttribute('aria-expanded', 'false');
+    }
+
+    // 设置变化后调用:交给当前渲染器应用(EPUB 用 themes,PDF 重渲染)
+    let applyToRenderer = () => {};
+
+    function bindSettings() {
+      const onSlide = (id, key, after) => {
+        $(id).addEventListener('input', (e) => {
+          settings[key] = Number(e.target.value);
+          saveSettings(); renderSettingsUI(); after();
+        });
+      };
+      onSlide('#fontSize', 'fontSize', () => applyToRenderer());
+      onSlide('#lineHeight', 'lineHeight', () => applyToRenderer());
+      onSlide('#marginSize', 'margin', () => applyToRenderer());
+
+      const segBind = (sel, key, after) => {
+        document.querySelectorAll(`${sel} button`).forEach((b) => {
+          b.addEventListener('click', () => {
+            settings[key] = b.dataset.value;
+            saveSettings(); renderSettingsUI(); after();
+          });
+        });
+      };
+      segBind('#themeSeg', 'theme', () => { applyStageTheme(); applyToRenderer(); });
+      segBind('#modeSeg', 'mode', () => applyToRenderer());
+      segBind('#fontSeg', 'font', () => applyToRenderer());
+    }
+
+    /* ---------- 目录渲染 ---------- */
+    // items: [{ label, target, depth }]
+    function renderToc(items) {
+      const box = $('#tocList');
+      if (!items || !items.length) {
+        box.innerHTML = '<div class="toc-empty">这本书没有目录</div>';
+        return;
+      }
+      box.innerHTML = '';
+      for (const it of items) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'toc-item' + (it.depth === 1 ? ' sub' : it.depth >= 2 ? ' sub2' : '');
+        btn.textContent = it.label || '(无标题)';
+        btn.title = it.label || '';
+        btn.addEventListener('click', () => {
+          gotoTarget(it.target);
+          closePanel();
+        });
+        box.appendChild(btn);
+      }
+    }
+    let gotoTarget = () => {};
+
+    /* ---------- 键盘快捷键 ---------- */
+    document.addEventListener('keydown', (e) => {
+      if ($('#panel').classList.contains('open') && e.key !== 'Escape') return;
+      if (e.key === 'Escape') { closePanel(); hideResumeTip(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); nextPage(); }
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prevPage(); }
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); bumpFont(1); }
+      if (e.key === '-') { e.preventDefault(); bumpFont(-1); }
+    });
+    function bumpFont(delta) {
+      settings.fontSize = Math.max(12, Math.min(32, settings.fontSize + delta));
+      saveSettings(); renderSettingsUI(); applyToRenderer();
+      flash(settings.fontSize + 'px');
+    }
+    let nextPage = () => {};
+    let prevPage = () => {};
+
+    /* ---------- 启动 ---------- */
+    bindSettings();
+    renderSettingsUI();
+    applyStageTheme();
+    $('#panelBtn').addEventListener('click', () => {
+      $('#panel').classList.contains('open') ? closePanel() : openPanel();
+    });
+    $('#panelClose').addEventListener('click', closePanel);
+    $('#scrim').addEventListener('click', closePanel);
+
+    /* ============================================================
+     * PDF 渲染:pdf.js 逐页渲染
+     *   进度 = {page, offsetY} 的 JSON(见 core/position.js 的 pdfpage 约定)
+     *   恢复 = 跳到指定页并滚动到 offsetY
+     * ============================================================ */
+    async function renderPdf(url) {
+      $('#epubContainer').hidden = true;
+      const container = $('#pdfContainer');
+      container.hidden = false;
+      $('#pnav').hidden = false;
+      $('#pageinfo').hidden = false;
+
+      let pdfjs;
+      try {
+        pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs');
+        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs';
+      } catch (e) {
+        return showError('PDF 渲染库加载失败(需要网络):' + e.message);
+      }
+
+      let pdf;
+      try {
+        pdf = await pdfjs.getDocument(url).promise;
+      } catch (e) {
+        return showError('PDF 打开失败:' + e.message);
+      }
+
+      let current = 1;
+      const total = pdf.numPages;
+
+      // 起始位置:先解析,再决定渲染哪一页
+      const start = await resolveStartPosition('PDF');
+      if (start.source !== 'none') {
+        const p = parsePdfLocatorSafe(start.locator);
+        if (p) current = Math.min(total, Math.max(1, p.page));
+      }
+      onResumeOther = (o) => {
+        const p = parsePdfLocatorSafe(o.locator);
+        if (p) { current = Math.min(total, Math.max(1, p.page)); renderPage(current); flash(`跳到第 ${current} 页`); }
+      };
+      showOtherDeviceTip(start.others);
+
+      function parsePdfLocatorSafe(loc) {
+        try {
+          const o = JSON.parse(loc);
+          const page = Number(o && o.page);
+          if (Number.isInteger(page) && page >= 1) {
+            const offsetY = Number(o.offsetY);
+            return { page, offsetY: Number.isFinite(offsetY) && offsetY > 0 ? offsetY : 0 };
+          }
+        } catch { /* 非法位置:回到第 1 页 */ }
+        return null;
+      }
+
+      // 缩放:字号设置映射为渲染倍率(PDF 是固定版式,只能用缩放近似「字号感」)
+      function scaleFor() {
+        return Math.max(0.8, Math.min(3, settings.fontSize / 18));
+      }
+
+      async function renderPage(n, offsetY = 0) {
+        const page = await pdf.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        const fit = Math.min(2.5, (window.innerWidth - 40) / base.width) || 1.5;
+        const viewport = page.getViewport({ scale: fit * scaleFor() });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        // 只保留当前页 canvas(逐页模式,内存可控)
+        container.querySelectorAll('canvas').forEach((c) => c.remove());
+        container.appendChild(canvas);
+        $('#pageinfo').textContent = `${n} / ${total}`;
+        // 应用主题底色(日间白底与 PDF 自身白底一致,其余主题给容器垫色)
+        container.style.background = '#525659';
+        container.style.filter = settings.theme === 'night' ? 'invert(0.92) hue-rotate(180deg)'
+          : settings.theme === 'sepia' ? 'sepia(0.35) brightness(0.97)'
+          : settings.theme === 'gray' ? 'brightness(0.82)' : 'none';
+        if (offsetY > 0) container.scrollTop = offsetY;
+        else container.scrollTop = 0;
+      }
+
+      function savePdfPosition() {
+        const offsetY = Math.max(0, Math.round(container.scrollTop));
+        // 进度比例:页内偏移也算进去,进度条更线性
+        const frac = Math.min(1, (current - 1 + (offsetY / Math.max(1, container.scrollHeight))) / total);
+        queueSync('PDF', JSON.stringify({ page: current, offsetY }), 'pdfpage', frac);
+      }
+
+      await renderPage(current);
+
+      nextPage = () => { if (current < total) { current++; renderPage(current); savePdfPosition(); } };
+      prevPage = () => { if (current > 1) { current--; renderPage(current); savePdfPosition(); } };
+      $('#nextBtn').addEventListener('click', nextPage);
+      $('#prevBtn').addEventListener('click', prevPage);
+
+      // 滚动(仅记录,不重渲染)—— 节流交给 queueSync
+      let scrollTimer = null;
+      container.addEventListener('scroll', () => {
+        if (scrollTimer) return;
+        scrollTimer = setTimeout(() => { scrollTimer = null; savePdfPosition(); }, 400);
+      });
+
+      // 设置变化:重渲染当前页(缩放/主题)
+      applyToRenderer = () => { renderPage(current, container.scrollTop); };
+
+      // PDF 是固定版式,「分页/滚动」对它无意义 —— 隐藏该选项避免误导
+      const modeRow = $('#modeSeg').closest('.row');
+      if (modeRow) modeRow.style.display = 'none';
+
+      // 目录:pdf.js 的 outline
+      try {
+        const outline = await pdf.getOutline();
+        const items = [];
+        const walk = (nodes, depth) => {
+          for (const n of nodes || []) {
+            items.push({ label: n.title, target: n.dest, depth });
+            if (n.items && n.items.length) walk(n.items, depth + 1);
+          }
+        };
+        walk(outline, 0);
+        renderToc(items);
+      } catch { renderToc([]); }
+
+      gotoTarget = async (dest) => {
+        if (!dest) return;
+        try {
+          const d = typeof dest === 'string' ? await pdf.getDestination(dest) : dest;
+          if (!Array.isArray(d) || !d[0]) return;
+          const idx = await pdf.getPageIndex(d[0]);
+          current = idx + 1;
+          await renderPage(current);
+          savePdfPosition();
+        } catch { /* 目标不可解析:忽略 */ }
+      };
+    }
+
+    /* ============================================================
+     * EPUB 渲染:epub.js
+     *   进度 = rendition.currentLocation().start.cfi(标准 EPUBCFI)
+     *   设置 = themes(字号/行距/边距/配色)
+     *   模式 = paged(分页) / scrolled(滚动)
+     * ============================================================ */
+    async function renderEpub(url) {
+      $('#pdfContainer').hidden = true;
+
+      // epub.js 是 UMD,动态注入(与改造前一致,保留 CDN 依赖)
+      try {
+        await new Promise((res, rej) => {
+          if (window.ePub) return res();
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js';
+          s.onload = res;
+          s.onerror = () => rej(new Error('epub 渲染库加载失败(需要网络)'));
+          document.head.appendChild(s);
+        });
+      } catch (e) {
+        return showError(e.message + ';可先下载文件离线阅读');
+      }
+
+      let book;
+      try {
+        book = window.ePub(url);
+      } catch (e) {
+        return showError('EPUB 打开失败:' + e.message);
+      }
+
+      // 起始位置:服务端 → 本地 → 从头(只解析一次,重建 rendition 时复用)
+      const start = await resolveStartPosition('EPUB');
+      let startCfi = null;
+      if (start.source !== 'none' && typeof start.locator === 'string' && start.locator.startsWith('epubcfi(')) {
+        startCfi = start.locator;
+      }
+
+      let rendition = null;
+      let currentCfi = startCfi;      // 最近一次已知位置,重建 rendition 时用来续读
+      let currentMode = null;         // 已生效的 flow 模式,用于判断是否需要重建
+      let gotFirst = false;
+
+      function buildRendition(cfi) {
+        currentMode = settings.mode;
+        rendition = book.renderTo('epubContainer', {
+          width: '100%', height: '100%', spread: 'auto',
+          flow: settings.mode === 'scrolled' ? 'scrolled-doc' : 'paginated',
+        });
+
+        // 主题:每套配色注册一次,字体/行距/边距用 override 动态改
+        rendition.themes.register('day', { body: { background: THEME_BG.day, color: THEME_FG.day } });
+        rendition.themes.register('sepia', { body: { background: THEME_BG.sepia, color: THEME_FG.sepia } });
+        rendition.themes.register('gray', { body: { background: THEME_BG.gray, color: THEME_FG.gray } });
+        rendition.themes.register('night', { body: { background: THEME_BG.night, color: THEME_FG.night } });
+        applyTypography();
+
+        // 采集位置:relocated 在翻页/滚动/跳转时触发
+        gotFirst = false;
+        rendition.on('relocated', (loc) => {
+          if (!loc || !loc.start) return;
+          // 跳过 epub.js 初始化时的那次回调(display 前会给一个空位置)
+          if (!gotFirst) { gotFirst = true; if (!loc.start.cfi) return; }
+          const cfi2 = loc.start.cfi;
+          if (!cfi2) return;
+          currentCfi = cfi2;
+          const frac = typeof loc.start.percentage === 'number' ? loc.start.percentage : 0;
+          queueSync('EPUB', cfi2, 'epubcfi', frac);
+          if (frac > 0) {
+            const pi = $('#pageinfo');
+            pi.hidden = false;
+            pi.textContent = Math.round(frac * 100) + '%';
+          }
+        });
+
+        // epub.js 渲染在 iframe 内,按键事件不会冒泡到外层文档 —— 需单独监听
+        rendition.on('keydown', (ev) => {
+          if (ev.key === 'ArrowRight' || ev.key === 'PageDown' || ev.key === ' ') { ev.preventDefault(); rendition.next(); }
+          if (ev.key === 'ArrowLeft' || ev.key === 'PageUp') { ev.preventDefault(); rendition.prev(); }
+        });
+
+        nextPage = () => rendition.next();
+        prevPage = () => rendition.prev();
+
+        return rendition.display(cfi || undefined).catch(async () => {
+          // 位置失效(文件换了/CFI 过期):退回从头,不阻断阅读
+          currentCfi = null;
+          await rendition.display();
+          flash('上次的位置已失效,从头开始');
+        });
+      }
+
+      function applyTypography() {
+        if (!rendition) return;
+        rendition.themes.select(settings.theme);
+        rendition.themes.fontSize(settings.fontSize + 'px');
+        rendition.themes.override('font-family', fontFamily());
+        rendition.themes.override('line-height', String(settings.lineHeight));
+        // 页边距:分页模式下通过 body padding 生效
+        rendition.themes.override('padding', `0 ${settings.margin}px`);
+        rendition.themes.override('max-width', settings.mode === 'scrolled' ? '820px' : 'none');
+        rendition.themes.override('margin', settings.mode === 'scrolled' ? '0 auto' : '0');
+      }
+
+      onResumeOther = (o) => {
+        if (typeof o.locator === 'string' && o.locator.startsWith('epubcfi(')) {
+          rendition.display(o.locator);
+          flash('已跳到另一设备的位置');
+        }
+      };
+
+      await buildRendition(startCfi);
+      showOtherDeviceTip(start.others);
+
+      // 点击区:右侧 25% 下一页,左侧 25% 上一页(与改造前一致)
+      $('#stage').addEventListener('click', (ev) => {
+        if (ev.target.closest('a') || ev.target.closest('button')) return;
+        if (settings.mode !== 'paged') return;      // 滚动模式不做点击翻页
+        if (ev.clientX > window.innerWidth * 0.75) rendition.next();
+        else if (ev.clientX < window.innerWidth * 0.25) rendition.prev();
+      });
+
+      // 设置变化:配色与排版在原地生效;flow 模式变化时必须重建 rendition
+      // (epub.js 的 flow 只在 renderTo 时确定,无法事后修改)
+      applyToRenderer = async () => {
+        if (settings.mode !== currentMode) {
+          const resumeAt = currentCfi;
+          try { rendition.destroy(); } catch { /* 已销毁等异常忽略 */ }
+          await buildRendition(resumeAt);
+          return;
+        }
+        applyTypography();
+      };
+
+      // 目录:epub.js 解析出的 navigation
+      try {
+        const nav = await book.loaded.navigation;
+        const items = [];
+        const walk = (nodes, depth) => {
+          for (const n of nodes || []) {
+            items.push({ label: n.label, target: n.href, depth });
+            if (n.subitems && n.subitems.length) walk(n.subitems, depth + 1);
+          }
+        };
+        walk(nav && nav.toc, 0);
+        renderToc(items);
+      } catch { renderToc([]); }
+
+      gotoTarget = (href) => { if (href) rendition.display(href); };
+    }
+
+    /* ---------- 主流程 ---------- */
     async function init() {
-      const book = await fetch(API).then(r => r.json()).catch(() => null);
+      const book = await fetch(API).then((r) => r.json()).catch(() => null);
       if (!book || !book.title) return showError('书籍不存在或已被删除');
       document.title = '阅读 · ' + book.title;
-      document.getElementById('title').textContent = book.title;
-      document.getElementById('fmt').textContent = (book.file_format || '').toUpperCase();
+      $('#title').textContent = book.title;
+      $('#fmt').textContent = (book.file_format || '').toUpperCase();
 
       if (!book.file_path) return showError('这本书还没有上传电子书文件');
       const fmt = (book.file_format || '').toLowerCase();
       const url = '/books-files/' + book.file_path;
 
-      if (fmt === 'pdf')  return renderPdf(url);
+      if (fmt === 'pdf') return renderPdf(url);
       if (fmt === 'epub') return renderEpub(url);
       return showError(`.${fmt.toUpperCase()} 暂不支持站内阅读,请下载后阅读`);
     }
-
-    /* ---- PDF:pdf.js 逐页渲染(所有浏览器一致,不依赖内置查看器) ---- */
-    async function renderPdf(url) {
-      document.getElementById('epubContainer').hidden = true;
-      const container = document.getElementById('pdfContainer');
-      container.hidden = false;
-      document.getElementById('prevBtn').hidden = false;
-      document.getElementById('nextBtn').hidden = false;
-      document.getElementById('pageinfo').hidden = false;
-
-      try {
-        const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.min.mjs');
-        pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs';
-        const pdf = await pdfjs.getDocument(url).promise;
-
-        let current = 1;
-        document.getElementById('pageinfo').textContent = `1 / ${pdf.numPages}`;
-
-        async function renderPage(n) {
-          const page = await pdf.getPage(n);
-          const scale = Math.min(2, (window.innerWidth - 40) / page.getViewport({ scale: 1 }).width) || 1.5;
-          const viewport = page.getViewport({ scale: scale * 1.5 });
-          const canvas = document.createElement('canvas');
-          canvas.dataset.page = n;
-          const ctx = canvas.getContext('2d');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          // 只保留当前页的 canvas(逐页模式,内存可控)
-          container.querySelectorAll('canvas').forEach(c => { if (c !== canvas) c.remove(); });
-          container.appendChild(canvas);
-          document.getElementById('pageinfo').textContent = `${n} / ${pdf.numPages}`;
-        }
-
-        await renderPage(1);
-
-        document.getElementById('prevBtn').addEventListener('click', () => {
-          if (current > 1) { current--; renderPage(current).then(() => flash('第 ' + current + ' 页')); }
-        });
-        document.getElementById('nextBtn').addEventListener('click', () => {
-          if (current < pdf.numPages) { current++; renderPage(current).then(() => flash('第 ' + current + ' 页')); }
-        });
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'ArrowRight' && current < pdf.numPages) { current++; renderPage(current); }
-          if (e.key === 'ArrowLeft' && current > 1) { current--; renderPage(current); }
-        });
-      } catch (e) {
-        console.error(e);
-        showError('PDF 渲染失败:' + e.message);
-      }
-    }
-
-    /* ---- EPUB:epub.js ---- */
-    async function renderEpub(url) {
-      document.getElementById('pdfContainer').hidden = true;
-      try {
-        const pdfjsMod = null; // epub 不需要 pdf.js
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js';
-        const loaded = new Promise((res, rej) => { s.onload = res; s.onerror = () => rej(new Error('epub 渲染库加载失败(需要网络)')); });
-        document.head.appendChild(s);
-        await loaded;
-        const book = ePub(url);
-        const rendition = book.renderTo('epubContainer', { width: '100%', height: '100%', spread: 'auto', flow: 'paginated' });
-        await rendition.display();
-        rendition.on('keydown', ev => {
-          if (ev.key === 'ArrowRight') rendition.next();
-          if (ev.key === 'ArrowLeft') rendition.prev();
-        });
-        document.getElementById('stage').addEventListener('click', ev => {
-          if (ev.target.closest('a')) return;
-          if (ev.clientX > window.innerWidth * 0.75) rendition.next();
-          else if (ev.clientX < window.innerWidth * 0.25) rendition.prev();
-        });
-      } catch (e) {
-        showError(e.message + ';可先下载文件离线阅读');
-      }
-    }
-
-    document.getElementById('themeBtn').addEventListener('click', function () {
-      const stage = document.getElementById('stage');
-      stage.classList.toggle('dark');
-      this.textContent = stage.classList.contains('dark') ? '日间' : '夜间';
-    });
 
     init();
   </script>

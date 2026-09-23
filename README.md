@@ -68,6 +68,19 @@
 - 按状态页签与标签筛选;按最近更新 / 读完日期 / 书名排序
 - 排序与筛选都在 SQL 层完成,标签匹配走 JSON 字符串 `LIKE`
 
+### 在线阅读(`/read/:id`)
+
+支持 **EPUB** 与 **PDF** 站内阅读(其余格式仅存不读,提示下载)。
+
+- **阅读进度记忆**:退出后重进自动回到上次位置。位置按「书 + 格式 + 设备」分区 —— 手机与电脑各记各的,换设备时提示「另一设备读到 x%」而不强行覆盖
+  - 三层降级:服务端位置 → 浏览器本地(`localStorage`)→ 从头开始。**任何一层失败都不阻断阅读**(离线、未配口令、服务端挂了都能正常看,只是不上报)
+  - 节流:阅读中位置变化频繁,本地即时写,服务端 3 秒合并一次;离开页面(`pagehide`/切后台)时补发最后一次
+- **阅读设置**(设备级偏好,只存本地):字号 12~32px、行距、页边距、主题(日间/米黄/灰色/夜间)、字体(衬线/黑体)、翻页模式(分页/滚动,仅 EPUB 有效 —— PDF 是固定版式)
+- **目录导航**:侧栏列出章节,点击跳转(EPUB 来自文件内 navigation,PDF 来自 outline)
+- **快捷键**:`←`/`→`、`PgUp`/`PgDn`、空格翻页,`+`/`-` 调字号,`Esc` 关闭侧栏;EPUB 内容在 iframe 内,按键单独绑定
+
+> 位置坐标:EPUB 用 epub.js 原生提供的标准 **EPUBCFI** 串(精确到字符);PDF 用 `{page, offsetY}`。这套坐标同时是后续书签/高亮/批注的地基。
+
 ### 移动端与无障碍
 
 - 手机两列卡片 + 底部抽屉弹窗 + 全屏菜单(apple.com 风);平板 / 电脑最多六列自适应
@@ -227,6 +240,23 @@ npm start     # 启动服务
 
 `settings` 表:`key TEXT PRIMARY KEY, value TEXT`;现用键:`notes_repo`、`notes_branch`。
 
+`read_positions` 表(v5 迁移新增,阅读进度记忆):
+
+| 列 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | INTEGER PK | 自增 |
+| `book` | INTEGER NOT NULL | 外键 → `books(id)` **ON DELETE CASCADE**(删书自动清进度) |
+| `format` | TEXT NOT NULL | `EPUB` / `PDF`,`COLLATE NOCASE`(大小写不敏感) |
+| `device` | TEXT NOT NULL | 设备标识(前端生成并持久化,如 `pc-a3f2`) |
+| `locator` | TEXT NOT NULL | 位置本体,按 `locator_kind` 解释 |
+| `locator_kind` | TEXT NOT NULL | `epubcfi`(存 epub.js 的 CFI 串)/ `pdfpage`(存 `{"page":n,"offsetY":y}`),CHECK 约束 |
+| `pos_frac` | REAL NOT NULL | 0~1 全文进度,展示用 |
+| `epoch` | INTEGER NOT NULL | Unix 毫秒 |
+
+`UNIQUE (book, format, device)` —— 同一本书在同一格式的同一设备上只保留一行最新位置,**不同设备各存各的、互不覆盖**。写入用 UPSERT(`ON CONFLICT ... DO UPDATE`),天然幂等。
+
+> 位置模型是「后续能力的地基」:书签/高亮/批注都复用这套坐标(高亮是 `[start, end]` 两个 locator)。cfi 由 epub.js 的 `rendition.currentLocation()` 原生提供,无需自行实现 EPUBCFI。
+
 **推导规则**(服务端 `parseBook` 强制执行):阅读记录存在时,`read_count` / `finish_date` / `start_date` 全部由记录推导,忽略请求体里的旧值;无记录时保留请求体兜底值(API 兼容旧客户端)。
 
 ### 前端架构(public/)
@@ -334,6 +364,9 @@ my-books/
 | GET | `/api/notes?url=` | 代理拉取 GitHub 上的心得 Markdown(内存缓存 5 分钟);`url` 可为完整 GitHub 链接或按书名短文件名 |
 | GET | `/api/img-proxy?url=` | 外链封面图片代理:同源化供 Canvas 取色(SSRF 防护,缓存 1 小时,失败重试一次) |
 | GET | `/api/stats` | 统计数据 `{ total, byStatus, byYear, topTags }`(topTags 至多 12 个) |
+| GET | `/api/books/:id/position?format=&device=` | 读某书在某设备的位置 → `{ position, others }`;无记录 404。`others` 是其它设备的位置(读接口公开) |
+| PUT | `/api/books/:id/position` | 上报阅读位置(幂等 upsert);体 `{ format, device, locator, locator_kind, pos_frac }`;**需写口令** |
+| DELETE | `/api/books/:id/position?format=&device=` | 清除阅读位置(format/device 可省略,省略则范围更大);**需写口令** |
 
 另有两个静态 vendor 端点:`GET /vendor/marked.umd.js`、`GET /vendor/purify.min.js`(供前端渲染 Markdown 用)。
 

@@ -107,8 +107,31 @@ function migrateV4(db, dataDir) {
   if (!cols.includes('douban_id')) db.exec("ALTER TABLE books ADD COLUMN douban_id TEXT NOT NULL DEFAULT ''");
 }
 
+// v5:阅读位置(路 B 第三层:进度记忆)
+//     支撑「阅读进度跨会话恢复」——后续的书签/高亮/批注也复用同一套定位坐标。
+//     locator 按 locator_kind 解释:EPUB 存 epub.js 给的 CFI 串,PDF 存 {page,offsetY} JSON。
+//     device 分区:同一本书在不同设备各存各的位置,互不覆盖(换设备时由前端提示,不强行同步)。
+//     外键 ON DELETE CASCADE:删书自动清掉其进度行(已启用 PRAGMA foreign_keys=ON)。
+function migrateV5(db, dataDir) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS read_positions (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      book         INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      format       TEXT    NOT NULL COLLATE NOCASE,
+      device       TEXT    NOT NULL DEFAULT '',
+      locator      TEXT    NOT NULL,
+      locator_kind TEXT    NOT NULL DEFAULT 'epubcfi'
+                           CHECK (locator_kind IN ('epubcfi','pdfpage')),
+      pos_frac     REAL    NOT NULL DEFAULT 0,
+      epoch        INTEGER NOT NULL,
+      UNIQUE (book, format, device)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS read_positions_book_idx ON read_positions (book)');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

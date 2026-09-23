@@ -13,6 +13,7 @@ const routesMisc = require('./src/http/routes.misc');
 const routesProxy = require('./src/http/routes.proxy');
 const routesFiles = require('./src/http/routes.files');
 const routesMetadata = require('./src/http/routes.metadata');
+const routesPositions = require('./src/http/routes.positions');
 const { requireAdmin } = require('./src/http/middleware.auth');
 
 const app = express();
@@ -45,6 +46,8 @@ app.use('/api', requireAdmin);
 app.use(routesFiles);
 // 豆瓣元数据抓取(GET /api/v1/metadata/search)
 app.use(routesMetadata);
+// 阅读位置(进度记忆):GET 读取 / PUT 上报 / DELETE 清除
+app.use(routesPositions);
 
 // API 版本化:多端(小程序/PWA/CLI)长期演进的保险。
 // v1 是对多端承诺的稳定契约;老的 /api/* 路径继续工作,现有前端(网页端)零改动。
@@ -61,6 +64,7 @@ apiV1.use(routesMisc);
 apiV1.use(routesProxy);
 apiV1.use(routesFiles);
 apiV1.use(routesMetadata);
+apiV1.use(routesPositions);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
