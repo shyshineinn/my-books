@@ -19,25 +19,24 @@ echo "==> 1/5 备份数据(数据库 + 电子书文件)"
 if [ -f data/books.db ]; then
   mkdir -p data/backup
   BACKUP_FILE="data/backup/books-$(date +%Y%m%d-%H%M%S).db"
-  cp data/books.db "$BACKUP_FILE"
-  ls -1t data/backup/books-*.db | tail -n +11 | xargs -r rm --
-  echo "    已备份到 $BACKUP_FILE(保留最近 10 份)"
 
-  # —— 备份对账(借鉴 calibre 的备份可校验思想):确认备份文件真的可读、完整 ——
-  # 用 Node 内置 node:sqlite 做 integrity_check(服务器上无需额外装 sqlite3 CLI);
-  # 校验失败立即中止更新:宁可不上新代码,也不能带着坏备份往前走。
-  if node -e "
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(process.argv[1], { readOnly: true });
-    const r = db.prepare('PRAGMA integrity_check').get();
-    if (r.integrity_check !== 'ok') { console.error('    integrity_check: ' + r.integrity_check); process.exit(1); }
-    db.close();
-  " "$BACKUP_FILE"; then
-    echo "    备份完整性校验通过(integrity_check: ok)"
+  # —— 用 VACUUM INTO 而非 cp(关键:数据正确性)——
+  # 库跑在 WAL 模式下(src/db/index.js 的 PRAGMA journal_mode = WAL):
+  # 已提交事务可能只存在于 -wal 文件里,主库文件要等检查点才更新。
+  # `cp data/books.db` 会拷到一个"能打开、但缺数据"的备份 —— 实测丢失可达 80%,
+  # 而且 PRAGMA integrity_check 依然通过,校验抓不出来。
+  # VACUUM INTO 读取含 WAL 的完整内容,产出自包含单文件;backup-db.js 内还
+  # 比对了 books 表行数,行数不符即判失败并丢弃该备份。
+  if node deploy/backup-db.js data/books.db "$BACKUP_FILE"; then
+    echo "    备份通过行数与完整性校验"
   else
-    echo "    !! 备份校验失败,中止更新(数据安全优先)。请检查磁盘/备份后重试。" >&2
+    echo "    !! 备份失败,中止更新(数据安全优先)。请检查磁盘/数据库后重试。" >&2
     exit 1
   fi
+  # 保留最近 10 份(含伴随文件一并清理)
+  ls -1t data/backup/books-*.db 2>/dev/null | tail -n +11 | while read -r old; do
+    rm -f "$old" "$old-wal" "$old-shm"
+  done
 else
   echo "    未发现 data/books.db,跳过"
 fi

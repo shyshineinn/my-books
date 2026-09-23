@@ -349,9 +349,13 @@ my-books/
 
 - 书籍数据保存在 **`data/books.db` 单个文件**;上传的封面在 `uploads/`,上传的电子书在 `books-files/`
 - `deploy/update.sh` 每次更新前自动备份到 `data/backup/`(各保留最近 10 份):
-  - 数据库 `books-*.db`,并做 `integrity_check` 对账(校验失败即中止更新)
+  - 数据库 `books-*.db`,由 `deploy/backup-db.js` 用 **`VACUUM INTO`** 生成,并校验 `integrity_check` 与 **books 表行数**(任一不符即中止更新)
   - 文件快照 `files-*/(uploads/ + books-files/)`,优先用硬链接(`cp -al`)——瞬时完成、不占额外空间;因应用写文件一律「先写临时名再原子 rename」,被替换的旧文件在快照里仍是完整旧版本
-- 线上另有 cron 每日 03:30 全量打包 `data + uploads + books-files`(保留 7 份),见[线上运维](#线上运维)
+- 线上另有 cron 每日 03:30 全量打包 `data + uploads + books-files`(保留 7 份,排除 `data/backup` 避免备份套备份),见[线上运维](#线上运维)
+
+> **⚠️ 绝不能直接 `cp data/books.db` 当备份。** 库跑在 WAL 模式(`src/db/index.js` 的 `PRAGMA journal_mode = WAL`),已提交事务可能只存在于 `books.db-wal` 里,主库文件要等检查点才更新。实测:写入 500 行后 `cp` 主文件只得到 100 行(**丢 80% 数据**),而且 `PRAGMA integrity_check` 依然报 `ok` —— 完整性校验抓不出这种残缺。
+> 正确做法是 `node deploy/backup-db.js <源库> <目标>`(内部用 `VACUUM INTO`,读取含 WAL 的完整内容,产出自包含单文件)。
+
 - 旧库升级(补列 / 删列)在启动时自动完成;`rating` 列删除前会留一份 `data/books.backup-before-drop-rating`
 
 ---
@@ -577,12 +581,18 @@ npm ci --omit=dev
 **上传你本地的书籍数据和封面**(本地执行,当前目录 = `D:\littleBIngbing\my-books`):
 
 ```bash
-scp data/books.db root@120.53.29.226:/root/my-books/data/books.db
+# 先做一份自包含快照 —— 直接 scp 主库文件会漏掉 WAL 里尚未检查点的事务
+node deploy/backup-db.js data/books.db data/upload-snapshot.db
+
+scp data/upload-snapshot.db root@120.53.29.226:/root/my-books/data/books.db
 scp -r uploads/. root@120.53.29.226:/root/my-books/uploads/
+rm -f data/upload-snapshot.db
 ```
 
 > 这一步不做的话,线上打开是 17 本示例书,你在本地记的书不会出现。
 > 现在传最安全(服务还没启动,不会写到一半被覆盖)。
+> 服务器的 `data/books.db` 是 WAL 库,快照副本切过去后,建议把服务器上残留的
+> `data/books.db-wal`、`data/books.db-shm` 一并删掉,避免旧 WAL 盖掉新数据。
 
 ---
 
@@ -769,7 +779,7 @@ ecook 现在还监听 `0.0.0.0:3001`(它自己绑的),想彻底改掉要动它�
 **8.5 备份**(每天 03:30,`crontab -e` 追加一行):
 
 ```bash
-30 3 * * * cd /root/my-books && tar -czf ~/backup-mybooks-$(date +\%F).tar.gz data uploads books-files && find ~ -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
+30 3 * * * cd /root/my-books && tar -czf ~/backup-mybooks-$(date +\%F).tar.gz --exclude='data/backup' data uploads books-files && find ~ -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
 ```
 
 > 注意必须包含 `books-files/`:电子书正文(单本可达 80MB)此前不在备份范围,硬盘故障会连同文件一起丢失(库里只会剩指向空文件的 `file_path`)。
@@ -832,7 +842,7 @@ bash /root/my-books/deploy/update.sh    # 更新代码(先备份 books.db,再拉
 - **每日备份**:`crontab -e` 追加一行(每天 03:30,保留 7 份):
 
   ```
-  30 3 * * * cd /root/my-books && tar -czf /root/backup-mybooks-$(date +\%F).tar.gz data uploads books-files && find /root -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
+  30 3 * * * cd /root/my-books && tar -czf /root/backup-mybooks-$(date +\%F).tar.gz --exclude='data/backup' data uploads books-files && find /root -maxdepth 1 -name 'backup-mybooks-*.tar.gz' -mtime +7 -delete
   ```
 
 ### 一句话版流程
