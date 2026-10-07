@@ -96,6 +96,45 @@
     #tocList .toc-item.sub2 { padding-left: 36px; font-size: 12px; color: rgba(245,245,247,0.55); }
     .toc-empty { font-size: 12.5px; color: rgba(245,245,247,0.5); padding: 6px 8px; }
 
+    /* ---------- 注释:选中文字的工具条 ---------- */
+    #selBar {
+      position: fixed; z-index: 60; display: none; align-items: center; gap: 3px; padding: 6px;
+      background: rgba(28,28,30,0.95); border-radius: 11px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.42); transform: translate(-50%, -100%);
+    }
+    #selBar.on { display: flex; }
+    #selBar button {
+      border: 0; background: transparent; color: #fff; font-size: 13px; padding: 6px 9px;
+      border-radius: 7px; cursor: pointer; font-family: inherit; white-space: nowrap;
+    }
+    #selBar button:hover { background: rgba(255,255,255,0.16); }
+    #selBar .sw { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+    #selBar .sw.on { border-color: #fff; }
+    #selBar .sw[data-color="yellow"] { background: #ffd60a; }
+    #selBar .sw[data-color="green"]  { background: #30d158; }
+    #selBar .sw[data-color="blue"]   { background: #0a84ff; }
+    #selBar .sw[data-color="red"]    { background: #ff453a; }
+    #selBar .sw[data-color="purple"] { background: #bf5af2; }
+    #selBar .sep { width: 1px; height: 20px; background: rgba(255,255,255,0.22); margin: 0 3px; }
+
+    /* ---------- 注释:侧栏批注列表 ---------- */
+    #annotList { font-size: 13px; }
+    #annotList .an { padding: 9px 8px; border-radius: 8px; cursor: pointer; }
+    #annotList .an:hover { background: rgba(245,245,247,0.09); }
+    #annotList .an .ch {
+      font-size: 11.5px; color: rgba(245,245,247,0.5); margin-bottom: 4px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #annotList .an .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    #annotList .an .tx {
+      color: rgba(245,245,247,0.9); line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    #annotList .an .nt {
+      color: #2997ff; margin-top: 5px; line-height: 1.45;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+
     #scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 45; display: none; }
     #scrim.open { display: block; }
 
@@ -127,6 +166,18 @@
   <div id="resumeTip"><span id="resumeText"></span><button type="button" id="resumeGo">继续</button><button type="button" id="resumeDismiss">×</button></div>
 
   <div id="scrim"></div>
+
+  <!-- 选中文字后的操作条:5 色调高亮 + 写批注 + 取消 -->
+  <div id="selBar" role="toolbar" aria-label="选中文字的操作">
+    <button type="button" class="sw" data-color="yellow" title="黄色高亮" aria-label="黄色高亮"></button>
+    <button type="button" class="sw" data-color="green" title="绿色高亮" aria-label="绿色高亮"></button>
+    <button type="button" class="sw" data-color="blue" title="蓝色高亮" aria-label="蓝色高亮"></button>
+    <button type="button" class="sw" data-color="red" title="红色高亮" aria-label="红色高亮"></button>
+    <button type="button" class="sw" data-color="purple" title="紫色高亮" aria-label="紫色高亮"></button>
+    <span class="sep"></span>
+    <button type="button" data-act="note">写批注</button>
+    <button type="button" data-act="cancel">取消</button>
+  </div>
   <aside id="panel" aria-label="阅读设置与目录">
     <div class="panel-head">
       <strong>阅读设置</strong>
@@ -175,6 +226,9 @@
 
     <h3>目录</h3>
     <div id="tocList"><div class="toc-empty">加载中…</div></div>
+
+    <h3>批注</h3>
+    <div id="annotList"><div class="toc-empty">加载中…</div></div>
   </aside>
 
   <script type="module">
@@ -715,6 +769,14 @@
       let currentCfi = startCfi;      // 最近一次已知位置,重建 rendition 时用来续读
       let currentMode = null;         // 已生效的 flow 模式,用于判断是否需要重建
       let gotFirst = false;
+      let navLabels = {};             // href → 章名,新建注释时记录 chapter 用
+
+      // 当前 spine 的 href 对应到目录里的章名(取不到就返回空,不编造)
+      function navLabelFor(href) {
+        if (!href) return '';
+        const key = String(href).split('#')[0];
+        return navLabels[key] || navLabels['OEBPS/' + key] || '';
+      }
 
       function buildRendition(cfi) {
         currentMode = settings.mode;
@@ -722,6 +784,7 @@
           width: '100%', height: '100%', spread: 'auto',
           flow: settings.mode === 'scrolled' ? 'scrolled-doc' : 'paginated',
         });
+        currentRendition = rendition;   // 供侧栏批注列表跳转使用
 
         // 主题:每套配色注册一次,字体/行距/边距用 override 动态改
         rendition.themes.register('day', { body: { background: THEME_BG.day, color: THEME_FG.day } });
@@ -739,6 +802,7 @@
           const cfi2 = loc.start.cfi;
           if (!cfi2) return;
           currentCfi = cfi2;
+          currentChapter = navLabelFor(loc.start.href) || currentChapter;
           // 优先用 locations 反算(准确);退回 epub.js 给的 percentage
           let frac = percentOf(cfi2);
           if (frac === null && typeof loc.start.percentage === 'number') frac = loc.start.percentage;
@@ -760,11 +824,48 @@
         nextPage = () => rendition.next();
         prevPage = () => rendition.prev();
 
+        // 选中文字:弹工具条(5 色高亮 / 写批注)
+        rendition.on('selected', (cfiRange, contents) => {
+          let text = '';
+          try { text = String(contents.window.getSelection()); } catch { /* 取不到文本不影响建注释 */ }
+          showSelBar(String(cfiRange), text, contents);
+        });
+
+        // 点击已有高亮:data 里带 annotId(epub.js 会额外塞一个 epubcfi 键)
+        rendition.on('markClicked', (cfiRange, data) => {
+          if (data && data.annotId) editNote(data.annotId);
+        });
+
+        /*
+         * 重放注释 —— 每次 buildRendition 之后都必须调用,原因是实测出来的:
+         *   · destroy() 后新 rendition 的 annotations 注册表是空的
+         *     (实测:切「分页→滚动」后 registry 1 → 0、marks 2 → 0)
+         *   · 同一 (区间,类型) 重复 add 会在 DOM 上叠出第二份可见标记
+         *     (实测:marks 1 → 2),所以必须先 remove 再 add
+         */
+        applyAllAnnotations = () => {
+          if (!rendition) return;
+          for (const a of annots) {
+            const c = HL_COLORS[a.color] || HL_COLORS.yellow;
+            const attrs = { fill: c.fill, 'fill-opacity': String(c.opacity) };
+            try { rendition.annotations.remove(a.start_locator, 'highlight'); } catch { /* 不存在时忽略 */ }
+            try {
+              rendition.annotations.add(
+                'highlight', a.start_locator, { annotId: a.annot_id },
+                () => editNote(a.annot_id), ANNOT_CLASS, attrs
+              );
+            } catch { /* 单条失效(文件换了/CFI 过期)不影响其余 */ }
+          }
+        };
+
         return rendition.display(cfi || undefined).catch(async () => {
           // 位置失效(文件换了/CFI 过期):退回从头,不阻断阅读
           currentCfi = null;
           await rendition.display();
           flash('上次的位置已失效,从头开始');
+        }).then(() => {
+          // 见上面 applyAllAnnotations 的说明:重建后必须重放
+          applyAllAnnotations();
         });
       }
 
@@ -817,6 +918,11 @@
         const walk = (nodes, depth) => {
           for (const n of nodes || []) {
             items.push({ label: n.label, target: n.href, depth });
+            // 顺便建 href → 章名 的映射,供新建注释时记录 chapter
+            if (n.href) {
+              const k = String(n.href).split('#')[0];
+              if (k && !navLabels[k]) navLabels[k] = n.label || '';
+            }
             if (n.subitems && n.subitems.length) walk(n.subitems, depth + 1);
           }
         };
@@ -825,6 +931,239 @@
       } catch { renderToc([]); }
 
       gotoTarget = (href) => { if (href) rendition.display(href); };
+    }
+
+    /* ============================================================
+     * 注释(高亮 / 批注)
+     *
+     * 实测结论(2026-09-23,Chrome CDP;详见 P3 方案 §2.0):
+     *   · selected 给的是**一个区间 CFI 串**(epubcfi(/6/2!/4/4,/1:0,/1:12)),
+     *     原样存进 start_locator,end_locator 留空 —— 不拆分、不拼区间语法
+     *   · 同一 (区间,类型) 重复 add 会在 DOM 上叠出第二份可见高亮
+     *     ⇒ 重放时必须先 remove 再 add
+     *   · rendition.destroy() 重建后注册表清空、高亮全消失
+     *     ⇒ 每次 buildRendition 成功后都要 applyAllAnnotations()
+     *   · markClicked 的 data 原样回传(epub.js 会额外塞一个 epubcfi 键)
+     *     ⇒ data 里带 annotId,点击时不必用 cfiRange 反查数据库
+     *   · 高亮的 SVG 由 marks-pane 用**全局 document** 创建,在父文档里;
+     *     每条高亮是 <g class="mb-hl">,不在 iframe 内(别在 iframe 里查)
+     *
+     * 与阅读进度同一纪律:注释的任何失败都不阻断阅读。
+     * ============================================================ */
+    const ANNOT_CLASS = 'mb-hl';
+    const HL_COLORS = {
+      yellow: { fill: '#ffd60a', opacity: 0.42 },
+      green:  { fill: '#30d158', opacity: 0.38 },
+      blue:   { fill: '#0a84ff', opacity: 0.32 },
+      red:    { fill: '#ff453a', opacity: 0.30 },
+      purple: { fill: '#bf5af2', opacity: 0.34 },
+    };
+    const ANNOT_COLOR_KEY = 'mybooks.annotColor';
+
+    let annots = [];              // 当前格式的注释缓存
+    let annotFormat = '';         // 当前渲染格式(EPUB / PDF)
+    let currentRendition = null;  // 由 EPUB 渲染器赋值,供跳转使用
+    let currentChapter = '';      // 当前章名,新建注释时记录
+    let pendingSel = null;        // 待处理的选区 { cfiRange, text }
+    // 由 EPUB 渲染器赋值(与 applyToRenderer 同款:模块级占位,渲染器内实现)
+    let applyAllAnnotations = () => {};
+
+    const newAnnotId = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    function lastColor() {
+      const c = localStorage.getItem(ANNOT_COLOR_KEY);
+      return HL_COLORS[c] ? c : 'yellow';
+    }
+    function rememberColor(c) {
+      if (HL_COLORS[c]) { try { localStorage.setItem(ANNOT_COLOR_KEY, c); } catch { /* 隐私模式 */ } }
+    }
+    const currentChapterTitle = () => currentChapter;
+
+    async function loadAnnotations(format) {
+      annotFormat = format;
+      try {
+        const res = await fetch(`${API}/annotations?format=${encodeURIComponent(format)}`);
+        if (res.ok) {
+          const data = await res.json();
+          annots = Array.isArray(data.annotations) ? data.annotations : [];
+        }
+      } catch { /* 服务端不可达:拉不到注释不影响阅读 */ }
+      renderAnnotList();
+    }
+
+    // 新增(幂等:同 annot_id 重复提交仍是同一行)
+    async function saveAnnotation(payload) {
+      try {
+        const res = await fetch(`${API}/annotations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { flash(data.error || '注释保存失败'); return null; }
+        const row = data.annotation;
+        const i = annots.findIndex((a) => a.annot_id === row.annot_id);
+        if (i >= 0) annots[i] = row; else annots.push(row);
+        renderAnnotList();
+        return row;
+      } catch { flash('注释保存失败(网络问题)'); return null; }
+    }
+
+    async function updateAnnotation(annotId, patch) {
+      try {
+        const res = await fetch(`${API}/annotations/${encodeURIComponent(annotId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(patch),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { flash(data.error || '修改失败'); return null; }
+        const i = annots.findIndex((a) => a.annot_id === annotId);
+        if (i >= 0) annots[i] = data.annotation;
+        renderAnnotList();
+        return data.annotation;
+      } catch { flash('修改失败(网络问题)'); return null; }
+    }
+
+    async function deleteAnnotation(annotId) {
+      try {
+        const res = await fetch(`${API}/annotations/${encodeURIComponent(annotId)}`, {
+          method: 'DELETE', headers: { ...authHeaders() },
+        });
+        if (!res.ok) { flash('删除失败'); return false; }
+        annots = annots.filter((a) => a.annot_id !== annotId);
+        renderAnnotList();
+        return true;
+      } catch { flash('删除失败(网络问题)'); return false; }
+    }
+
+    // 侧栏列表:全部用 textContent —— 注释文本是用户输入,绝不走 innerHTML
+    function renderAnnotList() {
+      const box = $('#annotList');
+      if (!box) return;
+      box.textContent = '';
+      if (!annots.length) {
+        const e = document.createElement('div');
+        e.className = 'toc-empty';
+        e.textContent = '暂无批注';
+        box.appendChild(e);
+        return;
+      }
+      for (const a of annots) {
+        const row = document.createElement('div');
+        row.className = 'an';
+        row.dataset.annotId = a.annot_id;
+
+        const ch = document.createElement('div');
+        ch.className = 'ch';
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = (HL_COLORS[a.color] || HL_COLORS.yellow).fill;
+        ch.appendChild(dot);
+        ch.appendChild(document.createTextNode(a.chapter || (a.annot_type === 'bookmark' ? '书签' : '高亮')));
+        row.appendChild(ch);
+
+        const tx = document.createElement('div');
+        tx.className = 'tx';
+        tx.textContent = a.text || (a.note ? '' : '(无原文)');
+        if (tx.textContent) row.appendChild(tx);
+
+        if (a.note) {
+          const nt = document.createElement('div');
+          nt.className = 'nt';
+          nt.textContent = a.note;
+          row.appendChild(nt);
+        }
+        box.appendChild(row);
+      }
+      box.querySelectorAll('.an').forEach((el) => {
+        el.addEventListener('click', () => gotoAnnotation(el.dataset.annotId));
+      });
+    }
+
+    function gotoAnnotation(annotId) {
+      const a = annots.find((x) => x.annot_id === annotId);
+      if (!a) return;
+      if (annotFormat === 'EPUB' && currentRendition) {
+        currentRendition.display(a.start_locator).catch(() => flash('这条注释的位置已失效'));
+      }
+      closePanel();
+    }
+
+    /* ---------- 选中文字 → 工具条 ---------- */
+    function hideSelBar() {
+      const b = $('#selBar');
+      if (b) b.classList.remove('on');
+      pendingSel = null;
+    }
+
+    function showSelBar(cfiRange, text, contents) {
+      pendingSel = { cfiRange, text };
+      const bar = $('#selBar');
+      if (!bar) return;
+      bar.querySelectorAll('.sw').forEach((b) => b.classList.toggle('on', b.dataset.color === lastColor()));
+      // 选区的 rect 是 iframe 坐标,需加上 iframe 自身在视口中的位置
+      try {
+        const ifr = document.querySelector('#epubContainer iframe');
+        const r = contents.window.getSelection().getRangeAt(0).getBoundingClientRect();
+        const box = ifr ? ifr.getBoundingClientRect() : { top: 0, left: 0 };
+        bar.style.top = Math.max(56, box.top + r.top - 8) + 'px';
+        bar.style.left = Math.min(window.innerWidth - 16, Math.max(16, box.left + r.left + r.width / 2)) + 'px';
+      } catch { bar.style.top = '72px'; bar.style.left = '50%'; }
+      bar.classList.add('on');
+    }
+
+    // 色块 = 直接高亮;写批注 = 高亮后立刻填批注;取消 = 收起
+    $('#selBar').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button');
+      if (!btn || !pendingSel) return;
+      if (btn.dataset.act === 'cancel') return hideSelBar();
+
+      const wantNote = btn.dataset.act === 'note';
+      const color = btn.dataset.color || lastColor();
+      const sel = pendingSel;
+      hideSelBar();
+      rememberColor(color);
+
+      /*
+       * 同一区间只可能是同一个高亮 —— epub.js 的注释注册表以 (区间, 类型) 为哈希
+       * (annotations.js:35 `encodeURI(cfiRange + type)`),而 view.highlights 也按 cfiRange 索引。
+       * 实测:同一个区间存成两条库记录时,页面上只有 1 个可见标记,且只有最后一条的颜色生效。
+       * 所以再次点颜色应该是「改色」,而不是新增一条 —— 否则侧栏会出现两条指向同一位置、
+       * 但只有一条看得见的重复记录。
+       */
+      const same = annots.find((a) => a.annot_type === 'highlight' && a.start_locator === sel.cfiRange);
+      if (same) {
+        const row = await updateAnnotation(same.annot_id, { color });
+        if (!row) return;
+        applyAllAnnotations();
+        flash('已改色');
+        if (wantNote) editNote(row.annot_id);
+        return;
+      }
+
+      const row = await saveAnnotation({
+        format: annotFormat || 'EPUB',
+        annot_type: 'highlight',
+        annot_id: newAnnotId(),
+        start_locator: sel.cfiRange,
+        text: sel.text,
+        color,
+        chapter: currentChapterTitle(),
+      });
+      if (!row) return;
+      applyAllAnnotations();
+      flash('已高亮');
+      if (wantNote) editNote(row.annot_id);
+    });
+
+    // 批注编辑(3b 先用 prompt;3c 再换成就地面板)
+    async function editNote(annotId) {
+      const a = annots.find((x) => x.annot_id === annotId);
+      if (!a) return;
+      const next = window.prompt('批注内容(留空则清除批注)', a.note || '');
+      if (next === null) return;
+      const row = await updateAnnotation(annotId, { note: next, color: a.color });
+      if (row) { applyAllAnnotations(); flash(next ? '批注已保存' : '批注已清除'); }
     }
 
     /* ---------- 主流程 ---------- */
@@ -838,6 +1177,9 @@
       if (!book.file_path) return showError('这本书还没有上传电子书文件');
       const fmt = (book.file_format || '').toLowerCase();
       const url = '/books-files/' + book.file_path;
+
+      // 注释先拉一次(与阅读无关,失败也不阻断);PDF 目前只可能有书签
+      await loadAnnotations(fmt === 'pdf' ? 'PDF' : 'EPUB');
 
       if (fmt === 'pdf') return renderPdf(url);
       if (fmt === 'epub') return renderEpub(url);

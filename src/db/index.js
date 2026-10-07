@@ -130,8 +130,42 @@ function migrateV5(db, dataDir) {
   db.exec('CREATE INDEX IF NOT EXISTS read_positions_book_idx ON read_positions (book)');
 }
 
+// v6:注释(书签 / 高亮,「批注」= note 非空的 highlight)
+//     两类而非三类:calibre 的实际模型只有 bookmark / highlight,批注是挂在
+//     highlight 上的 notes 字段(见 core/annotation.js 头部说明)。
+//     · 无 device 维度 —— 与 read_positions 有意不同:位置按设备分区,
+//       注释是内容资产,应跨设备共享(calibre 同此取舍)。
+//     · locator_kind + CHECK:与 read_positions 同款收口,防止「坐标与解释方式
+//       错配」在注释表重演(该坑见 core/position.js:54-61 的注释)。
+//     · 唯一键 (book,format,annot_type,annot_id) 支撑幂等 UPSERT。
+//     · 本版不建 FTS 虚表:注释量级小,LIKE 足够;且 trigram 有 ≥3 字的硬限制
+//       (实测 2 字命中 0 行),留到书内搜索那一期一起设计更省。
+function migrateV6(db, dataDir) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS annotations (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      book          INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      format        TEXT    NOT NULL COLLATE NOCASE,
+      annot_type    TEXT    NOT NULL CHECK (annot_type IN ('bookmark','highlight')),
+      annot_id      TEXT    NOT NULL,
+      locator_kind  TEXT    NOT NULL DEFAULT 'epubcfi'
+                            CHECK (locator_kind IN ('epubcfi','pdfpage')),
+      start_locator TEXT    NOT NULL,
+      end_locator   TEXT    NOT NULL DEFAULT '',
+      text          TEXT    NOT NULL DEFAULT '',
+      note          TEXT    NOT NULL DEFAULT '',
+      color         TEXT    NOT NULL DEFAULT 'yellow',
+      chapter       TEXT    NOT NULL DEFAULT '',
+      created_at    TEXT    NOT NULL,
+      updated_at    TEXT    NOT NULL,
+      UNIQUE (book, format, annot_type, annot_id)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS annotations_book_idx ON annotations (book)');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

@@ -14,6 +14,7 @@ const routesProxy = require('./src/http/routes.proxy');
 const routesFiles = require('./src/http/routes.files');
 const routesMetadata = require('./src/http/routes.metadata');
 const routesPositions = require('./src/http/routes.positions');
+const routesAnnotations = require('./src/http/routes.annotations');
 const { requireAdmin } = require('./src/http/middleware.auth');
 
 const app = express();
@@ -48,6 +49,8 @@ app.use(routesFiles);
 app.use(routesMetadata);
 // 阅读位置(进度记忆):GET 读取 / PUT 上报 / DELETE 清除
 app.use(routesPositions);
+// 注释(书签/高亮/批注):GET 列表 / POST 新增 / PUT 改批注 / DELETE 删除
+app.use(routesAnnotations);
 
 // API 版本化:多端(小程序/PWA/CLI)长期演进的保险。
 // v1 是对多端承诺的稳定契约;老的 /api/* 路径继续工作,现有前端(网页端)零改动。
@@ -65,6 +68,7 @@ apiV1.use(routesProxy);
 apiV1.use(routesFiles);
 apiV1.use(routesMetadata);
 apiV1.use(routesPositions);
+apiV1.use(routesAnnotations);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);

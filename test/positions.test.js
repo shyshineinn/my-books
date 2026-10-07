@@ -42,8 +42,9 @@ const epubPos = (over = {}) => ({
 
 test('v5 迁移:read_positions 表建好,user_version 到最新', () => {
   const { dir, db } = setup();
-  assert.equal(migrations.length, 5, '迁移总数应为 5(v5 是本次新增)');
-  assert.equal(db.prepare('PRAGMA user_version').get().user_version, 5);
+  // 断言「到最新」而不是写死版本号 —— 后续每加一条迁移(如 v6 注释表)都无需改这里
+  assert.ok(migrations.length >= 5, '至少应包含到 v5');
+  assert.equal(db.prepare('PRAGMA user_version').get().user_version, migrations.length);
   const t = db.prepare("SELECT name FROM sqlite_master WHERE name='read_positions'").get();
   assert.ok(t, 'read_positions 表应存在');
   const cols = db.prepare('PRAGMA table_info(read_positions)').all().map((c) => c.name);
@@ -57,7 +58,7 @@ test('v5 迁移幂等:同目录再开一次不重复执行', () => {
   const { dir, db } = setup();
   db.close();
   const db2 = openDb(dir);
-  assert.equal(db2.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(db2.prepare('PRAGMA user_version').get().user_version, migrations.length);
   assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM read_positions').get().n, 0);
   teardown(dir, db2);
 });
