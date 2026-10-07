@@ -6,7 +6,7 @@
  * 用 openDb(临时目录)隔离,不碰生产 data/
  * ============================================================ */
 
-const { test } = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,8 +14,19 @@ const os = require('node:os');
 const { openDb } = require('../src/db/index.js');
 const { searchBooks, escapeLike, toFtsQuery } = require('../src/db/search.js');
 
+// 建过的临时目录,交给 after() 统一删。
+// 不能在测试里直接删完就完 —— 也不能放模块顶层:node:test 的 test()
+// 是先注册后执行,顶层同步代码会跑在所有测试之前,等于「先删、再测」,
+// 结果是每次都在 os.tmpdir() 里漏一个空目录。
+const tmpDirs = [];
+after(() => {
+  for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 function freshDb() {
-  const db = openDb(fs.mkdtempSync(path.join(os.tmpdir(), 'mybooks-search-test-')));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mybooks-search-test-'));
+  tmpDirs.push(dir);
+  const db = openDb(dir);
   // 清掉种子数据,测试自造数据
   db.prepare('DELETE FROM books').run();
   const { reindexAll } = require('../src/db/search.js');
