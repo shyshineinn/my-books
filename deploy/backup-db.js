@@ -41,13 +41,49 @@ fs.mkdirSync(path.dirname(path.resolve(dst)), { recursive: true });
 // SQL 字符串字面量转义(路径里可能有单引号,虽然 Windows/Linux 路径一般没有)
 const quote = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
-// 用 book 表行数作为一致性基准:它是这个库的核心数据
-function booksCount(db) {
+// 用「所有用户表的行数快照」作为一致性基准。
+//
+// 早先只数 books 表,但本项目现在是**双数据库**:
+//   · data/books.db   有 books 表
+//   · data/reading.db 只有 reading 表(没有 books)
+// 只认 books 会让 reading.db 的备份**悄悄退化成只做 integrity_check**,
+// 丢掉"能抓住 WAL 内容没进备份"的那道关键检查 —— 而这恰恰是
+// 本脚本存在的主要理由(见文件头注释)。
+// 改成统计全部用户表,对新旧两个库都有效,也避免以后再加库时重蹈覆辙。
+function tableCounts(db) {
   try {
-    return db.prepare('SELECT COUNT(*) AS n FROM books').get().n;
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+      .all()
+      .map((r) => r.name)
+      .sort();
+    const out = {};
+    for (const t of tables) {
+      // 表名来自 sqlite_master,但仍用双引号包裹以兼容特殊字符
+      out[t] = db.prepare(`SELECT COUNT(*) AS n FROM "${t.replace(/"/g, '""')}"`).get().n;
+    }
+    return out;
   } catch {
-    return null; // 表不存在(全新空库)—— 返回 null 表示"无从比较"
+    return null; // 结构异常 —— 返回 null 表示"无从比较"
   }
+}
+
+// 两份行数快照是否一致(表集合与每表行数都必须相同)
+function countsEqual(a, b) {
+  if (a === null || b === null) return true; // 无从比较则跳过(不误报失败)
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+function describe(counts) {
+  if (counts === null) return '结构未知';
+  const parts = Object.entries(counts).map(([t, n]) => `${t}=${n}`);
+  return parts.length ? parts.join(', ') : '无用户表';
 }
 
 let srcDb = null;
@@ -58,14 +94,14 @@ try {
   srcDb = new DatabaseSync(src);
   srcDb.exec(`VACUUM INTO ${quote(dst)}`);
 
-  const srcCount = booksCount(srcDb);
+  const srcCounts = tableCounts(srcDb);
   srcDb.close();
   srcDb = null;
 
   // 验证:备份必须能独立打开,且行数与源库一致
   dstDb = new DatabaseSync(dst, { readOnly: true });
   const integrity = dstDb.prepare('PRAGMA integrity_check').get().integrity_check;
-  const dstCount = booksCount(dstDb);
+  const dstCounts = tableCounts(dstDb);
   dstDb.close();
   dstDb = null;
 
@@ -76,15 +112,14 @@ try {
 
   // 行数比对 —— 这才是能抓住"WAL 内容没进备份"的检查,
   // 单靠 integrity_check 抓不出来(残缺的备份依然是完整可读的库)
-  if (srcCount !== null && dstCount !== null && srcCount !== dstCount) {
-    console.error(`    行数不一致:源库 ${srcCount} 行,备份 ${dstCount} 行 —— 备份不完整,已丢弃`);
+  if (!countsEqual(srcCounts, dstCounts)) {
+    console.error(`    行数不一致:源库[${describe(srcCounts)}],备份[${describe(dstCounts)}] —— 备份不完整,已丢弃`);
     try { fs.rmSync(dst, { force: true }); } catch { /* ignore */ }
     process.exit(1);
   }
 
   const sizeKb = (fs.statSync(dst).size / 1024).toFixed(1);
-  const rows = dstCount === null ? '无 books 表' : `${dstCount} 行`;
-  console.log(`    已备份到 ${dst}(${rows},${sizeKb} KB,含 WAL 内容)`);
+  console.log(`    已备份到 ${dst}(${describe(dstCounts)},${sizeKb} KB,含 WAL 内容)`);
   process.exit(0);
 } catch (err) {
   try { srcDb?.close(); } catch { /* ignore */ }

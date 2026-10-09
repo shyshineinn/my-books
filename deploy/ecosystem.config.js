@@ -23,6 +23,17 @@ module.exports = {
         PORT: 3002,          // 3001 已被 ecook 占用
         HOST: '127.0.0.1',   // 只监听本机,由 Nginx 反代;不要把端口暴露到公网
         TZ: 'Asia/Shanghai',
+
+        // —— 双数据库架构:Node 是前端唯一出口,由它转发给 calibre ——
+        // calibre-server 的地址(须与 calibre-server.service 的 --port / --url-prefix 一致)
+        CALIBRE_URL: 'http://127.0.0.1:3003/calibre',
+        CALIBRE_TIMEOUT_MS: '10000',      // 普通请求
+        CALIBRE_SLOW_TIMEOUT_MS: '60000', // 封面生成/正文下载/慢查询
+
+        // 读写全公开(用户明确要求)。
+        // 不设或设 0:走应用层 Bearer token(默认 fail-closed);
+        // 设 1:关闭应用层鉴权,读写全部公开。
+        OPEN_ACCESS: '1',
       },
 
       autorestart: true,
