@@ -315,10 +315,38 @@ test('统计:合并阅读状态(本地)与标签分布(calibre)', async () => {
   assert.equal(data.byFormat.MOBI, 1);
 });
 
+test('统计:重读榜必须带 calibre_uuid(前端靠它映射书名)', async () => {
+  // 回归防护:allReadings() 曾漏 SELECT calibre_uuid,
+  // 导致重读榜返回 [{read_count:5}] 这种无主记录,前端无法显示书名。
+  // 用第二本书造一条读两遍的记录。
+  await getJson(`/api/reading/${U2}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      status: 'done',
+      read_logs: [
+        { start: '2021-01-01', finish: '2021-02-01' },
+        { start: '2023-01-01', finish: '2023-02-01' },
+      ],
+    }),
+  });
+
+  const { data } = await getJson('/api/calibre/stats?with_tags=false');
+  const rr = data.rereads.find((r) => r.calibre_uuid === U2);
+  assert.ok(rr, `重读榜应含 U2 的条目,实际:${JSON.stringify(data.rereads)}`);
+  assert.equal(rr.read_count, 2);
+  // 每一条都必须有 uuid,不能有无主记录
+  for (const r of data.rereads) {
+    assert.ok(r.calibre_uuid, `重读榜条目缺少 calibre_uuid: ${JSON.stringify(r)}`);
+  }
+});
+
 test('统计可跳过标签扫描(with_tags=false)', async () => {
   const { data } = await getJson('/api/calibre/stats?with_tags=false');
-  assert.equal(data.recorded, 1);
-  assert.deepEqual(data.topTags, []);
+  // 不断言具体条数 —— 前面几个用例会往 reading 表写入,条数随执行顺序变化。
+  // 这里只验证 with_tags=false 的行为:不扫 calibre 标签。
+  assert.ok(data.recorded >= 1, '应至少有已记录的阅读数据');
+  assert.deepEqual(data.topTags, [], 'with_tags=false 时不应返回标签');
 });
 
 test('calibre 不可用时回 502 + CALIBRE_UNAVAILABLE(且不抛 500)', async () => {

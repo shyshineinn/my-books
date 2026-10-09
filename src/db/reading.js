@@ -157,8 +157,10 @@ function deleteReading(uuid) {
 }
 
 // 全量行(统计用;个人库量级小,全表扫描即可)
+// 必须带上 calibre_uuid —— 统计里的"重读榜"要靠它关联到 calibre 的书名,
+// 少了这列会得到一堆只有 read_count 的无主记录(实测踩过)。
 function allReadings() {
-  return db.prepare('SELECT status, read_count, read_logs, finish_date FROM reading').all();
+  return db.prepare('SELECT calibre_uuid, status, read_count, read_logs, finish_date FROM reading').all();
 }
 
 // 找出"在 calibre 里已不存在"的孤儿行(传现存 uuid 集合),供清理
