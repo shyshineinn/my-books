@@ -16,41 +16,30 @@ APP_NAME="${APP_NAME:-my-books}"
 cd "$APP_DIR"
 
 echo "==> 1/5 备份数据(数据库 + 电子书文件)"
-# —— 两个库都要备份 ——
-#   data/books.db   旧库(书籍元数据;双数据库架构下逐步退役,但仍有历史数据)
-#   data/reading.db 阅读记录库(想读/在读/已读、读过几遍、每次起止日期)
-# 两者都是 WAL,都必须用 VACUUM INTO 而非 cp(原因见下方注释)。
-backup_one_db() {
-  local src="$1" label="$2"
-  if [ ! -f "$src" ]; then
-    echo "    未发现 $src,跳过"
-    return 0
-  fi
+if [ -f data/books.db ]; then
   mkdir -p data/backup
-  local base out
-  base="$(basename "$src" .db)"
-  out="data/backup/${base}-$(date +%Y%m%d-%H%M%S).db"
+  BACKUP_FILE="data/backup/books-$(date +%Y%m%d-%H%M%S).db"
 
   # —— 用 VACUUM INTO 而非 cp(关键:数据正确性)——
-  # 两个库都跑在 WAL 模式下:已提交事务可能只存在于 -wal 文件里,
-  # 主库文件要等检查点才更新。`cp data/xxx.db` 会拷到一个"能打开、但缺数据"
-  # 的备份 —— 实测丢失可达 80%,而且 PRAGMA integrity_check 依然通过,
-  # 校验抓不出来。VACUUM INTO 读取含 WAL 的完整内容,产出自包含单文件;
-  # backup-db.js 内还比对了行数,行数不符即判失败并丢弃该备份。
-  if node deploy/backup-db.js "$src" "$out"; then
-    echo "    $label 备份通过行数与完整性校验"
+  # 库跑在 WAL 模式下(src/db/index.js 的 PRAGMA journal_mode = WAL):
+  # 已提交事务可能只存在于 -wal 文件里,主库文件要等检查点才更新。
+  # `cp data/books.db` 会拷到一个"能打开、但缺数据"的备份 —— 实测丢失可达 80%,
+  # 而且 PRAGMA integrity_check 依然通过,校验抓不出来。
+  # VACUUM INTO 读取含 WAL 的完整内容,产出自包含单文件;backup-db.js 内还
+  # 比对了 books 表行数,行数不符即判失败并丢弃该备份。
+  if node deploy/backup-db.js data/books.db "$BACKUP_FILE"; then
+    echo "    备份通过行数与完整性校验"
   else
-    echo "    !! $label 备份失败,中止更新(数据安全优先)。请检查磁盘/数据库后重试。" >&2
+    echo "    !! 备份失败,中止更新(数据安全优先)。请检查磁盘/数据库后重试。" >&2
     exit 1
   fi
   # 保留最近 10 份(含伴随文件一并清理)
-  ls -1t data/backup/${base}-*.db 2>/dev/null | tail -n +11 | while read -r old; do
+  ls -1t data/backup/books-*.db 2>/dev/null | tail -n +11 | while read -r old; do
     rm -f "$old" "$old-wal" "$old-shm"
   done
-}
-
-backup_one_db data/books.db "书籍库 books.db"
-backup_one_db data/reading.db "阅读记录库 reading.db"
+else
+  echo "    未发现 data/books.db,跳过"
+fi
 
 # —— 电子书与封面:与数据库同级的重要数据,此前完全不在备份范围内 ——
 # uploads/ 是封面,books-files/ 是电子书正文(单本可达 80MB)。

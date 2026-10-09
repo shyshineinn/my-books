@@ -15,9 +15,6 @@ const routesFiles = require('./src/http/routes.files');
 const routesMetadata = require('./src/http/routes.metadata');
 const routesPositions = require('./src/http/routes.positions');
 const routesAnnotations = require('./src/http/routes.annotations');
-// —— 双数据库架构:calibre 管"书是什么",reading.db 管"我读得怎么样" ——
-const routesCalibre = require('./src/http/routes.calibre');
-const routesReading = require('./src/http/routes.reading');
 const { requireAdmin } = require('./src/http/middleware.auth');
 
 const app = express();
@@ -44,13 +41,7 @@ app.get('/read/:id', (req, res) => {
 
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
 // token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。
-// ⚠️ OPEN_ACCESS=1 时整体关闭鉴权(读写全公开),用于「全网公开」部署形态。
-//    默认不开启 —— 既有 test/auth.test.js 依赖默认的 fail-closed 行为。
-if (process.env.OPEN_ACCESS === '1') {
-  console.warn('[auth] OPEN_ACCESS=1:应用层鉴权已关闭,读写全部公开');
-} else {
-  app.use('/api', requireAdmin);
-}
+app.use('/api', requireAdmin);
 
 // 电子书文件路由(multipart 上传/删除/查询)
 app.use(routesFiles);
@@ -78,16 +69,11 @@ apiV1.use(routesFiles);
 apiV1.use(routesMetadata);
 apiV1.use(routesPositions);
 apiV1.use(routesAnnotations);
-apiV1.use(routesCalibre);
-apiV1.use(routesReading);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
 app.use(routesMisc);
 app.use(routesProxy);
-// calibre 转发(书单/封面/正文/tags/检索)+ 本地阅读记录
-app.use(routesCalibre);
-app.use(routesReading);
 
 // Markdown 渲染库(浏览器版;marked v16+ 的 exports 限制子路径,需手动拼接包内路径)
 const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')), 'lib', 'marked.umd.js');
