@@ -20,6 +20,12 @@
  *   node deploy/import-to-calibre.js --exec           # 真的导入
  *   node deploy/import-to-calibre.js --exec --no-covers   # 导入但跳过封面下载
  *
+ * 幂等性:默认会跳过 calibre 里已存在(同名+同作者)的书,所以可安全重跑。
+ *   若确实要建重复记录,加 --allow-duplicates。
+ *   ⚠️ 查重需要读库,而 calibredb 与 calibre-server 抢同一把全局 db 锁
+ *      (calibre srv/standalone.py:177-186),所以导入前请先:
+ *        systemctl stop calibre-server
+ *
  * 环境变量:
  *   CALIBRE_LIBRARY  库目录(默认 /root/calibre-library;本机测试可改)
  *   CALIBREDB        可执行文件(默认 calibredb)
@@ -32,6 +38,7 @@ const path = require('node:path');
 
 const DRY_RUN = !process.argv.includes('--exec');
 const NO_COVERS = process.argv.includes('--no-covers');
+const ALLOW_DUPLICATES = process.argv.includes('--allow-duplicates');
 const LIBRARY = process.env.CALIBRE_LIBRARY || '/root/calibre-library';
 const CALIBREDB = process.env.CALIBREDB || 'calibredb';
 const ROOT = path.join(__dirname, '..');
@@ -99,6 +106,61 @@ function run(args) {
   return execFileSync(CALIBREDB, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
+/* 读出 calibre 库里已有的书,建 "书名|作者" 指纹集合,用于跳过重复。
+ *
+ * 为什么必须做这件事:calibre 的 add_books 默认 add_duplicates=True
+ * (db/cache.py:2683),所以**重跑本脚本会把每本书再加一遍** ——
+ * 实测踩过:跑两次后库里 26 本 = 13 本 × 2 份,随即导致阅读记录迁移
+ * 每本都报"有 2 个候选"的歧义。
+ *
+ * 用 calibredb list --for-machine 拿 JSON(比解析表格输出可靠)。
+ * 注意:调用 calibredb 时不能有 calibre-server 在跑(抢同一把 db 锁),
+ * 失败时给出明确提示而不是抛栈。 */
+function existingFingerprints() {
+  let raw;
+  try {
+    raw = run(['list', '--library-path', LIBRARY, '--fields=title,authors', '--for-machine']);
+  } catch (err) {
+    const msg = (err.stderr || err.message || '').toString();
+    if (/Another calibre program/i.test(msg)) {
+      console.error('');
+      console.error('[导入] ⚠️ calibre-server 正在运行,无法读库查重。');
+      console.error('       calibredb 与 calibre-server 抢同一把全局 db 锁');
+      console.error('       (calibre srv/standalone.py:177-186),不能同时跑。');
+      console.error('       请先执行:systemctl stop calibre-server');
+      console.error('       导入完成后再:systemctl start calibre-server');
+      process.exit(1);
+    }
+    // 库为空时 calibredb list 可能报错,视为"没有任何已存在的书"
+    return new Set();
+  }
+
+  let books;
+  try {
+    books = JSON.parse(raw);
+  } catch {
+    // --for-machine 不被支持(老版本 calibre),退化为"不做查重"
+    return null;
+  }
+
+  const set = new Set();
+  for (const b of books || []) {
+    const authors = Array.isArray(b.authors) ? b.authors.join('&') : String(b.authors || '');
+    set.add(fpKey(b.title, authors));
+  }
+  return set;
+}
+
+/* 指纹:书名 + 作者,规范化为小写、去空白、去标点。
+   与 migrate-reading.js 的 norm() 同思路 —— 重名判定要一致。 */
+function fpKey(title, authors) {
+  const n = (s) => String(s || '')
+    .replace(/[\uff01-\uff5e]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/[《》「」""''·—\-_:：,，.。!！?？\s]/g, '')
+    .toLowerCase();
+  return n(title) + '|' + n(authors);
+}
+
 async function main() {
   const db = openLegacy();
 
@@ -118,12 +180,30 @@ async function main() {
 
   console.log(`[导入] 模式: ${DRY_RUN ? 'dry-run(只打印,不执行)' : '执行'}`);
   console.log(`[导入] 库目录: ${LIBRARY}`);
-  console.log(`[导入] 共 ${rows.length} 条记录`);
+  console.log(`[导入] 旧库共 ${rows.length} 条记录`);
+
+  // 查重(除非显式要求允许重复)
+  let existing = null;
+  if (!ALLOW_DUPLICATES) {
+    existing = existingFingerprints();
+    if (existing === null) {
+      console.log('[导入] ⚠️ 无法读取现有库(calibredb --for-machine 不支持),本次不做查重');
+    } else {
+      console.log(`[导入] calibre 库里已有 ${existing.size} 本,将跳过重复项`);
+    }
+  } else {
+    console.log('[导入] --allow-duplicates:不查重,每本书都会新建一条记录');
+  }
   console.log('');
 
   // 先把封面对齐好(执行模式下才真下载)
   const prepared = [];
+  let skipped = 0;
   for (const r of rows) {
+    if (existing && existing.has(fpKey(r.title, r.author))) {
+      skipped++;
+      continue;
+    }
     let coverPath = null;
     if (!DRY_RUN && !NO_COVERS && r.cover) {
       process.stdout.write(`  [${r.id}] ${r.title} 取封面… `);
@@ -132,7 +212,8 @@ async function main() {
     }
     prepared.push({ ...r, coverPath });
   }
-  if (!DRY_RUN) console.log('');
+  if (skipped) console.log(`[导入] 跳过 ${skipped} 本(calibre 里已存在同名同作者)`);
+  if (!DRY_RUN && prepared.length) console.log('');
 
   // 生成并执行命令
   let ok = 0, fail = 0;

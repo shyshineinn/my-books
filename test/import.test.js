@@ -19,11 +19,17 @@ const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'deploy', 'import-to-calibre.js');
 
 function dryRun(extraEnv = {}) {
+  // CALIBREDB 指向不存在路径:dry-run 会尝试 calibredb list 查重,
+  // 失败后退化为"库里没有书",不影响生成命令 —— 因此测试无需真 calibre。
   return execFileSync(process.execPath, [SCRIPT, '--dry-run'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 60000,
-    env: { ...process.env, ...extraEnv },
+    env: {
+      ...process.env,
+      CALIBREDB: path.join(ROOT, 'no-such-calibredb-binary'),
+      ...extraEnv,
+    },
   });
 }
 
@@ -90,8 +96,27 @@ test('dry-run:重名书各生成一条命令(4 本《三体》不去重)', () =>
 });
 
 test('dry-run:--dry-run 不写库、不需要 calibre 可执行文件', () => {
-  // 把 CALIBREDB 指向一个不存在的路径,证明 dry-run 根本不会调用它
+  // 把 CALIBREDB 指向一个不存在的路径。dry-run 会调用 calibredb list 查重
+  // (失败时退化为"库里没有任何书"),但**绝不会**调用 add。
   const out = dryRun({ CALIBREDB: path.join(ROOT, 'definitely-not-a-real-binary') });
   assert.ok(commands(out).length > 0, 'dry-run 应仍然生成命令');
   assert.match(out, /dry-run 结束/, '应明确说明未执行');
+});
+
+test('幂等:默认查重并跳过已存在的书(防止重复导入)', () => {
+  // 回归防护:曾因不查重,重跑一次导致 calibre 里 26 本 = 13 本 × 2 份,
+  // 进而让阅读记录迁移每本都报"有 2 个候选"歧义。
+  const out = dryRun();
+  assert.match(out, /将跳过重复项|已有 \d+ 本/, '应显示查重信息');
+  // 默认(不带 --allow-duplicates)必须有查重提示
+  assert.ok(!/--allow-duplicates/.test(out), '默认不应出现 --allow-duplicates');
+});
+
+test('--allow-duplicates:显式允许重复时不做查重', () => {
+  const out = execFileSync(process.execPath, [SCRIPT, '--dry-run', '--allow-duplicates'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 60000,
+  });
+  assert.match(out, /--allow-duplicates:不查重/, '应明确说明本次不查重');
 });
