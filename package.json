@@ -13,11 +13,8 @@
   "dependencies": {
     "cheerio": "1.1.2",
     "dompurify": "3.4.14",
-    "epubjs": "^0.3.93",
     "express": "4.21.2",
-    "jszip": "^3.10.1",
     "marked": "18.0.11",
-    "multer": "2.0.2",
-    "pdfjs-dist": "^4.8.69"
+    "multer": "2.0.2"
   }
 }

@@ -1,13 +1,14 @@
 /* ============================================================
- * 电子书文件路由:上传 / 删除 / 下载(路 B 第一步:存储与阅读)
+ * 电子书文件路由:上传 / 列表 / 删除 / 下载登记(存储,不含在线阅读)
  *
  * 设计:
- *   · multipart 上传(multer 内存存储 → 校验 → 原子写盘),文件存
- *     books-files/(与 uploads/ 封面分开,便于各自管理)
- *   · 登记在 books 表 file_* 三列;一本书同时只保留一个文件
- *     (重新上传 = 替换,旧文件删除,避免磁盘膨胀)
+ *   · 一本书可挂多个文件(epub、pdf…),同一格式只保留一份 ——
+ *     重新上传相同格式 = 覆盖替换(UNIQUE(book, format) UPSERT),
+ *     被替换的旧文件从磁盘删除,避免磁盘膨胀。
+ *   · multipart 上传(multer 磁盘存储 → 校验 → 原子改名),文件存
+ *     books-files/;登记在 book_files 表(v7 迁移)。
  *   · 下载走 express.static,disposition 由前端 download 属性实现;
- *     原文件名不落盘、不透传,与封面上传同一安全思路
+ *     原文件名不落盘、不透传,与封面上传同一安全思路。
  * ============================================================ */
 
 const express = require('express');
@@ -15,7 +16,9 @@ const multer = require('multer');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { db } = require('../db/index');
 const books = require('../db/books');
+const bookFiles = require('../db/book_files');
 const { validateEbookFile, ebookFileName } = require('../core/ebook');
 
 const router = express.Router();
@@ -34,14 +37,12 @@ const upload = multer({
   limits: { fileSize: 80 * 1024 * 1024 },
 });
 
-// 删除磁盘上的旧文件(忽略不存在/已删除的异常)
 function removeFileQuiet(relPath) {
   if (!relPath) return;
   try { fs.unlinkSync(path.join(FILES_DIR, relPath)); } catch { /* 文件可能已不存在 */ }
 }
 
-// 上传/替换电子书。multer 的错误(超 80MB 触发 LIMIT_FILE_SIZE)有专属 code,
-// 包一层捕获,把 multer 错误转成规范 JSON,而不是掉进兜底 500。
+// multer 错误(超 80MB 触发 LIMIT_FILE_SIZE)转规范 JSON,不掉进兜底 500
 router.post('/api/books/:id/file', upload.single('file'), (err, req, res, next) => {
   if (err && err.code === 'LIMIT_FILE_SIZE') {
     return res.status(400).json({ error: '文件不能超过 80MB', code: 'VALIDATION' });
@@ -68,35 +69,44 @@ router.post('/api/books/:id/file', upload.single('file'), (err, req, res, next) 
   const finalPath = path.join(FILES_DIR, filename);
   fs.renameSync(req.file.path, finalPath);
 
-  // 替换场景:登记成功后再删旧文件(失败也不丢新文件)
-  const oldPath = book.file_path;
-  const updated = books.setBookFile(id, { filePath: filename, format: v.format, size: v.size });
-  if (oldPath && oldPath !== filename) removeFileQuiet(oldPath);
+  // 覆盖替换场景:登记成功后再删被替换的旧文件(失败也不丢新文件)
+  const replaced = bookFiles.getFile(db, id, v.format);
+  const saved = bookFiles.upsertFile(db, id, { format: v.format, path: filename, size: v.size });
+  if (replaced && replaced.path !== filename) removeFileQuiet(replaced.path);
 
-  res.status(201).json({ file: { path: updated.file_path, format: updated.file_format, size: updated.file_size } });
+  res.status(201).json({ file: { id: saved.id, format: saved.format, path: saved.path, size: saved.size } });
 });
 
-// 删除电子书(磁盘 + 登记)
+// 某本书的文件列表
+router.get('/api/books/:id/file', (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({ error: '书籍 id 应为正整数', code: 'VALIDATION' });
+  }
+  const book = books.getBook(id);
+  if (!book) return res.status(404).json({ error: '书籍不存在', code: 'NOT_FOUND' });
+  const rows = bookFiles.listFiles(db, id);
+  res.json({ files: rows.map((f) => ({ id: f.id, format: f.format, path: f.path, size: f.size })) });
+});
+
+// 删除某个文件(按格式;磁盘 + 登记一起删)
 router.delete('/api/books/:id/file', (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) {
     return res.status(400).json({ error: '书籍 id 应为正整数', code: 'VALIDATION' });
   }
   const book = books.getBook(id);
-  if (!book || !book.file_path) return res.status(404).json({ error: '这本书没有电子书文件', code: 'NOT_FOUND' });
-
-  removeFileQuiet(book.file_path);
-  books.clearBookFile(id);
-  res.json({ ok: true });
-});
-
-// 电子书文件清单是否存在(供前端判断)
-router.get('/api/books/:id/file', (req, res) => {
-  const id = Number(req.params.id);
-  const book = books.getBook(id);
   if (!book) return res.status(404).json({ error: '书籍不存在', code: 'NOT_FOUND' });
-  if (!book.file_path) return res.status(404).json({ error: '这本书没有电子书文件', code: 'NOT_FOUND' });
-  res.json({ file: { path: book.file_path, format: book.file_format, size: book.file_size } });
+
+  const format = String(req.query.format || '').trim().toUpperCase();
+  if (!format) return res.status(400).json({ error: '缺少格式(format 查询参数)', code: 'VALIDATION' });
+
+  const existing = bookFiles.getFile(db, id, format);
+  if (!existing) return res.status(404).json({ error: `这本书没有 ${format} 文件`, code: 'NOT_FOUND' });
+
+  removeFileQuiet(existing.path);
+  bookFiles.removeFile(db, id, format);
+  res.json({ ok: true });
 });
 
 module.exports = router;

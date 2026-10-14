@@ -164,8 +164,57 @@ function migrateV6(db, dataDir) {
   db.exec('CREATE INDEX IF NOT EXISTS annotations_book_idx ON annotations (book)');
 }
 
+// v7:多文件支持 + 移除在线阅读
+//     · 新表 book_files:一本书可挂多个电子书文件(如同时有 epub 与 pdf),
+//       UNIQUE(book, format) —— 同一格式只保留一份,重新上传即覆盖替换
+//       (与此前 books.file_* 三列的"重新上传 = 替换"语义一致)。
+//       外键 ON DELETE CASCADE:删书自动清登记;磁盘文件由路由层负责删。
+//     · 存量数据迁移:books.file_path/file_format/file_size → book_files 行。
+//     · DROP read_positions / annotations:在线阅读功能下线,位置与批注
+//       (书签/高亮/批注)数据随之删除(2026-10-14 经用户确认;删除前数据库
+//       已由 deploy/backup-db.js 留档)。
+function migrateV7(db, dataDir) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_files (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      book       INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      format     TEXT    NOT NULL,
+      path       TEXT    NOT NULL,
+      size       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT    NOT NULL,
+      updated_at TEXT    NOT NULL,
+      UNIQUE (book, format)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS book_files_book_idx ON book_files (book)');
+
+  // 存量单文件数据迁入(幂等:有 file_path 的列才迁)
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+  if (cols.includes('file_path')) {
+    const rows = db.prepare(
+      "SELECT id, file_path, file_format, file_size FROM books WHERE file_path != '' AND file_format != ''"
+    ).all();
+    const ins = db.prepare(`
+      INSERT INTO book_files (book, format, path, size, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(book, format) DO NOTHING
+    `);
+    const ts = new Date().toISOString();
+    for (const r of rows) {
+      ins.run(r.id, r.file_format.toUpperCase(), r.file_path, r.file_size || 0, ts, ts);
+    }
+  }
+
+  // 在线阅读相关的表与列全部移除
+  db.exec('DROP TABLE IF EXISTS annotations');
+  db.exec('DROP TABLE IF EXISTS read_positions');
+  db.exec('ALTER TABLE books DROP COLUMN file_path');
+  db.exec('ALTER TABLE books DROP COLUMN file_format');
+  db.exec('ALTER TABLE books DROP COLUMN file_size');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

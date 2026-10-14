@@ -12,8 +12,25 @@ const express = require('express');
 
 const { parseBook, mergeUpdate } = require('../core/book');
 const books = require('../db/books');
+const bookFiles = require('../db/book_files');
+const { db } = require('../db/index');
 
 const router = express.Router();
+
+// 给书籍行附加文件信息:
+//   files        —— 该书全部文件 [{id, format, path, size}](详情弹窗下载区)
+//   file_formats —— 格式名逗号串(书架卡片角标,如 "EPUB, PDF")
+function withFiles(row) {
+  if (!row) return row;
+  const files = bookFiles.listFiles(db, row.id).map((f) => ({
+    id: f.id, format: f.format, path: f.path, size: f.size,
+  }));
+  return {
+    ...row,
+    files,
+    file_formats: files.map((f) => f.format).join(', '),
+  };
+}
 
 // :id 参数类型收口(借鉴 calibre srv/ajax.py 对 ids 的显式校验):
 // 必须是正整数字符串,否则 400 —— 保证进入数据层的 id 语义正确,
@@ -37,7 +54,7 @@ router.get('/api/books/:id', (req, res) => {
   if (id === null) return badId(res);
   const row = books.getBook(id);
   if (!row) return notFound(res);
-  res.json(row);
+  res.json(withFiles(row));
 });
 
 router.post('/api/books', (req, res) => {
@@ -57,7 +74,7 @@ router.put('/api/books/:id', (req, res) => {
 
   // 表单未提供的字段:保留数据库旧值(简介/读后感/心得链接/封面/读过次数/阅读记录)
   const merged = mergeUpdate(existing, values, req.body);
-  res.json(books.updateBook(existing.id, merged));
+  res.json(withFiles(books.updateBook(existing.id, merged)));
 });
 
 router.delete('/api/books/:id', (req, res) => {

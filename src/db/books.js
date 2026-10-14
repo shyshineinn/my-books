@@ -77,23 +77,4 @@ function deleteBook(id) {
   return result.changes > 0;
 }
 
-// 登记电子书文件:写入/覆盖 books 行的 file_* 三列
-function setBookFile(id, { filePath, format, size }) {
-  db.prepare(`
-    UPDATE books SET file_path = @filePath, file_format = @format, file_size = @size, updated_at = @ts
-    WHERE id = @id
-  `).run({ filePath, format, size, ts: now(), id });
-  const updated = getBook(id);
-  search.updateBookIndex(db, id, updated, updated); // file 字段不进 FTS 索引,仅为保持一致性
-  return updated;
-}
-
-// 清除电子书登记(物理文件删除后调用)
-function clearBookFile(id) {
-  db.prepare(`
-    UPDATE books SET file_path = '', file_format = '', file_size = 0, updated_at = @ts WHERE id = @id
-  `).run({ ts: now(), id });
-  return getBook(id);
-}
-
-module.exports = { listBooks, getBook, addBook, updateBook, deleteBook, setBookFile, clearBookFile, SORTS };
+module.exports = { listBooks, getBook, addBook, updateBook, deleteBook, SORTS };

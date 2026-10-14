@@ -13,8 +13,6 @@ const routesMisc = require('./src/http/routes.misc');
 const routesProxy = require('./src/http/routes.proxy');
 const routesFiles = require('./src/http/routes.files');
 const routesMetadata = require('./src/http/routes.metadata');
-const routesPositions = require('./src/http/routes.positions');
-const routesAnnotations = require('./src/http/routes.annotations');
 const { requireAdmin } = require('./src/http/middleware.auth');
 
 const app = express();
@@ -34,23 +32,15 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // 电子书文件:GET 下载/阅读用(上传经 /api/* 走鉴权);原文件名不落盘
 app.use('/books-files', express.static(path.join(__dirname, 'books-files')));
-// 阅读器页面:/read/12 → public/read.html(前端按路径取书 id)
-app.get('/read/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'read.html'));
-});
 
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
 // token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。
 app.use('/api', requireAdmin);
 
-// 电子书文件路由(multipart 上传/删除/查询)
+// 电子书文件路由(multipart 上传/列表/删除/下载登记)
 app.use(routesFiles);
 // 豆瓣元数据抓取(GET /api/v1/metadata/search)
 app.use(routesMetadata);
-// 阅读位置(进度记忆):GET 读取 / PUT 上报 / DELETE 清除
-app.use(routesPositions);
-// 注释(书签/高亮/批注):GET 列表 / POST 新增 / PUT 改批注 / DELETE 删除
-app.use(routesAnnotations);
 
 // API 版本化:多端(小程序/PWA/CLI)长期演进的保险。
 // v1 是对多端承诺的稳定契约;老的 /api/* 路径继续工作,现有前端(网页端)零改动。
@@ -67,8 +57,6 @@ apiV1.use(routesMisc);
 apiV1.use(routesProxy);
 apiV1.use(routesFiles);
 apiV1.use(routesMetadata);
-apiV1.use(routesPositions);
-apiV1.use(routesAnnotations);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
@@ -79,29 +67,6 @@ app.use(routesProxy);
 const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')), 'lib', 'marked.umd.js');
 app.get('/vendor/marked.umd.js', (req, res) => res.sendFile(MARKED_UMD));
 app.get('/vendor/purify.min.js', (req, res) => res.sendFile(require.resolve('dompurify/dist/purify.min.js')));
-
-// PDF 渲染库(阅读器用)—— 从 node_modules 直出,不走 CDN:
-// 走 CDN 时首次打开要下载 330KB 主库 + 1.3MB worker,实测 5.6MB PDF 首屏达 23 秒;
-// 且受网络环境影响,慢网络/CDN 不可达时 PDF 打不开。本地自持与 marked/purify 同策略。
-//
-// cmaps 与 standard_fonts 是**中文/CJK PDF 必需的资源**,不能只暴露主库:
-//   · cmaps/           CID 字体(中文 PDF 常见的 Type0/CIDFontType2)的字形映射表
-//   · standard_fonts/  PDF 内 14 个标准字体的回退字型
-// 缺它们时 pdf.js 会去请求不存在的路径 → 404,并报
-//   Warning: Required "glyf" table is not found -- trying to recover
-// 结果是页面能渲染但**文字显示不出来**。
-const PDFJS_DIR = path.dirname(require.resolve('pdfjs-dist/package.json'));
-app.get('/vendor/pdf.min.mjs', (req, res) => res.sendFile(path.join(PDFJS_DIR, 'build', 'pdf.min.mjs')));
-app.get('/vendor/pdf.worker.min.mjs', (req, res) => res.sendFile(path.join(PDFJS_DIR, 'build', 'pdf.worker.min.mjs')));
-app.use('/vendor/cmaps', express.static(path.join(PDFJS_DIR, 'cmaps'), { maxAge: '30d', immutable: true }));
-app.use('/vendor/standard_fonts', express.static(path.join(PDFJS_DIR, 'standard_fonts'), { maxAge: '30d', immutable: true }));
-
-// EPUB 渲染库(阅读器用)+ 它依赖的 JSZip,同样本地自持。
-// 顺序很重要:epub.js 的浏览器版从全局取 JSZip 解压,必须先加载 JSZip
-const EPUBJS_DIST = path.dirname(require.resolve('epubjs/package.json'));
-app.get('/vendor/epub.min.js', (req, res) => res.sendFile(path.join(EPUBJS_DIST, 'dist', 'epub.min.js')));
-const JSZIP_DIST = path.dirname(require.resolve('jszip/package.json'));
-app.get('/vendor/jszip.min.js', (req, res) => res.sendFile(path.join(JSZIP_DIST, 'dist', 'jszip.min.js')));
 
 // 统一错误处理(必须挂在所有路由之后):
 // 完整堆栈只进日志;对外只回通用文案,不泄漏内部路径/依赖细节

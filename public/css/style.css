@@ -941,9 +941,9 @@ main {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
-/* 书架卡片上的"在线阅读"直达按钮(有电子书文件的书才渲染):
-   覆盖左下角,毛玻璃底与状态角标呼应;点击不冒泡(避免同时打开详情) */
-.card-read-btn {
+/* 书架卡片上的"已有文件"角标(有电子书文件的书才渲染):
+   覆盖左下角,毛玻璃底与状态角标呼应;展示格式名 */
+.card-file-badge {
   position: absolute;
   left: 10px;
   bottom: 10px;
@@ -956,20 +956,14 @@ main {
   font-size: 11.5px;
   font-weight: 600;
   color: #f5f5f7;
-  text-decoration: none;
   background: rgba(0, 0, 0, 0.55);
   -webkit-backdrop-filter: blur(12px) saturate(150%);
   backdrop-filter: blur(12px) saturate(150%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
-  transition: background 0.2s var(--ease), transform 0.2s var(--ease);
-}
-
-.card-read-btn:hover,
-.card-read-btn:focus-visible {
-  background: var(--accent);
-  transform: translateY(-1px);
-  color: #fff;
-  text-decoration: none;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-info { padding: 0 2px; display: flex; flex-direction: column; gap: 3px; }
@@ -1359,6 +1353,61 @@ main {
 .ebook-actions { display: flex; flex-direction: column; gap: 8px; }
 
 .ebook-info { font-size: 12.5px; color: var(--ink-3); letter-spacing: 0.02em; }
+
+.ebook-info-empty { color: var(--ink-3); }
+
+/* 编辑弹窗:文件列表(每行一个格式:格式标签 + 大小下载链接 + 删除按钮) */
+.ebook-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 10px 2px 0;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+}
+
+.ebook-item a {
+  color: var(--ink-2);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.ebook-item a:hover { color: var(--accent); text-decoration: underline; }
+
+.ebook-item-del {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 5px;
+  line-height: 1;
+}
+
+.ebook-item-del:hover { color: #c0392b; background: rgba(192, 57, 43, 0.08); }
+
+/* 详情弹窗:电子书文件下载区 */
+.detail-files { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.detail-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--hairline);
+  background: var(--paper);
+  color: var(--ink-1);
+  font-size: 12.5px;
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.detail-file-link:hover { border-color: var(--accent); color: var(--accent); }
 
 .ebook-info .ebook-tag {
   display: inline-block;

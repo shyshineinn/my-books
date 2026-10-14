@@ -207,7 +207,7 @@ function renderGrid() {
       <div class="card-cover">
         ${coverHtml(book)}
         <span class="status-badge ${book.status}">${STATUS_LABEL[book.status]}</span>
-        ${book.file_path ? `<a class="card-read-btn" href="/read/${book.id}" title="在线阅读(.${esc((book.file_format || '').toUpperCase())})" aria-label="在线阅读《${esc(book.title)}》" onclick="event.stopPropagation()">📖 在线阅读</a>` : ''}
+        ${book.file_formats ? `<span class="card-file-badge" title="已有电子书文件: ${esc(book.file_formats)}">📁 ${esc(book.file_formats)}</span>` : ''}
       </div>
       <div class="card-info">
         <div class="card-title">${esc(book.title)}</div>
@@ -524,10 +524,10 @@ async function openDetail(id) {
         ${book.douban_id ? `<div class="detail-row"><span class="k">豆瓣</span><span class="v"><a class="detail-link" href="https://book.douban.com/subject/${esc(book.douban_id)}/" target="_blank" rel="noopener noreferrer">查看豆瓣条目 ↗</a></span></div>` : ''}
       </div>
       ${book.summary ? `<div class="detail-block"><div class="detail-block-k">简介</div><p class="detail-block-v">${esc(book.summary)}</p></div>` : ''}
-      ${book.file_path ? `<div class="detail-actions" style="margin-bottom:10px">
-        <a class="btn btn-primary" style="text-decoration:none" href="/read/${book.id}">📖 在线阅读(.${esc((book.file_format || '').toUpperCase())})</a>
-        <a class="btn btn-ghost" style="text-decoration:none" href="/books-files/${esc(book.file_path)}" download="《${esc(book.title)}》.${esc((book.file_format || '').toLowerCase())}">⬇ 下载</a>
-      </div>` : ''}
+      ${book.files && book.files.length ? `<div class="detail-block"><div class="detail-block-k">电子书文件</div><div class="detail-files">${book.files.map((f) => `
+        <a class="detail-file-link" href="/books-files/${esc(f.path)}" download="《${esc(book.title)}》.${esc(f.format.toLowerCase())}" title="下载 ${esc(f.format)} 文件(${fileSizeText(f.size)})">
+          <span class="ebook-tag">.${esc(f.format)}</span><span>${fileSizeText(f.size)}</span> ⬇
+        </a>`).join('')}</div></div>` : ''}
       <button type="button" class="notes-entry" id="detailNotesEntry" title="${autoNotes ? '自动匹配《' + esc(book.title) + '》.md' : '打开读书心得'}">读书心得</button>
       <div class="detail-actions">
         <button type="button" class="btn btn-ghost" id="detailEdit">✎ 编辑</button>
@@ -743,7 +743,8 @@ function openBookModal(book) {
   renderStatusUI();
   setCoverPreview(book ? book.cover : '');
   resetCoverEditor();
-  renderEbookInfo(book && book.file_path ? book : null);
+  renderEbookList([]);
+  refreshEbookList(); // 有 bookId 时异步拉取该书的文件列表
   // 豆瓣隐藏字段回填(编辑已有书时带上,提交时保留)
   $('#fPublisher').value = book ? (book.publisher || '') : '';
   $('#fPubYear').value = book ? (book.pub_year || '') : '';
@@ -842,23 +843,49 @@ $('#fCoverFile').addEventListener('change', async (e) => {
   }
 });
 
-/* ============ 电子书文件上传(路 B:存储与阅读) ============
+/* ============ 电子书文件管理(多文件:epub / pdf 等各存一份) ============
  * 直接上传:编辑前必须已保存书籍(有 bookId 才能关联)。
- * 上传即时生效(不走表单保存),成功后详情页出现"在线阅读/下载"。
+ * 上传即时生效(不走表单保存);同一格式重复上传 = 覆盖替换。
  * 用 XMLHttpRequest 而非 fetch:支持上传进度回调,大文件(几十 MB)不卡页面。 */
 const ebookFileEl = $('#fEbookFile');
 let ebookUploading = false;
 
-function renderEbookInfo(book) {
+// 文件大小展示:字节 → KB / MB
+function fileSizeText(bytes) {
+  const kb = Math.max(1, Math.round((bytes || 0) / 1024));
+  return kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
+}
+
+// 渲染编辑弹窗里的文件列表;files 为空数组时显示占位文案
+function renderEbookList(files) {
   const box = $('#ebookInfo');
-  if (book && book.file_path) {
-    const kb = Math.max(1, Math.round((book.file_size || 0) / 1024));
-    const sizeText = kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
-    box.innerHTML = `<span class="ebook-tag">.${esc((book.file_format || '').toUpperCase())}</span>已关联 · ${sizeText}`;
-    $('#ebookRemove').disabled = false;
-  } else {
-    box.textContent = '未上传文件';
-    $('#ebookRemove').disabled = true;
+  if (!files || !files.length) {
+    box.innerHTML = '<span class="ebook-info-empty">未上传文件</span>';
+    return;
+  }
+  box.innerHTML = files.map((f) => `
+    <span class="ebook-item">
+      <span class="ebook-tag">.${esc(f.format)}</span>
+      <a href="/books-files/${esc(f.path)}" download title="下载该文件">${fileSizeText(f.size)}</a>
+      <button type="button" class="ebook-item-del" data-format="${esc(f.format)}" title="删除 ${esc(f.format)} 文件" aria-label="删除 ${esc(f.format)} 文件">✕</button>
+    </span>`).join('');
+  box.querySelectorAll('.ebook-item-del').forEach((btn) => {
+    btn.addEventListener('click', () => removeEbookFile(btn.dataset.format));
+  });
+}
+
+// 拉取当前书籍的文件列表(打开弹窗 / 上传 / 删除后调用)
+async function refreshEbookList() {
+  const bookId = $('#bookId').value;
+  if (!bookId) {
+    renderEbookList([]);
+    return;
+  }
+  try {
+    const data = await api(`/api/books/${bookId}/file`);
+    renderEbookList(data.files || []);
+  } catch {
+    renderEbookList([]);
   }
 }
 
@@ -898,22 +925,20 @@ async function handleEbookUpload(file) {
   const text = $('#ebookUploadText');
   try {
     try {
-      const d = await uploadEbookWithProgress(bookId, file, authHeaders());
-      renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
-      toast('电子书已上传');
+      await uploadEbookWithProgress(bookId, file, authHeaders());
     } catch (err) {
       if (err.status === 401) {
         forgetToken();
         const t = askForToken();
         if (t === null) throw new Error('需要管理令牌');
         localStorage.setItem(TOKEN_KEY, t);
-        const d = await uploadEbookWithProgress(bookId, file, { Authorization: 'Bearer ' + t });
-        renderEbookInfo({ file_path: d.file.path, file_format: d.file.format, file_size: d.file.size });
-        toast('电子书已上传');
+        await uploadEbookWithProgress(bookId, file, { Authorization: 'Bearer ' + t });
       } else {
         throw err;
       }
     }
+    await refreshEbookList();
+    toast('文件已上传');
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -922,26 +947,32 @@ async function handleEbookUpload(file) {
   }
 }
 
-ebookFileEl.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file || ebookUploading) return;
-  handleEbookUpload(file);
-});
-
-$('#ebookRemove').addEventListener('click', async () => {
+async function removeEbookFile(format) {
   const bookId = $('#bookId').value;
   if (!bookId || ebookUploading) return;
   ebookUploading = true;
   try {
-    await fetch(`/api/books/${bookId}/file`, { method: 'DELETE', headers: { ...authHeaders() } });
-    renderEbookInfo(null);
-    toast('已移除电子书文件');
+    const res = await fetch(`/api/books/${bookId}/file?format=${encodeURIComponent(format)}`, {
+      method: 'DELETE', headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || '删除失败');
+    }
+    await refreshEbookList();
+    toast(`已删除 ${format} 文件`);
   } catch (err) {
     toast(err.message, true);
   } finally {
     ebookUploading = false;
   }
+}
+
+ebookFileEl.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || ebookUploading) return;
+  handleEbookUpload(file);
 });
 
 $('#fStatus').addEventListener('click', (e) => {
