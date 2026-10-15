@@ -2932,16 +2932,6 @@ main.page-home {
   .hstat .num { font-size: 32px; }
 }
 
-/* 窄横屏(横屏手机/小窗):弹窗保留贴底抽屉形态 */
-@media (max-width: 559.98px) and (orientation: landscape) {
-  .modal { align-items: flex-end; }
-  .modal-box {
-    max-height: 94dvh;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    padding-bottom: max(30px, env(safe-area-inset-bottom));
-  }
-}
-
 @media (min-width: 560px) {
   .book-grid { grid-template-columns: repeat(3, 1fr); }
   .stats-hero-grid { grid-template-columns: repeat(3, 1fr); }
@@ -2965,18 +2955,85 @@ main.page-home {
 
 /* 竖屏:所有弹窗垂直居中(浮层卡片,四角圆角)——
    不再贴底成抽屉、也不再拉满全高;刘海与底部横条用安全区留白避开。
-   放在 820px 块之后:竖屏大平板(≥820px)原本已居中,这里统一收进同一规则。 */
+   放在 820px 块之后:竖屏大平板(≥820px)原本已居中,这里统一收进同一规则。
+
+   2026-10-15 收紧:此前竖屏沿用桌面级的 26px/24px 内边距、24px 标题、16px 间距,
+   表单弹窗实测占到 95% 高(390×844),像整页而非弹窗。现在:
+     · max-height 84dvh —— 上下留出背景,一眼看出是浮层(表单内部滚动)
+     · 内边距/标题/间距/文本域/封面预览整体下调一档
+     · 输入框字号保持 17px、高度保持 44px(iOS 聚焦不放大 + 触控目标不缩水) */
 @media (orientation: portrait) {
   .modal {
     align-items: center;
-    padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-             max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   }
   .modal-box {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
-    max-height: 100%;
+    max-height: 84dvh;
+    padding: 20px 16px 22px;
   }
+
+  .modal-head { margin-bottom: 14px; padding-bottom: 12px; }
+  .modal-head h2 { font-size: 19px; }
+  .modal-head .icon-btn { width: 30px; height: 30px; }
+
+  .form-grid { gap: 13px; }
+  .field label { font-size: 12px; }
+  .field textarea { min-height: 84px; }
+
+  .form-foot { margin-top: 16px; padding-top: 14px; }
+  .form-foot-btns .btn { padding: 9px 18px; font-size: 14.5px; }
+
+  /* 豆瓣候选最多占 40dvh:候选多时自身滚动,不把表单顶长 */
+  .douban-candidates { max-height: 40dvh; overflow-y: auto; }
+
+  .cover-preview { width: 76px; height: 106px; }
+
+  /* 详情弹窗:封面与标题同步收一档,关闭钮贴新内边距 */
+  .detail-body { gap: 18px; }
+  .detail-cover { width: 140px; }
+  .detail-info h2 { font-size: 23px; }
+  .detail-close { top: 14px; right: 14px; }
+}
+
+/* 横屏手机(矮视口):弹窗贴底成抽屉形态。
+   判定用 max-height 而非 max-width —— 横屏手机宽 568~932px,原宽度阈值
+   (max-width: 559.98px)会把 iPhone 横屏整类漏掉,落回默认的
+   align-items: stretch 撑满全高、圆角 0,像整页而不是弹窗
+   (2026-10-15 实测 667×375 占 100% 高)。
+   放在竖屏块与 820px 块之后:矮屏横屏手机的宽度可能 ≥820px,
+   必须靠层叠顺序压住那套桌面规则。 */
+@media (orientation: landscape) and (max-height: 500px) {
+  .modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal-box {
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--shadow-pop);
+    padding: 18px 16px max(22px, env(safe-area-inset-bottom));
+  }
+
+  .modal-head { margin-bottom: 12px; padding-bottom: 10px; }
+  .modal-head h2 { font-size: 18px; }
+  .modal-head .icon-btn { width: 30px; height: 30px; }
+
+  .form-grid { gap: 12px; }
+  .field label { font-size: 12px; }
+  .field textarea { min-height: 70px; }
+
+  .form-foot { margin-top: 14px; padding-top: 12px; }
+
+  .douban-candidates { max-height: 34dvh; overflow-y: auto; }
+  .cover-preview { width: 70px; height: 98px; }
+
+  .detail-body { gap: 16px; flex-direction: row; }
+  .detail-cover { width: 128px; align-self: flex-start; }
+  .detail-info h2 { font-size: 21px; }
+  .detail-close { top: 12px; right: 12px; }
 }
 
 @media (min-width: 1100px) {
