@@ -2947,7 +2947,9 @@ main.page-home {
   .stats-panels { grid-template-columns: 1fr 1fr; }
   .panel-wide { grid-column: 1 / -1; }
   .modal { align-items: center; padding: 28px; }
-  .modal-box { border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); max-height: calc(100dvh - 56px); }
+  /* vh 在前作旧内核(微信 X5 等不支持 dvh)回退:否则本条 dvh 被整行丢弃 →
+     .modal-box 无高度上限 → 超视口内容居中裁切、顶到底像整页 */
+  .modal-box { border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .detail-body { flex-direction: row; }
   .detail-cover { width: 200px; align-self: flex-start; }
@@ -2971,6 +2973,7 @@ main.page-home {
   .modal-box {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
+    max-height: 84vh;      /* 回退:不支持 dvh 的旧内核仍限高 */
     max-height: 84dvh;
     padding: 20px 16px 22px;
   }
@@ -2987,7 +2990,7 @@ main.page-home {
   .form-foot-btns .btn { padding: 9px 18px; font-size: 14.5px; }
 
   /* 豆瓣候选最多占 40dvh:候选多时自身滚动,不把表单顶长 */
-  .douban-candidates { max-height: 40dvh; overflow-y: auto; }
+  .douban-candidates { max-height: 40vh; max-height: 40dvh; overflow-y: auto; }
 
   .cover-preview { width: 76px; height: 106px; }
 
@@ -3011,6 +3014,7 @@ main.page-home {
     padding: 0;
   }
   .modal-box {
+    max-height: 92vh;      /* 回退:不支持 dvh 的旧内核仍限高 */
     max-height: 92dvh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: var(--shadow-pop);
@@ -3027,7 +3031,7 @@ main.page-home {
 
   .form-foot { margin-top: 14px; padding-top: 12px; }
 
-  .douban-candidates { max-height: 34dvh; overflow-y: auto; }
+  .douban-candidates { max-height: 34vh; max-height: 34dvh; overflow-y: auto; }
   .cover-preview { width: 70px; height: 98px; }
 
   .detail-body { gap: 16px; flex-direction: row; }

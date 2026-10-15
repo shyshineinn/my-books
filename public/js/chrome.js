@@ -102,11 +102,11 @@ function overlaysHtml() {
         <div class="form-grid">
           <div class="field field-full">
             <label for="fTitle">书名 <i class="req">*</i></label>
-            <input type="text" id="fTitle" maxlength="120" placeholder="例如:三体" required>
+            <input type="text" id="fTitle" maxlength="120" required>
           </div>
           <div class="field">
             <label for="fAuthor">作者</label>
-            <input type="text" id="fAuthor" maxlength="80" placeholder="例如:刘慈欣">
+            <input type="text" id="fAuthor" maxlength="80">
           </div>
           <div class="field">
             <label>状态</label>
@@ -118,7 +118,7 @@ function overlaysHtml() {
           </div>
           <div class="field">
             <label for="fTags">分类标签</label>
-            <input type="text" id="fTags" placeholder="用逗号分隔,如:小说, 科幻" list="tagSuggestions">
+            <input type="text" id="fTags" list="tagSuggestions">
             <datalist id="tagSuggestions"></datalist>
           </div>
           <div class="field field-full">
@@ -129,7 +129,7 @@ function overlaysHtml() {
           </div>
           <div class="field field-full">
             <label for="fSummary">图书简介 <span class="label-sub">这本书讲什么,可选</span></label>
-            <textarea id="fSummary" rows="3" maxlength="1000" placeholder="例如:一段跨越半个多世纪的爱情史诗……"></textarea>
+            <textarea id="fSummary" rows="3" maxlength="1000"></textarea>
           </div>
           <div class="field field-full">
             <label for="fCoverUrl">封面图片</label>
@@ -137,7 +137,7 @@ function overlaysHtml() {
             <div class="cover-editor">
               <div id="coverPreview" class="cover-preview">暂无封面</div>
               <div class="cover-actions">
-                <input type="text" id="fCoverUrl" placeholder="粘贴图片链接 https://…">
+                <input type="text" id="fCoverUrl">
                 <div class="cover-btns">
                   <label class="btn btn-ghost">
                     <span class="cover-upload-text">上传本地图片</span>
