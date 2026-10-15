@@ -14,10 +14,12 @@
 - [技术栈](#技术栈)
 - [系统架构](#系统架构)
   - [总体架构](#总体架构)
-  - [后端架构(serverjs--dbjs)](#后端架构serverjs--dbjs)
+  - [后端架构(core--db--http-三层)](#后端架构coredbhttp-三层)
+  - [测试](#测试)
   - [数据模型](#数据模型)
   - [前端架构(public)](#前端架构public)
   - [关键实现细节](#关键实现细节)
+  - [历史决策记录](#历史决策记录)
   - [安全设计](#安全设计)
 - [目录结构](#目录结构)
 - [API 一览](#api-一览)
@@ -38,13 +40,18 @@
 | **书架** | `/shelf` | 封面卡片网格,状态页签(想读/在读/已读)带计数,标签筛选 + 排序,支持添加 / 编辑 / 删除书籍(删除有确认提示);URL 查询串 `?q=&status=&tag=&sort=` 携带筛选条件,可分享/回退 |
 | **榜单** | `/rank` | 英雄区(总藏书 / 读完数)+ **重读榜**(读过两次以上的书,按次数排序,至多 8 本) |
 | **统计** | `/stats` | 阅读印象 Hero(总藏书 / 已读及占比 / 在读 / 想读)+ 每年读完柱状图 + 标签分布(点击标签跳 `/shelf?tag=…` 筛选) |
+| **分类** | `/tags` | 标签 / 作者的双列管理(重命名 / 合并 / 删除,均同步全部书籍)+ **自定义字段**管理(新建 / 编辑 / 软删除后恢复 / 彻底删除) |
 | **读书心得** | `/notes/:id` | 独立页面,渲染单本书的 Markdown 心得 |
 
 > 旧单页深链 `#/notes/<id>`、`#/rank` 由 `chrome.js` 的 `legacyHashRedirect` 用 `location.replace` 兼容跳转到新页面,老书签/分享链接照常可用。
 
 ### 记录字段与阅读记录
 
-- **字段**:书名(必填)、作者、状态(想读 / 在读 / 已读)、图书简介(≤1000 字)、分类标签、封面、心得链接
+- **字段**:书名(必填)、作者、状态(想读 / 在读 / 已读)、图书简介(≤1000 字)、分类标签、封面、心得链接、豆瓣元数据(出版社 / 出版年 / ISBN / 评分 / 条目 id)
+- **自定义字段**(2026-10-15 新增,对标 calibre 的自定义列):在 `/tags` 页可自行增删字段,
+  **不必改代码、不必发版**。支持 9 种类型:单行文本(可多值)、长文本、整数、小数、评分(0~10)、
+  日期、是/否、枚举(受控选项)、系列。建好后出现在书籍编辑弹窗里,并可用 `#字段名:值` 参与检索。
+  删除是**软删除**(字段定义与已填取值都保留,可随时恢复),只有显式「彻底删除」才连值一起清掉。
 - **阅读记录**:每次阅读的起止日期列表,是日期类字段的**唯一数据源** ——
   - 「读完日期」= 记录中最晚的读完日;「开始日期」= 最近一次的开读日
   - 「读过次数」= 记录中已有读完日期的条数
@@ -67,28 +74,42 @@
 ### 搜索 / 筛选 / 排序
 
 - 按书名 / 作者模糊搜索(300ms 防抖;**发起检索会清空状态与标签筛选**,即全库检索)
-- 按状态页签与标签筛选;按最近更新 / 读完日期 / 书名排序
-- 排序与筛选都在 SQL 层完成,标签匹配走 JSON 字符串 `LIKE`
+- 按状态页签、标签、作者筛选;按最近更新 / 读完日期 / 书名 / 作者 / **系列** / 添加时间排序
+- **高级搜索语法**:`tag:科幻 author:刘慈欣 status:done rating>=9 三体`,支持 `and` / `or` / `not` / 前导 `-`(否定)、值加引号含空格;页面内「语法?」按钮有完整说明
+- **系列检索**:`series:地球往事`(精确)、`series_index:>=2`(序号比较)
+- **标识符检索**:`identifier:goodreads:5907`;只写类型表示「有该类标识符」
+- **自定义字段检索**:`#字段名:值`,如 `#页数:>=300`
+- 排序与筛选都在 SQL 层完成;标签 / 作者走归一化链接表的 `EXISTS` 精确匹配
 
-### 在线阅读(`/read/:id`)
+### 系列与标识符
 
-支持 **EPUB** 与 **PDF** 站内阅读(其余格式仅存不读,提示下载)。
+**系列(series + series_index)**:一本书可归属一个系列并带序号。
 
-- **阅读进度记忆**:退出后重进自动回到上次位置。位置按「书 + 格式 + 设备」分区 —— 手机与电脑各记各的,换设备时提示「另一设备读到 x%」而不强行覆盖
-  - 三层降级:服务端位置 → 浏览器本地(`localStorage`)→ 从头开始。**任何一层失败都不阻断阅读**(离线、未配口令、服务端挂了都能正常看,只是不上报)
-  - 节流:阅读中位置变化频繁,本地即时写,服务端 3 秒合并一次;离开页面(`pagehide`/切后台)时补发最后一次
-- **阅读设置**(设备级偏好,只存本地):字号 12~32px、行距、页边距、主题(日间/米黄/灰色/夜间)、字体(衬线/黑体)、翻页模式(分页/滚动,仅 EPUB 有效 —— PDF 是固定版式)
-- **目录导航**:侧栏列出章节,点击跳转(EPUB 来自文件内 navigation,PDF 来自 outline)
-- **快捷键**:`←`/`→`、`PgUp`/`PgDn`、空格翻页,`+`/`-` 调字号,`Esc` 关闭侧栏;EPUB 内容在 iframe 内,按键单独绑定
+- 序号支持小数(中篇插队:`2.5`);`0` 表示未指定序号
+- 输入时可以写「基地 [3]」一次带出序号(服务端拆分),也可以分别填两个框
+- `GET /api/series` 给出系列列表(带计数与序号范围),编辑框里作为输入建议
+- 排序选「系列」时按 `系列名 + 序号`,未入系列的书排在最后
 
-> 位置坐标:EPUB 用 epub.js 原生提供的标准 **EPUBCFI** 串(精确到字符);PDF 用 `{page, offsetY}`。这套坐标同时是后续书签/高亮/批注的地基。
+**标识符(identifiers)**:`isbn` 与 `douban_id` 走专用输入框,其余类型任意添加。
+
+- 常见类型(goodreads / doi / amazon / openlibrary / google / issn / url)在详情页**自动生成外链**
+- 每种类型每本书一个值;清空该值即删除该标识符
+- `GET /api/identifiers/duplicates` 可查「同类型同值被多本书占用」(合订本 / 再版排查)
+
+### 电子书文件(只存不读)
+
+上传的电子书文件**仅作存储与下载**,站内在线阅读已于 2026-10-14 下线(见[历史](#历史决策记录))。
+
+- 一本书可挂**多个格式**(EPUB / PDF / MOBI / AZW3 / TXT),同一格式只保留一份,重复上传即替换
+- 单文件上限 80MB;存储用「先写临时名再原子改名」,被替换的旧文件在登记成功后删除
+- 下载走 `/books-files/`,由详情弹窗的下载链接提供(`download` 属性带书名)
 
 ### 移动端与无障碍
 
 - 手机两列卡片 + 底部抽屉弹窗 + 全屏菜单(apple.com 风);平板 / 电脑最多六列自适应
 - 顶栏搜索是移动端一级入口(点图标展开整行搜索栏);左边缘右滑返回(≤819px)
 - 弹窗 / 轮播 / 下拉均带 aria 标注与键盘操作;轮播尊重 `prefers-reduced-motion`
-- 首次启动自动写入 **17 本**示例书(见 `db.js` 的种子数据),可像普通书一样编辑或删除
+- 首次启动自动写入 **17 本**示例书(见 `src/db/seed-data.js`),可像普通书一样编辑或删除
 
 ---
 
@@ -180,46 +201,81 @@ npm start     # 启动服务
 
 - `book.js`:`parseBook()` 统一校验(书名必填、状态白名单、标签去重、日期格式、读过次数 0~999、
   阅读记录结构与先后关系、简介截断 1000 字)+ **「阅读记录是唯一日期来源」推导规则**;
-  `mergeUpdate()` 实现 PUT 局部更新语义(未提供的字段保留数据库旧值)
+  `mergeUpdate()` 实现 PUT 局部更新语义(未提供的字段保留数据库旧值);`splitAuthors()` 拆多作者
+- `sort_keys.js`:排序键 —— `titleSort()`(剥引号 + 英语冠词移位,对标 calibre `title_sort`);
+  `authorToAuthorSort()`(姓名倒装「Smith, John」,对标 `author_to_author_sort`)
+- `series.js`:系列规则 —— `系列名 [序号]` 输入解析(对标 `_get_series_values`)、序号规范与
+  `nextSeriesIndex()` 自动递增(对标 `series_index_auto_increment` 的 first_free 策略)
+- `identifiers.js`:标识符规则 —— 类型归一(对标 `clean_identifier`)、已知类型的外链构造、展示列表
+- `custom_fields.js`:自定义字段规则 —— `parseColumnDef()` 校验定义(label 正则 + datatype 白名单 +
+  多值收窄 + 枚举选项)、`normalizeValue()` 按 9 种类型规范化取值、`displayValue()` 生成展示文本
+- `query.js`:高级搜索语法解析(字段谓词 / `and`·`or`·`not` / 否定 / `#自定义字段`)
+- `douban.js`:豆瓣搜索页与详情页解析(纯函数)+ 到 `books` 字段的映射
+- `ebook.js`:电子书格式 / 大小 / 存储名规则;`fs-utils.js`:原子写 + 受边界约束的删除;`paths.js`:目录常量
 - `stats.js`:`computeStats()` 统计聚合(状态分组 / 按年读完 / 标签 Top12)
 
 **`src/db/` 数据访问(只 import node: 内置模块与 core)**
 
-- `index.js`:打开 `data/books.db`、建表、**幂等迁移**(缺列补齐;`review`/`rating` 下线删列,
-  `rating` 删除前自动备份)、书架为空时写 17 本种子数据(数据在 `seed-data.js`)
+- `index.js`:打开 `data/books.db`、**PRAGMA 加固**(`busy_timeout` / `WAL` / `foreign_keys`)、
+  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v11)、新库写 17 本种子数据;
+  另导出 **`inTransaction(db, fn)`** —— 嵌套安全的事务包裹助手(各层都无脑 BEGIN 会报
+  "cannot start a transaction within a transaction";用 `db.isTransaction` 判断,不靠计数器)
 - `search.js`:**独立全文检索层**(对标 calibre `db/search.py` + `db/fts`)。FTS5 虚表
   `books_fts`(trigram 分词,中文子串友好)通过外部内容连接 books 主表,增删改由
-  `books.js` 同步一行;检索 ≥3 字走 FTS+BM25 相关度排序,1~2 字短词回退 LIKE(tags 仍走 LIKE)
-- `books.js`:CRUD 与列表查询;有搜索词时 `listBooks` 委托 `search.js`,无搜索词走主表
-  (排序白名单 / 筛选拼装在 SQL 层,标签匹配走 JSON 字符串 LIKE)
-- `settings.js`:心得仓库设置读写与校验
-- `stats.js`:取全量行后交给 `core/computeStats` 聚合(个人书架数据量小,全表扫描即可)
+  `books.js` 同步一行;检索 ≥3 字走 FTS+BM25 相关度排序,1~2 字短词回退 LIKE。
+  结构化检索把 `#自定义字段` 翻译成 `book_custom_values` 上的 `EXISTS` 子查询
+- `books.js`:CRUD 与列表查询(**主表 + 标签/作者链接 + 自定义值 + FTS 索引整体裹事务**);
+  有搜索词时 `listBooks` 委托 `search.js`,无搜索词走主表
+- `custom_fields.js`:自定义字段注册表 CRUD(含**软删除 / 恢复 / 物理删除**)+ 取值读写
+  (`setValues` 按 label 局部更新,空值删行);db 句柄由调用方传入(测试可完全隔离)
+- `identifiers.js`:标识符读写 —— `isbn` / `douban` 与 `books` 专用列**双写**,读以表为准、旧列兜底;
+  另有 `findDuplicates()` 冲突检测与 `pruneOrphans()` 兜底清理
+- `categories.js`:标签 / 作者归一化(重命名 / 合并 / 删除后重算缓存并重建 FTS)
+- `book_files.js` / `saved_searches.js` / `settings.js` / `stats.js`
 
 **`src/http/` HTTP 适配(解析请求 → 调 db → 组响应,不写规则与 SQL)**
 
-- `routes.books.js`:书籍 CRUD 路由
+- `routes.books.js`:书籍 CRUD;挂载 `custom`(原始值)与 `custom_display`(展示文本);
+  检索语法错误转 400
+- `routes.customFields.js`:自定义字段管理(列表带 `usage` 引用计数、新建、改、软删 / 恢复 / 彻底删除)
+- `routes.categories.js` / `routes.savedSearches.js` / `routes.files.js` / `routes.metadata.js`
 - `routes.misc.js`:设置 / 上传(MIME 白名单 + 5MB + 随机文件名)/ 统计路由
+- `middleware.auth.js`:写接口鉴权(Bearer token、恒时比较、失败限速)
 - `routes.proxy.js`:两个出站代理,原样保留缓存与超时:
   - `/api/notes`:仅接受 `github.com` 与 `raw/gist.githubusercontent.com` 链接;短文件名解析到设置里的仓库;`AbortSignal.timeout(30s)`;缓存 5 分钟
   - `/api/img-proxy`:SSRF 防护(内网地址黑名单)、仅 http/https、`content-type` 必须为 `image/*`、≤5MB、15s 超时 + 失败自动重试一次;缓存 1 小时并给浏览器 `Cache-Control: public, max-age=3600`
 
-**`server.js` 薄入口(约 45 行)**
+**`server.js` 薄入口**
 
-- 中间件:`express.json({ limit: '10mb' })`(封面 base64 编码后约 6.7MB,必须留足)、`express.static` 服务 `public/` 与 `/uploads/`
+- 中间件:`express.json({ limit: '10mb' })`(封面 base64 编码后约 6.7MB,必须留足)、`express.static` 服务 `public/`、`/uploads/` 与 `/books-files/`
+- **API 版本化**:全部路由同时挂 `/api/*` 与 `/api/v1/*`(多端契约)
+- 优雅退出:`SIGTERM` / `SIGINT` 先停止接新请求,3s 兜底强杀
 - `/vendor/marked.umd.js`、`/vendor/purify.min.js`:把 `node_modules` 里的 UMD 文件直接回给浏览器
   (marked v16+ 的 exports 限制子路径,需手动拼接包内路径),因此前端无需任何构建
 
 ### 测试
 
-`npm test`(Node 内置 test runner,零新依赖),当前 **42 条用例**全部通过:
+`npm test`(Node 内置 test runner,零新依赖),当前 **233 条用例**全部通过(18 个文件):
 
-- `test/book.test.js`(17 条):校验规则 + 核心推导规则 —— 有记录时日期与次数由记录推导、
+- `test/book.test.js`(18 条):校验规则 + 核心推导规则 —— 有记录时日期与次数由记录推导、
   请求体旧值被忽略、进行中记录不计次数、无记录时保留兜底值(API 兼容)、PUT 保留旧值语义等
 - `test/stats.test.js`(5 条):状态分组 / byYear 只计已读完 / topTags 降序取 12 / 坏 JSON 容错 / 空书架
-- `test/auth.test.js`(11 条):恒时比较 / 请求头提取 / GET 放行 / 无 token 401 或 503(fail closed)/
-  错 token 401 / 对 token 放行(两种头都验)
-- `test/search.test.js`(9 条):独立全文检索层 —— trigram 中文子串命中标题/作者/简介/标签、
-  1~2 字短词 LIKE 兜底、status/tag 与检索正交、增删改同步索引、BM25 相关度排序、迁移建索引、重建索引
+- `test/auth.test.js`(14 条):恒时比较 / 请求头提取 / GET 放行 / 无 token 401 或 503(fail closed)/
+  错 token 401 / 对 token 放行(两种头都验)/ 失败限速
+- `test/search.test.js`(9 条)+ `test/search-robust.test.js`(8 条):独立全文检索层 —— trigram 中文子串
+  命中标题/作者/简介/标签、1~2 字短词 LIKE 兜底、status/tag 与检索正交、增删改同步索引、BM25 相关度排序
+- `test/query.test.js`(12 条)+ `test/advanced-search.test.js`(11 条):高级搜索语法与结构化检索
+- `test/custom-fields.test.js`(38 条,2026-10-15 新增):自定义字段 —— 定义校验(label 正则 / datatype
+  白名单 / 多值收窄 / 枚举选项)、9 种类型的值规范化、注册表 CRUD 与软删除 / 恢复 / 物理删除、
+  外键级联、`#字段` 检索(含数值比较两种写法、否定、未知字段报错)、`inTransaction` 嵌套安全与回滚
+- `test/a-group-v12.test.js`(45 条,2026-10-15 新增):A 组剩余数据模型 ——
+  `titleSort`(冠词移位 / 中文原样 / 引号剥离 / 边界)、`authorToAuthorSort`(倒装 / 前缀称谓 / 多作者)、
+  系列解析(`系列 [n]` / 小数序号 / `nextSeriesIndex`)、标识符(归一化 / 双写 / 清空 / 批量 / 冲突检测)、
+  uuid 迁移回填与幂等、v12 迁移结构与「内置 series 与 #series 两个命名空间共存」
+- `test/categories.test.js`(11 条)/ `test/migrations.test.js`(6 条)/ `test/saved-searches.test.js`(8 条)/
+  `test/ebook.test.js`(10 条)/ `test/delete-assets.test.js`(11 条)/ `test/douban.test.js`(7 条)/
+  `test/fs-utils.test.js`(6 条)/ `test/lru.test.js`(7 条)/ `test/metadata-cache.test.js`(3 条)/
+  `test/seed-data.test.js`(4 条)
 
 ### 数据模型
 
@@ -229,48 +285,77 @@ npm start     # 启动服务
 | --- | --- | --- |
 | `id` | INTEGER PK | 自增 |
 | `title` | TEXT NOT NULL | 书名(必填) |
-| `author` | TEXT | 作者 |
+| `author` | TEXT | 作者(展示缓存,由 `book_authors` 重算) |
+| `author_sort` | TEXT | 首位作者(排序键) |
 | `status` | TEXT | `wish` / `reading` / `done`,CHECK 约束 |
 | `summary` | TEXT | 图书简介,服务端截断 ≤1000 字 |
-| `tags` | TEXT | JSON 数组,如 `["小说","科幻"]` |
+| `tags` | TEXT | JSON 数组,如 `["小说","科幻"]`(展示缓存,由 `book_tags` 重算) |
 | `start_date` / `finish_date` | TEXT | `YYYY-MM-DD`;**由 `read_logs` 自动推导**,无记录时保留表单兜底值 |
 | `cover` | TEXT | 封面地址(`/uploads/...` 相对路径或外链);空则前端生成占位封面 |
 | `notes_url` | TEXT | 心得 Markdown 链接;空且已配置仓库时按《书名》.md 自动匹配 |
 | `read_count` | INTEGER | 读过次数;**有记录时 = `read_logs` 中 `finish` 非空的条数** |
 | `read_logs` | TEXT | JSON 数组 `[{start, finish}]`,每行一次阅读 |
+| `publisher` / `pub_year` / `isbn` / `rating` / `douban_id` | TEXT/REAL | 豆瓣抓取的元数据;`rating` 为 **10 分制**(可含小数) |
+| `series` | TEXT | 系列名(v12);空 = 未入系列 |
+| `series_index` | REAL | 系列序号(v12),支持小数;**0 表示未指定** |
+| `title_sort` | TEXT | 书名排序键(v12):剥外层引号 + 英语冠词移位(「The Hobbit」→「Hobbit, The」);中文书名与原书名相同 |
+| `uuid` | TEXT | 单本稳定标识(v12):跨库/导入导出时识别「同一本书」,不受自增 id 变化影响 |
 | `created_at` / `updated_at` | TEXT | ISO 时间戳 |
 
-`settings` 表:`key TEXT PRIMARY KEY, value TEXT`;现用键:`notes_repo`、`notes_branch`。
+> `author_sort` 自 v12 起改用**图书馆惯例的倒装键**(「Smith, John」),多作者用 ` & ` 连接
+> (对标 calibre `authors_to_sort_string`)。**中文名是单 token,原样返回**,所以中文书的排序结果与改造前一致。
 
-`read_positions` 表(v5 迁移新增,阅读进度记忆):
+**标识符表**(v12):`book_identifiers(book, type, value)`,`PRIMARY KEY(book, type)`
+—— 对标 calibre 的 `identifiers` 表(每类型一个值,类型无上限)。
+`books.isbn` / `books.douban_id` 两列**保留**(豆瓣抓取 / FTS / 前端都在用),
+由 `src/db/identifiers.js` **双写**保证两处一致:读以表为准、旧列兜底。
+
+**归一化分类表**(v9):`tags(id,name)` / `book_tags(book,tag)` / `authors(id,name,sort)` /
+`book_authors(book,author,position)` —— 真源是这四张表,`books.tags` / `books.author` 是派生缓存。
+
+**文件表**(v7):`book_files(id, book, format, path, size, ...)`,`UNIQUE(book, format)`;
+一本书可挂多个格式,删书经外键 `CASCADE` 自动清登记(磁盘文件由路由层删)。
+
+**自定义字段**(v11,对标 calibre 的自定义列):
+
+`custom_columns` —— 字段注册表:
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
 | `id` | INTEGER PK | 自增 |
-| `book` | INTEGER NOT NULL | 外键 → `books(id)` **ON DELETE CASCADE**(删书自动清进度) |
-| `format` | TEXT NOT NULL | `EPUB` / `PDF`,`COLLATE NOCASE`(大小写不敏感) |
-| `device` | TEXT NOT NULL | 设备标识(前端生成并持久化,如 `pc-a3f2`) |
-| `locator` | TEXT NOT NULL | 位置本体,按 `locator_kind` 解释 |
-| `locator_kind` | TEXT NOT NULL | `epubcfi`(存 epub.js 的 CFI 串)/ `pdfpage`(存 `{"page":n,"offsetY":y}`),CHECK 约束 |
-| `pos_frac` | REAL NOT NULL | 0~1 全文进度,展示用 |
-| `epoch` | INTEGER NOT NULL | Unix 毫秒 |
+| `label` | TEXT NOT NULL | 机器名(小写字母开头,`UNIQUE COLLATE NOCASE`),检索时写作 `#label` |
+| `name` | TEXT NOT NULL | 显示名 |
+| `datatype` | TEXT NOT NULL | `text`/`comments`/`int`/`float`/`bool`/`date`/`rating`/`enumeration`/`series`,**CHECK 白名单**(与 `core/custom_fields.js` 的清单由测试钉死一致) |
+| `is_multiple` | INTEGER | 0/1,仅 `text` 可为 1(CHECK 约束) |
+| `options` | TEXT | 枚举选项,JSON 数组 |
+| `display_order` | INTEGER | 表单与列表里的排列顺序 |
+| `mark_for_delete` | INTEGER | 0/1 **软删除标记** —— 删除字段只是置 1,定义与取值都保留,可恢复 |
 
-`UNIQUE (book, format, device)` —— 同一本书在同一格式的同一设备上只保留一行最新位置,**不同设备各存各的、互不覆盖**。写入用 UPSERT(`ON CONFLICT ... DO UPDATE`),天然幂等。
+`book_custom_values` —— 取值表:`PRIMARY KEY(book, column_id)`,两列均为外键 + `ON DELETE CASCADE`
+(删书或物理删字段时自动清值)。值为统一 `TEXT`:多值存 JSON 数组串(如 `["科幻","硬科幻"]`),
+数值存数字串,空串表示未填(**不在表里留空行**)。
 
-> 位置模型是「后续能力的地基」:书签/高亮/批注都复用这套坐标(高亮是 `[start, end]` 两个 locator)。cfi 由 epub.js 的 `rendition.currentLocation()` 原生提供,无需自行实现 EPUBCFI。
+> **为什么不像 calibre 那样每个字段建一张物理表**(`custom_column_N`):那是为几十万册书库的索引
+> 性能服务的。本项目有一条更重要的不变量 —— **schema 只由 `src/db/index.js` 的 `migrations` 数组定义**。
+> 运行时 DDL 会让"库的结构"取决于"用户的操作历史",备份 / 恢复 / 自检都失去确定性。
+> 单张值表 + 约束实现同样的语义,代价是值表宽一点,收益是 schema 恒定可推演。
+
+`settings` 表:`key TEXT PRIMARY KEY, value TEXT`;现用键:`notes_repo`、`notes_branch`。
+
+`saved_searches` 表(v10):`name UNIQUE COLLATE NOCASE` + `query`(原始语法串)+ `sort`。
 
 **推导规则**(服务端 `parseBook` 强制执行):阅读记录存在时,`read_count` / `finish_date` / `start_date` 全部由记录推导,忽略请求体里的旧值;无记录时保留请求体兜底值(API 兼容旧客户端)。
 
 ### 前端架构(public/)
 
-- **无构建管线**:五个 HTML 页面(`index.html` / `shelf.html` / `rank.html` / `stats.html` / `notes.html`)各带自己的 `<main>`;顶栏 / 弹窗 / 移动端菜单 / 页脚由 `js/chrome.js` 按 `body[data-page]` 统一注入(单一来源,避免五份副本手工同步);样式单文件 `css/style.css`
+- **无构建管线**:六个 HTML 页面(`index.html` / `shelf.html` / `rank.html` / `stats.html` / `tags.html` / `notes.html`)各带自己的 `<main>`;顶栏 / 弹窗 / 移动端菜单 / 页脚由 `js/chrome.js` 按 `body[data-page]` 统一注入(单一来源,避免多份副本手工同步);样式单文件 `css/style.css`
 - **脚本加载顺序**(全部 `defer`,classic script 共享全局):`chrome.js` → `common.js` → `page-<name>.js`;`vendor/marked.umd.js` + `vendor/purify.min.js` 只在心得页加载,`endless-gallery.js` 只在首页加载
 - **干净 URL**:`express.static` 的 `extensions:['html']` 让 `/shelf` → `shelf.html`;`/notes/:id` 用显式路由(非法 id 重定向回书架);HTML 一律 `Cache-Control: no-cache`,靠 `?v=` 的静态资源长缓存不受影响
 - **跨页协调**:弹窗保存/删除后派发 `books-changed` 文档事件刷新本页数据;顶栏搜索在非书架页回车跳 `/shelf?q=…`,在书架页则派发 `shelf-search` 实时筛选;`/api/stats` 全站共享缓存(`sharedStats`),变更时作废
-- **缓存失效**:各页面 HTML 里静态资源用版本号查询串(`style.css?v=31`、`chrome.js?v=1`…)控制;**改动静态文件后记得同步递增对应 `?v=`,并同步 `sw.js` 的 `SHELL_ASSETS` 清单与 `CACHE_VERSION`**
+- **缓存失效**:各页面 HTML 里静态资源用版本号查询串(`style.css?v=N`、`chrome.js?v=N`…)控制;**改动静态文件后记得同步递增对应 `?v=`,并同步 `sw.js` 的 `SHELL_ASSETS` 清单与 `CACHE_VERSION`**(这里的 N 只作示意:实际数字以各页面 HTML 为准,不要照抄本行)
 - 模块划分:
   - `js/chrome.js`(约 250 行):外壳注入(顶栏/弹窗/菜单/Toast/页脚)、旧 hash 深链兼容、Service Worker 注册
-  - `js/common.js`(约 900 行):`api()` fetch 封装(401 提示 token 并重试)、详情/编辑弹窗、表单(阅读记录编辑器 + 状态联动;封面编辑器;电子书上传)、自定义下拉(原生 `<select>` 隐藏作唯一数据源,视觉渲染「胶囊按钮 + 圆角浮层」,选中回写 `value` 并派发 `change`)、搜索接线、移动端全屏菜单与左边缘右滑返回(层级:弹窗 → 菜单 → 搜索栏 → 下拉 → 返回首页)、`sharedStats` 缓存
+  - `js/common.js`:`api()` fetch 封装(401 提示 token 并重试)、详情/编辑弹窗、表单(阅读记录编辑器 + 状态联动;封面编辑器;电子书上传;**自定义字段的动态控件**)、自定义下拉(原生 `<select>` 隐藏作唯一数据源,视觉渲染「胶囊按钮 + 圆角浮层」,选中回写 `value` 并派发 `change`)、搜索接线、移动端全屏菜单与左边缘右滑返回(层级:弹窗 → 菜单 → 搜索栏 → 下拉 → 返回首页)、`sharedStats` 缓存
   - `js/page-*.js`:各页渲染与数据加载,筛选状态存页面闭包
   - **竞态防护**:列表 / 取色各自维护会话号(`fetchSeq`、`tintSeq`),旧响应一律丢弃
 - `js/endless-gallery.js`(约 560 行):逐项复刻 apple.com 首页 media-gallery ——
@@ -288,6 +373,18 @@ npm start     # 启动服务
 - **零构建的 Markdown 管线**:marked + DOMPurify 以 UMD 形式从 `node_modules` 经 Express 直出,升级依赖即升级前端库
 - **PUT 局部更新语义**:未提交的字段保留旧值,方便脚本 / 旧客户端只改部分字段
 - **静态资源版本号**:改 `public/` 下文件后同步递增各页面 HTML 里的 `?v=`,并同步 `sw.js` 的 `SHELL_ASSETS` 与 `CACHE_VERSION`,避免线上缓存旧资源
+### 历史决策记录
+
+> 记「移除过什么、为什么」,避免后人照着旧记忆重复劳动。
+
+| 日期 | 决策 | 原因 |
+| --- | --- | --- |
+| 2026-10-09 | 引入 calibre 集成后又**整体回滚**(commit `84c3b2e`) | 需求澄清:calibre 用它自带的 web 前端单独成站,my-books 保持原状。故删除了 `src/db/calibre.js`、`routes.calibre.js`、`public/next/*`、`deploy/setup-calibre.sh` 等 |
+| 2026-10-14 | **站内在线阅读下线**(commit `df96a56`) | 删除 `public/read.html`、`src/core/position.js`、`src/db/positions.js`、`routes.positions.js` 与 v5/v6 的 `read_positions` / `annotations` 两表。**书签 / 高亮 / 批注(SCOPE 里的 P3)一并出局**;电子书改为「只存不读 + 下载」 |
+| 2026-10-14 | `books` 表的 `file_path`/`file_format`/`file_size` 三列拆成 `book_files` 表(v7) | 一本书要能挂多个格式(EPUB + PDF),单列表达不了 |
+| 2026-10-15 | 评分统一为 **10 分制**(v8 迁移把存量 ×2) | 此前折半成 5 分制,8.9/9.0 折算后都成 4.5,与豆瓣页面对不上 |
+| 2026-10-15 | **自定义字段上线**(v11:对标 calibre 的自定义列) | 让「加字段」从"改代码 + 发版"变成"在页面上加" —— 见[数据模型](#数据模型)的取舍说明 |
+| 2026-10-15 | **A 组剩余数据模型完成**(v12:系列 / 标识符 / uuid / 排序键) | 补齐对标 calibre 的最后四项。**A4 出版社实体表 / A6 语言表经评估不做**(投入产出比低) |
 
 ### 安全设计
 
@@ -309,48 +406,74 @@ npm start     # 启动服务
 
 ```
 my-books/
-├── package.json                      # 依赖(express/marked/dompurify)、启动与测试脚本
+├── package.json                      # 依赖(express/multer/cheerio/marked/dompurify)、启动与测试脚本
 ├── server.js                         # 薄入口:创建 app、挂路由、listen(不含业务规则与 SQL)
+├── data-check.js                     # 数据自检脚本(库内容 + JSON/日期/枚举一致性)
 ├── src/
 │   ├── core/                         # 纯业务规则(不依赖 express / 数据库,可独立测试)
-│   │   ├── book.js                   # parseBook 校验+推导、mergeUpdate 局部更新语义
-│   │   └── stats.js                  # computeStats 统计聚合
+│   │   ├── book.js                   # parseBook 校验+推导、mergeUpdate 局部更新语义、作者拆分
+│   │   ├── custom_fields.js          # 自定义字段规则:定义校验、值规范化、展示文本
+│   │   ├── sort_keys.js              # 排序键:titleSort(冠词移位)、authorToAuthorSort(倒装)
+│   │   ├── series.js                 # 系列规则:`系列 [n]` 解析、序号规范与自动递增
+│   │   ├── identifiers.js            # 标识符规则:类型归一、外链构造、展示列表
+│   │   ├── query.js                  # 高级搜索语法解析(字段/布尔/否定/#自定义字段)
+│   │   ├── douban.js                 # 豆瓣解析(纯函数)+ 字段映射
+│   │   ├── ebook.js                  # 电子书格式 / 大小 / 存储名规则
+│   │   ├── stats.js                  # computeStats 统计聚合
+│   │   ├── fs-utils.js               # 原子写 + 受边界约束的删除
+│   │   └── paths.js                  # 目录常量(唯一来源)
 │   ├── db/                           # 数据访问层(只 import node: 与 core)
-│   │   ├── index.js                  # 打开 books.db、建表、幂等迁移、种子判断
+│   │   ├── index.js                  # 打开 books.db、PRAGMA 加固、版本化迁移(v1~v12)、种子、inTransaction
 │   │   ├── seed-data.js              # 17 本示例书数据
-│   │   ├── books.js                  # 书籍 CRUD 与列表查询(SQL 拼装)
-│   │   ├── settings.js               # 心得仓库设置读写
-│   │   └── stats.js                  # 统计查询入口
-│   └── http/                         # HTTP 适配层(解析请求 → 调 db → 组响应)
-│       ├── middleware.auth.js        # 写接口应用内鉴权(Bearer token,恒时比较,fail closed)
-│       ├── routes.books.js           # 书籍 CRUD 路由
-│       ├── routes.misc.js            # 设置 / 上传 / 统计路由
-│       └── routes.proxy.js           # notes / img-proxy 出站代理(缓存 + SSRF 防护)
-├── test/                             # node:test 用例(npm test)
-│   ├── auth.test.js                  # 鉴权中间件行为(放行/401/503/恒时比较)
-│   ├── book.test.js                  # 校验规则 + 「记录是唯一日期来源」+ PUT 语义
-│   └── stats.test.js                 # 统计聚合规则
+│   │   ├── books.js                  # 书籍 CRUD 与列表查询(事务包裹)
+│   │   ├── search.js                 # 独立全文检索层(FTS5 trigram + BM25)+ 结构化检索
+│   │   ├── categories.js             # 标签 / 作者归一化(重命名 / 合并 / 删除)
+│   │   ├── custom_fields.js          # 自定义字段注册表 CRUD + 取值读写
+│   │   ├── identifiers.js            # 标识符读写(isbn/douban 双写 + 任意类型)
+│   │   ├── book_files.js             # 一本书多格式文件登记
+│   │   ├── saved_searches.js         # 保存的搜索
+│   │   ├── settings.js / stats.js    # 设置读写 / 统计查询入口
+│   ├── http/                         # HTTP 适配层(解析请求 → 调 db → 组响应)
+│   │   ├── middleware.auth.js        # 写接口应用内鉴权(Bearer token,恒时比较,失败限速)
+│   │   ├── routes.books.js           # 书籍 CRUD + 自定义字段值读写
+│   │   ├── routes.customFields.js    # 自定义字段管理(增删改 + 恢复)
+│   │   ├── routes.categories.js      # 标签 / 作者管理
+│   │   ├── routes.savedSearches.js   # 保存的搜索
+│   │   ├── routes.files.js           # 电子书上传 / 列表 / 删除
+│   │   ├── routes.metadata.js        # 豆瓣元数据检索
+│   │   ├── routes.misc.js            # 设置 / 封面上传 / 统计
+│   │   ├── routes.proxy.js           # notes / img-proxy 出站代理(缓存 + SSRF 防护)
+│   │   └── lru.js                    # 有上限的内存缓存
+├── test/                             # node:test 用例(npm test,18 个文件 233 条)
+│   ├── custom-fields.test.js         # 自定义字段:规则 / 落库 / 检索 / 软删除 / 事务
+│   ├── a-group-v12.test.js           # 系列 / 标识符 / uuid / 排序键(A3/A5/A7/A8)
+│   ├── book.test.js / stats.test.js / auth.test.js
+│   ├── search.test.js / search-robust.test.js / query.test.js / advanced-search.test.js
+│   ├── categories.test.js / migrations.test.js / saved-searches.test.js
+│   └── ebook.test.js / delete-assets.test.js / douban.test.js / fs-utils.test.js / lru.test.js
 ├── deploy/
 │   ├── ecosystem.config.js           # PM2 进程配置(主方案:3002 / 127.0.0.1 / fork)
 │   ├── my-books.service              # systemd 单元(备选,与 PM2 二选一)
 │   ├── nginx-helloac.top.conf        # 根域名站点(80→301 + 443 反代,含写接口口令块)
 │   ├── nginx-ecook.helloac.top.conf  # ecook 子域名站点(同机共存的另一站点)
+│   ├── backup-db.js                  # VACUUM INTO 安全备份(含行数对账)
 │   └── update.sh                     # 一键更新:备份 → 拉代码 → 装依赖 → 重启 → 自检
 ├── public/
 │   ├── index.html                    # 首页(页脚含备案号;外壳由 chrome.js 注入)
-│   ├── shelf.html / rank.html / stats.html / notes.html   # 书架 / 榜单 / 统计 / 心得页
+│   ├── shelf.html / rank.html / stats.html / tags.html / notes.html
 │   ├── logo.png / logo-mark.png / add-icon.png
 │   ├── css/style.css                 # Apple 风格响应式样式(单文件)
 │   ├── sw.js                         # Service Worker(离线壳缓存,清单需与页面引用同步)
 │   └── js/
 │       ├── chrome.js                 # 全站外壳注入(顶栏/弹窗/菜单/页脚)+ 旧 hash 兼容
-│       ├── common.js                 # 共享逻辑:api/弹窗/表单/搜索/滑动返回/共享统计
-│       ├── page-home.js / page-shelf.js / page-rank.js / page-stats.js / page-notes.js  # 各页逻辑
+│       ├── common.js                 # 共享逻辑:api/弹窗/表单/自定义字段/搜索/滑动返回/共享统计
+│       ├── page-home.js / page-shelf.js / page-rank.js / page-stats.js / page-tags.js / page-notes.js
 │       └── endless-gallery.js        # 首页复刻 apple.com 的双排无限轮播
 ├── data/                             # 运行时自动创建;.gitignore 忽略 *.db
 │   ├── books.db                      # SQLite 数据库(唯一数据文件)
 │   └── backup/                       # update.sh 的滚动备份(保留 10 份)
-└── uploads/                          # 上传的封面图片(运行时自动创建;.gitignore 忽略)
+├── uploads/                          # 上传的封面图片(运行时自动创建;.gitignore 忽略)
+└── books-files/                      # 上传的电子书正文(运行时自动创建;.gitignore 忽略)
 ```
 
 ---
@@ -359,20 +482,36 @@ my-books/
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/books?q=&status=&tag=&sort=` | 书籍列表;`q` 模糊搜书名/作者,`status` ∈ wish/reading/done,`tag` 精确匹配标签,`sort` ∈ updated(默认)/created/finish/title |
-| GET | `/api/books/:id` | 单本书详情(不存在返回 404) |
-| POST | `/api/books` | 添加书籍;服务端统一校验并推导阅读记录字段 |
-| PUT | `/api/books/:id` | 更新书籍;未提供的字段保留旧值 |
-| DELETE | `/api/books/:id` | 删除书籍 |
+| GET | `/api/books?q=&status=&tag=&author=&sort=` | 书籍列表;`q` 支持**高级语法**(自由词 + `tag:` / `author:` / `status:` / `rating>=n` / `series:` / `series_index>=n` / `identifier:type:value` / `#自定义字段:值` + `and`/`or`/`not`),`sort` ∈ updated(默认)/created/finish/title/author/series。每行附 `custom_display` 与 `series_label` |
+| GET | `/api/books/:id` | 单本书详情(不存在返回 404);附 `files`、`file_formats`、`identifiers`、`identifier_list`(带外链)、`series_label`、`custom`(原始值,表单回填)、`custom_display`(展示文本) |
+| GET | `/api/series` | 系列列表:每项 `{ name, count, min_index, max_index, label }` |
+| GET | `/api/identifiers/duplicates` | 标识符冲突自检:同类型同值被多本书占用的情况 |
+| POST | `/api/books` | 添加书籍;服务端统一校验并推导阅读记录字段;可选 `custom: { label: value }` |
+| PUT | `/api/books/:id` | 更新书籍;未提供的字段保留旧值;`custom` 按 label 局部更新(传空串 = 清空该字段) |
+| DELETE | `/api/books/:id` | 删除书籍(同时清理磁盘上的电子书与封面) |
+| POST | `/api/books/:id/file` | 上传电子书文件(multipart,≤80MB);同格式覆盖替换 |
+| GET | `/api/books/:id/file` | 列出该书的电子书文件 |
+| DELETE | `/api/books/:id/file?format=EPUB` | 删除某个格式的文件(磁盘 + 登记) |
+| GET | `/api/custom-fields?includeDeleted=1` | 自定义字段定义列表(带 `usage` = 已填写的书籍数;`includeDeleted=1` 含软删除的) |
+| POST | `/api/custom-fields` | 新建字段;体 `{ label, name, datatype, is_multiple, options }`;**需写口令** |
+| PUT | `/api/custom-fields/:id` | 改字段(`name` / `options` / `display_order`);**`datatype` 与 `is_multiple` 不可改**;**需写口令** |
+| DELETE | `/api/custom-fields/:id` | **软删除**(可恢复);加 `?purge=1` 才物理删除(取值随外键 CASCADE 一起清掉);**需写口令** |
+| POST | `/api/custom-fields/:id/restore` | 取消软删除,恢复字段;**需写口令** |
+| GET | `/api/tags` `GET /api/authors` | 归一化后的标签 / 作者列表(带引用计数) |
+| POST | `/api/tags/rename` `POST /api/tags/merge` `DELETE /api/tags/:id` | 标签重命名 / 合并 / 删除(删除仅解除分类) |
+| POST | `/api/authors/rename` `POST /api/authors/merge` `DELETE /api/authors/:id` | 作者同上 |
+| GET | `/api/saved-searches` | 保存的搜索列表 |
+| POST / PUT / DELETE | `/api/saved-searches` `/api/saved-searches/:id` | 保存的搜索增改删;**写需口令** |
 | POST | `/api/upload` | 上传封面;JSON 体 `{ data: "data:image/png;base64,…" }`,≤5MB,返回 `{ url }` |
 | GET | `/api/settings` | 读心得仓库设置 `{ notesRepo, notesBranch }` |
 | PUT | `/api/settings` | 保存心得仓库;`notesRepo` 自动去掉 `https://github.com/` 前缀与 `.git` 后缀 |
 | GET | `/api/notes?url=` | 代理拉取 GitHub 上的心得 Markdown(内存缓存 5 分钟);`url` 可为完整 GitHub 链接或按书名短文件名 |
 | GET | `/api/img-proxy?url=` | 外链封面图片代理:同源化供 Canvas 取色(SSRF 防护,缓存 1 小时,失败重试一次) |
 | GET | `/api/stats` | 统计数据 `{ total, byStatus, byYear, topTags }`(topTags 至多 12 个) |
-| GET | `/api/books/:id/position?format=&device=` | 读某书在某设备的位置 → `{ position, others }`;无记录 404。`others` 是其它设备的位置(读接口公开) |
-| PUT | `/api/books/:id/position` | 上报阅读位置(幂等 upsert);体 `{ format, device, locator, locator_kind, pos_frac }`;**需写口令** |
-| DELETE | `/api/books/:id/position?format=&device=` | 清除阅读位置(format/device 可省略,省略则范围更大);**需写口令** |
+| GET | `/api/metadata/search?q=` | 豆瓣元数据检索(书名或 ISBN),返回最多 5 个候选 |
+
+> 所有端点同时挂在 `/api/v1/*`(多端契约)。**检索语法错误**(未知的 `#自定义字段`、数值字段给非数字)
+> 一律返回 `400 + code=VALIDATION`,不落进兜底 500 —— 让"筛选没生效"这类问题立刻可见。
 
 另有两个静态 vendor 端点:`GET /vendor/marked.umd.js`、`GET /vendor/purify.min.js`(供前端渲染 Markdown 用)。
 

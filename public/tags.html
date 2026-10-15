@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=36">
+  <link rel="stylesheet" href="/css/style.css?v=38">
 </head>
 <body data-page="tags">
   <main>
@@ -27,7 +27,77 @@
         <div class="cat-list" id="authorsList"></div>
       </section>
     </div>
+
+    <!-- 自定义字段管理(对标 calibre 的自定义列 / FieldMetadata)
+         字段是「数据」而非「代码」:增删改都在这里,不必改程序、发版。
+         删除默认是软删除(可恢复),只有显式「彻底删除」才连值一起清掉。 -->
+    <section class="cat-col cat-col-wide" aria-labelledby="fieldsHead">
+      <header class="cat-head">
+        <h2 id="fieldsHead">自定义字段</h2>
+        <span class="cat-count" id="fieldsCount"></span>
+        <button type="button" class="btn btn-primary btn-sm" id="addFieldBtn">＋ 新建字段</button>
+      </header>
+      <p class="cat-hint">给书加自己的字段(如「系列」「页数」「阅读心情」)。建好后在书籍编辑弹窗里就能填,并可用 <code>#字段名:值</code> 检索。删除是软删除,可随时恢复。</p>
+      <div class="cat-list" id="fieldsList"></div>
+      <div id="fieldsDeletedBox" class="fields-deleted hidden">
+        <h3 class="fields-deleted-head">已删除的字段(可恢复)</h3>
+        <div class="cat-list" id="fieldsDeletedList"></div>
+      </div>
+    </section>
   </main>
+
+  <!-- 新建 / 编辑自定义字段弹窗 -->
+  <div id="fieldModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box settings-box">
+      <div class="modal-head">
+        <h2 id="fieldModalTitle">新建字段</h2>
+        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="cfName">字段名称</label>
+          <input type="text" id="cfName" maxlength="60" placeholder="如:系列 / 页数 / 阅读心情">
+        </div>
+        <div class="field">
+          <label for="cfLabel">字段标识 <span class="label-sub">小写字母开头,用于 #标识:值 检索</span></label>
+          <input type="text" id="cfLabel" maxlength="40" placeholder="如:series / pages">
+        </div>
+        <div class="field">
+          <label for="cfDatatype">字段类型</label>
+          <select id="cfDatatype">
+            <option value="text">单行文本</option>
+            <option value="comments">长文本</option>
+            <option value="int">整数</option>
+            <option value="float">小数</option>
+            <option value="rating">评分(0~10)</option>
+            <option value="date">日期</option>
+            <option value="bool">是 / 否</option>
+            <option value="enumeration">枚举(固定的几个选项)</option>
+            <option value="series">系列</option>
+          </select>
+        </div>
+        <div class="field" id="cfMultipleField">
+          <label for="cfMultiple">允许多值 <span class="label-sub">仅「单行文本」可用</span></label>
+          <select id="cfMultiple">
+            <option value="0">否(单个值)</option>
+            <option value="1">是(多个值,用逗号分隔)</option>
+          </select>
+        </div>
+        <div class="field field-full hidden" id="cfOptionsField">
+          <label for="cfOptions">枚举可选值 <span class="label-sub">用逗号分隔,如:平静, 震撼, 无聊</span></label>
+          <input type="text" id="cfOptions" placeholder="平静, 震撼, 无聊">
+        </div>
+        <p class="field-hint" id="cfTypeLockedHint" hidden>字段类型与多值设置建好后不可修改(改了会让已填的值无法解释)。需要换类型请删除后重建。</p>
+      </div>
+      <div class="form-foot">
+        <span id="fieldError" class="form-error"></span>
+        <div class="form-foot-btns">
+          <button type="button" class="btn btn-ghost" data-close>取消</button>
+          <button type="button" class="btn btn-primary" id="fieldSaveBtn">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- 合并弹窗(本页专属;静态存在,common.js 的通用关闭逻辑一并接管) -->
   <div id="mergeModal" class="modal hidden" role="dialog" aria-modal="true">
@@ -53,8 +123,8 @@
     </div>
   </div>
 
-  <script defer src="/js/chrome.js?v=3"></script>
-  <script defer src="/js/common.js?v=2"></script>
-  <script defer src="/js/page-tags.js?v=1"></script>
+  <script defer src="/js/chrome.js?v=4"></script>
+  <script defer src="/js/common.js?v=4"></script>
+  <script defer src="/js/page-tags.js?v=2"></script>
 </body>
 </html>

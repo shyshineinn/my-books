@@ -16,6 +16,7 @@
  * ============================================================ */
 
 const { parseQuery } = require('../core/query');
+const customFieldsRepo = require('./custom_fields');
 
 const TRIGRAM_MIN = 3; // trigram 只索引/匹配 >=3 字符的片段
 
@@ -110,11 +111,110 @@ function freeClause(term, forceLike) {
   return !forceLike && meaningfulLen(term) >= TRIGRAM_MIN ? ftsClause(term) : likeClause(term);
 }
 
+// 值里带比较符的写法(如 #页数:>=300 / #状态:!=震撼)。
+// 对标 calibre db/search.py:284-290 的 NumericSearch:它先看值是否以
+// !=/>=/<=/=/</> 开头,是则剥掉比较符并把该符当运算符。
+// 本项目原有的等价写法是把运算符写在字段名后(如 `rating>=9`、`tag!=小说`,
+// core/query 直接解析),两种都支持:冒号形式更接近 calibre 习惯,
+// 不带冒号的形式已写进前端语法文档、不能为了对标而改掉。
+const LEADING_OP = [
+  ['!=', 'ne'], ['>=', 'ge'], ['<=', 'le'],
+  ['=', 'eq'], ['>', 'gt'], ['<', 'lt'],
+];
+
+// 只有「比较符 + 后面确实还有值」才认,否则(">=" 这种裸符号)按原文处理。
+// 数值类型:6 个比较符全支持(范围比较才有意义)。
+// 非数值类型:只认 != 与 = —— 文本字段里 ">=x" 是合法搜索内容,
+//   把它当运算符会让"搜一个以 >= 开头的值"变得不可能;
+//   而 "!=x" 是几乎不会出现在真实文本开头的写法,收下它收益远大于风险。
+function splitLeadingOp(op, value, isNumeric) {
+  if (op !== 'eq') return { op, value };
+  const s = String(value).trim();
+  const allowed = isNumeric ? LEADING_OP : LEADING_OP.filter(([, mapped]) => mapped === 'ne' || mapped === 'eq');
+  // 先长后短:避免 '=' 抢先匹配掉 '>=' (LEADING_OP 已按长度排序)
+  for (const [sym, mapped] of allowed) {
+    if (s.startsWith(sym)) {
+      const rest = s.slice(sym.length).trim();
+      if (rest) return { op: mapped, value: rest };
+    }
+  }
+  return { op, value };
+}
+
 // 字段谓词 → SQL 片段。返回 null 表示无法安全求值(如 rating 非数字),调用方跳过该条。
 // op 来自 core/query:eq/ne/ge/le/gt/lt。文本字段只区分 eq(子串)与 ne,范围运算符按 eq 处理。
-function fieldClause({ field, op, value }) {
+// columns:自定义字段注册表(label → 定义),由调用方一次性查好传入 ——
+//          这样本函数保持"纯 SQL 构造"职责,不在循环里反复查库。
+function fieldClause({ field, op, value }, columns) {
   const likeVal = `%${escapeLike(String(value).trim())}%`;
   const numericCmp = { eq: '=', ne: '<>', ge: '>=', le: '<=', gt: '>', lt: '<' };
+
+  // ---------- 自定义字段 #label ----------
+  // 取值表 book_custom_values 里一书一字段一行,用 EXISTS 子查询挂到主表上,
+  // 这样 #字段 谓词能与内置字段、自由词任意 AND/OR 组合(与 tag/author 同构)。
+  if (field.startsWith('#')) {
+    const label = field.slice(1);
+    const col = columns && columns.get(label);
+    if (!col) {
+      // 未知字段:明确报错,而不是静默匹配全库。
+      // 静默降级会让"打错字段名"表现为"筛选没生效",很难排查;
+      // 抛带 code 的错误由 HTTP 层转 400,用户能立刻看见问题。
+      throw Object.assign(new Error(`未知的自定义字段「${field}」`), { code: 'VALIDATION' });
+    }
+
+    // 多值字段存的是 JSON 数组串(如 ["a","b"]),用 '"值"' 精确匹配元素,
+    // 避免 "ab" 命中 "abc" —— 与 books.tags 的既有匹配方式一致。
+    const isMultiple = !!col.is_multiple;
+    // enumeration 不做文字 LIKE 而是精确匹配(选项是受控词表)
+    const isEnum = !isMultiple && col.datatype === 'enumeration';
+    const isNumeric = !isMultiple && ['int', 'float', 'rating'].includes(col.datatype);
+
+    // 数值字段允许 calibre 风格的 `#页数:>=300`
+    const eff = splitLeadingOp(op, value, isNumeric);
+    op = eff.op;
+    value = eff.value;
+    const cmp = numericCmp[op] || '=';
+
+    let inner;
+    let params;
+    if (isNumeric && ['eq', 'ne', 'ge', 'le', 'gt', 'lt'].includes(op)) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) {
+        // 数值字段给了非数字:明确报错,不静默跳过该条。
+        // 跳过会让"#页数:abc"这种输入表现为"筛选没生效、返回全库",极难排查。
+        throw Object.assign(
+          new Error(`「${field}」是数值字段,「${value}」不是数字`),
+          { code: 'VALIDATION' }
+        );
+      }
+      // 空值不参与数值比较(cv.value = '' 时 CAST 成 0 会误命中)
+      inner = `cv.value <> '' AND CAST(cv.value AS REAL) ${cmp} ?`;
+      params = [n];
+    } else if (isMultiple) {
+      inner = 'cv.value LIKE ? ESCAPE \'\\\'';
+      params = [`%"${escapeLike(String(value).trim())}"%`];
+    } else if (isEnum) {
+      // 枚举:精确匹配(大小写不敏感),而非子串 —— 受控词表下子串会误命中
+      inner = 'cv.value = ? COLLATE NOCASE';
+      params = [String(value).trim()];
+    } else {
+      inner = 'cv.value LIKE ? ESCAPE \'\\\'';
+      params = [`%${escapeLike(String(value).trim())}%`];
+    }
+
+    // 否定一律由外层 EXISTS / NOT EXISTS 承担,inner 只表达"正向命中"。
+    // 早期版本在 inner 里又写了一次 `cv.value <> ?`,与 NOT EXISTS 双重否定
+    // 相互抵消,导致 `#心情!=震撼` 反而只剩"震撼"的书(实测踩过,已由
+    // test/custom-fields.test.js 的否定检索用例钉死)。
+    // 这与内置 tag/author 的写法一致(见上方 fieldClause 的 tag 分支)。
+    return {
+      sql:
+        (op === 'ne' ? 'NOT EXISTS' : 'EXISTS') +
+        `(SELECT 1 FROM book_custom_values cv WHERE cv.book = b.id AND cv.column_id = ? AND ${inner})`,
+      params: [col.id, ...params],
+    };
+  }
+
   switch (field) {
     case 'status':
       return { sql: op === 'ne' ? 'b.status <> ?' : 'b.status = ?', params: [value] };
@@ -138,6 +238,49 @@ function fieldClause({ field, op, value }) {
       return { sql: op === 'ne' ? 'b.publisher NOT LIKE ? ESCAPE \'\\\'' : 'b.publisher LIKE ? ESCAPE \'\\\'', params: [likeVal] };
     case 'isbn':
       return { sql: op === 'ne' ? 'b.isbn NOT LIKE ? ESCAPE \'\\\'' : 'b.isbn LIKE ? ESCAPE \'\\\'', params: [likeVal] };
+    // A3:系列。区别于 v11 的自定义字段 #series —— 这里是**内置** series 列,
+    // 检索写法是裸 `series:基地`;自定义字段走 `#label`,两个命名空间不冲突。
+    // **精确匹配**(大小写不敏感),与 tag / author 同款:系列是受控集合,
+    // 用子串会让 `series:基地` 误命中 `基地续篇`(实测踩过)。
+    case 'series':
+      return {
+        sql: op === 'ne' ? 'b.series <> ? COLLATE NOCASE' : 'b.series = ? COLLATE NOCASE',
+        params: [String(value).trim()],
+      };
+    case 'series_index': {
+      // 与自定义数值字段同款:支持 calibre 风格的 `series_index:>=2`
+      // (比较符写在值里),也支持本站既有的 `series_index>=2`
+      const eff = splitLeadingOp(op, value, true);
+      const n = Number(eff.value);
+      if (!Number.isFinite(n)) {
+        throw Object.assign(new Error(`「series_index」应为数字,收到「${eff.value}」`), { code: 'VALIDATION' });
+      }
+      return { sql: `b.series_index ${numericCmp[eff.op] || '='} ?`, params: [n] };
+    }
+    // A5:标识符。`identifier:isbn:978...` 或 `identifier:douban:123`(key:value)
+    case 'identifier':
+    case 'identifiers': {
+      const raw = String(value).trim();
+      const i = raw.indexOf(':');
+      const t = (i < 0 ? raw : raw.slice(0, i)).toLowerCase().trim();
+      const v = i < 0 ? '' : raw.slice(i + 1).trim();
+      if (!t) return null;
+      if (!v) {
+        // 只给类型:该书是否有这个类型的标识符
+        return {
+          sql:
+            (op === 'ne' ? 'NOT EXISTS' : 'EXISTS') +
+            '(SELECT 1 FROM book_identifiers bi WHERE bi.book = b.id AND bi.type = ? COLLATE NOCASE)',
+          params: [t],
+        };
+      }
+      return {
+        sql:
+          (op === 'ne' ? 'NOT EXISTS' : 'EXISTS') +
+          '(SELECT 1 FROM book_identifiers bi WHERE bi.book = b.id AND bi.type = ? COLLATE NOCASE AND bi.value LIKE ? ESCAPE \'\\\')',
+        params: [t, `%${escapeLike(v)}%`],
+      };
+    }
     case 'format': {
       const f = String(value).trim().toUpperCase();
       return {
@@ -181,8 +324,11 @@ const SORTS = {
   updated: 'updated_at DESC',
   created: 'created_at DESC',
   finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC',
-  title: 'title COLLATE NOCASE ASC',
+  // A8:title 走 title_sort(剥引号 + 英语冠词移位);中文书名两者相同
+  title: 'title_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
   author: 'author_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
+  // A3:按系列 + 系列序号;未入系列排最后
+  series: "CASE WHEN series = '' THEN 1 ELSE 0 END, series COLLATE NOCASE ASC, series_index ASC, title COLLATE NOCASE ASC",
 };
 
 // 纯自由词检索(整串当一个短语)—— 与结构化改造前的行为逐字一致:
@@ -225,12 +371,12 @@ function plainSearch(db, rawQ, legacy, order) {
 // 结构化检索:字段谓词 + 自由词(可含 FTS)→ 统一以 books 主表为驱动,
 // 各条款按 or 标志整体 OR 或默认 AND;否定条款恒为 AND NOT(...)。
 // 这里不追求 BM25(排序交给 SORTS/显式 sort),换取布尔组合的正确与简单。
-function structuredSearch(db, parsed, legacy, order) {
+function structuredSearch(db, parsed, legacy, order, columns) {
   const build = (forceLike) => {
     const pos = [];
     const posParams = [];
     for (const f of parsed.filters) {
-      const c = fieldClause(f);
+      const c = fieldClause(f, columns);
       if (c) { pos.push(c.sql); posParams.push(...c.params); }
     }
     for (const t of parsed.free) {
@@ -240,7 +386,7 @@ function structuredSearch(db, parsed, legacy, order) {
     const neg = [];
     const negParams = [];
     for (const f of parsed.notFilters) {
-      const c = fieldClause(f);
+      const c = fieldClause(f, columns);
       if (c) { neg.push(`NOT (${c.sql})`); negParams.push(...c.params); }
     }
     for (const t of parsed.notFree) {
@@ -296,7 +442,11 @@ function searchBooks(db, { q, status, tag, author, sort } = {}) {
   if (!hasStructure) {
     return plainSearch(db, String(q).trim(), legacy, order);
   }
-  return structuredSearch(db, parsed, legacy, order);
+
+  // 只有查询里真的出现 #字段 时才查注册表(空 Map 也要传,
+  // 这样未知 #字段 依然会被 fieldClause 判为 VALIDATION 错误)
+  const columns = new Map(customFieldsRepo.listColumns(db).map((c) => [c.label, c]));
+  return structuredSearch(db, parsed, legacy, order, columns);
 }
 
 module.exports = {

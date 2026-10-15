@@ -203,7 +203,7 @@ function applyUrlParams() {
   shelf.status = p.get('status') || '';
   shelf.tag = p.get('tag') || '';
   shelf.author = p.get('author') || '';
-  if (['updated', 'finish', 'title'].includes(p.get('sort'))) shelf.sort = p.get('sort');
+  if (['updated', 'finish', 'title', 'author', 'series', 'created'].includes(p.get('sort'))) shelf.sort = p.get('sort');
 
   if (shelf.q) $('#searchInput').value = shelf.q;
   if (shelf.status) {
@@ -274,7 +274,7 @@ function findSaved(id) { return savedItems.find((x) => String(x.id) === String(i
 async function applySaved(item) {
   shelf.q = item.query || '';
   $('#searchInput').value = shelf.q;
-  if (['updated', 'finish', 'title'].includes(item.sort)) {
+  if (['updated', 'finish', 'title', 'author', 'series', 'created'].includes(item.sort)) {
     shelf.sort = item.sort;
     $('#sortSelect').value = shelf.sort;
     syncCustomSelect($('#sortSelect'));

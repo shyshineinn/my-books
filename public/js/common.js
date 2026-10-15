@@ -18,6 +18,8 @@ const STATUS_LABEL = { wish: '想读', reading: '在读', done: '已读' };
 
 const state = {
   settings: { notesRepo: '', notesBranch: 'main' },
+  customColumns: [],       // 自定义字段定义(启动时拉取,见 loadCustomColumns)
+  customStamp: null,       // 上次拉取时的跨页版本戳
 };
 
 function esc(s) {
@@ -352,6 +354,38 @@ document.addEventListener('keydown', (e) => {
 });
 
 /* ============ 详情弹窗 ============ */
+// 系列行(A3):显示「系列 #n」,点一下跳书架按该系列筛选
+function seriesHtml(book) {
+  const label = book.series_label || '';
+  if (!label) return '';
+  return `<div class="detail-row"><span class="k">系列</span><span class="v">`
+    + `<a class="detail-link" href="/shelf?q=${encodeURIComponent('series:' + book.series)}">${esc(label)}</a>`
+    + '</span></div>';
+}
+
+// 标识符行(A5):ISBN / 豆瓣之外的其它类型,能构造外链的给链接。
+// ISBN 与豆瓣由各自专用行展示,这里跳过以免重复。
+function identifiersHtml(book) {
+  const list = (book && book.identifier_list) || [];
+  const rest = list.filter((x) => !['isbn', 'douban', 'douban_id'].includes(String(x.type).toLowerCase()));
+  if (!rest.length) return '';
+  const body = rest.map((x) => (x.url
+    ? `<a class="detail-link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.label)} ↗</a>`
+    : `${esc(x.label)}:${esc(x.value)}`)).join(' · ');
+  return `<div class="detail-row"><span class="k">标识符</span><span class="v detail-ids">${body}</span></div>`;
+}
+
+// 详情页的自定义字段行:按注册表顺序列出已填值的字段。
+// 用 custom_display(服务端渲染好的展示文本),多值已拼成顿号。
+function customFieldsDetailHtml(book) {
+  const cols = state.customColumns || [];
+  const disp = (book && book.custom_display) || {};
+  const rows = cols
+    .filter((c) => disp[c.label])
+    .map((c) => `<div class="detail-row"><span class="k">${esc(c.name)}</span><span class="v">${esc(disp[c.label])}</span></div>`);
+  return rows.length ? rows.join('') : '';
+}
+
 async function openDetail(id) {
   await settingsReady;   // 心得入口文案依赖 settings,首屏未加载完时先等
   let book;
@@ -386,10 +420,13 @@ async function openDetail(id) {
         ${legacyDates.length ? `<div class="detail-row"><span class="k">日期</span><span class="v">${esc(legacyDates.join(' · '))}</span></div>` : ''}
         ${logs.length ? `<div class="detail-row"><span class="k">阅读记录</span><span class="v detail-logs">${logs.map((l) => `<span class="log-chip">${esc(l.start || '开始未记')}${l.finish ? ' 至 ' + esc(l.finish) : ' · 进行中'}</span>`).join('')}</span></div>` : ''}
         ${tags.length ? `<div class="detail-row"><span class="k">标签</span><span class="v detail-tags">${tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join('')}</span></div>` : ''}
+        ${seriesHtml(book)}
         ${pubBits.length ? `<div class="detail-row"><span class="k">出版</span><span class="v">${esc(pubBits.join(' · '))}</span></div>` : ''}
+        ${identifiersHtml(book)}
         ${book.isbn ? `<div class="detail-row"><span class="k">ISBN</span><span class="v detail-isbn">${esc(book.isbn)}</span></div>` : ''}
         ${book.douban_id ? `<div class="detail-row"><span class="k">豆瓣</span><span class="v"><a class="detail-link" href="https://book.douban.com/subject/${esc(book.douban_id)}/" target="_blank" rel="noopener noreferrer">查看豆瓣条目 ↗</a></span></div>` : ''}
       </div>
+      ${customFieldsDetailHtml(book)}
       ${book.summary ? `<div class="detail-block"><div class="detail-block-k">简介</div><p class="detail-block-v">${esc(book.summary)}</p></div>` : ''}
       ${book.files && book.files.length ? `<div class="detail-block"><div class="detail-block-k">电子书文件</div><div class="detail-files">${book.files.map((f) => `
         <a class="detail-file-link" href="/books-files/${esc(f.path)}" download="《${esc(book.title)}》.${esc(f.format.toLowerCase())}" title="下载 ${esc(f.format)} 文件(${fileSizeText(f.size)})">
@@ -524,7 +561,21 @@ function setStatus(s) {
   }
 }
 
-function openBookModal(book) {
+async function openBookModal(book) {
+  // 自定义字段控件要按最新定义生成。定义可能还没拉完(首屏),或已被
+  // /tags 页改过(跨页戳失效)—— 这里统一 await 一次,避免"字段偶尔不显示"。
+  await settingsReady;
+  await loadCustomColumns();
+
+  // **防数据丢失**:表单提交时会把每个自定义字段的当前值发回服务端,
+  // 空串的语义是"清空该字段"。若拿到的 book 对象**缺 custom 原始值**
+  // (如列表接口只返回 custom_display),输入框会渲染成空 → 提交即清空用户数据。
+  // 所以:编辑已有书而对象里没有 custom 时,先补拉一次完整详情。
+  if (book && book.id && !('custom' in book)) {
+    try {
+      book = await api('/api/books/' + book.id);
+    } catch { /* 拉取失败:保持传入对象,后续提交仍受服务端局部更新保护 */ }
+  }
   closeModals();
   $('#modalTitle').textContent = book ? '编辑书籍' : '添加书籍';
   $('#bookId').value = book ? book.id : '';
@@ -553,8 +604,14 @@ function openBookModal(book) {
   $('#fIsbn').value = book ? (book.isbn || '') : '';
   $('#fRating').value = book ? (book.rating || 0) : 0;
   $('#fDoubanId').value = book ? (book.douban_id || '') : '';
+  // A3 系列:序号 0 表示未指定 → 对应输入框留空(而不是显示 0)
+  $('#fSeries').value = book ? (book.series || '') : '';
+  $('#fSeriesIndex').value = book && book.series_index ? book.series_index : '';
+  renderIdRows(book);
   doubanStatus.textContent = '';
   doubanCandidates.classList.add('hidden');
+  // 自定义字段:定义已在启动时拉好,这里只按当前书回填值
+  renderCustomFieldInputs(book);
   openModal('#bookModal');
   setTimeout(() => $('#fTitle').focus(), 60);
 }
@@ -778,8 +835,158 @@ $('#fStatus').addEventListener('click', (e) => {
   if (btn) setStatus(btn.dataset.value);
 });
 
-/* ============ 豆瓣元数据填充(NewDouban 移植) ============ */
-const doubanBtn = $('#doubanFetchBtn');
+/* ============ 自定义字段(对标 calibre custom columns) ============
+ * 字段定义是数据(存在 custom_columns 表),所以表单里的输入控件必须动态生成。
+ * 约定:
+ *   · 定义在启动时拉一次并缓存(fieldsState.columns);字段增删由 /tags 页触发,
+ *     该页写完后写 localStorage 戳,回到书架时刷新 —— 跨页不共享内存,靠存储通信。
+ *   · 多值字段(text + is_multiple)用逗号分隔的普通输入框,不用动态增删行
+ *     —— 与既有「分类标签」输入框一致,学习成本最低。
+ *   · 提交时组装成 { label: value } 挂到 payload.custom。
+ */
+const CUSTOM_FIELDS_KEY = 'mybooks.customFields.v1';
+const CUSTOM_FIELDS_STAMP_KEY = 'mybooks.customFields.stamp';
+let customColumnsLoaded = false;
+
+// 读其它页留下的"字段定义已变"戳。值变了(或本站从未拉过)就重新拉定义。
+// 为什么用 localStorage 而不是内存:MPA 每页独立加载,跨页只能靠存储通信
+// (与 sw.js 的版本戳同一思路)。
+function customFieldsStampChanged() {
+  try {
+    return localStorage.getItem(CUSTOM_FIELDS_STAMP_KEY) !== state.customStamp;
+  } catch { return false; }
+}
+
+function rememberCustomStamp() {
+  try { state.customStamp = localStorage.getItem(CUSTOM_FIELDS_STAMP_KEY); } catch { /* ignore */ }
+}
+
+async function loadCustomColumns(force = false) {
+  if (customColumnsLoaded && !force && !customFieldsStampChanged()) return state.customColumns;
+  try {
+    state.customColumns = await api('/api/custom-fields');
+  } catch {
+    state.customColumns = [];   // 拉取失败不阻断主流程:没有自定义字段也能用
+  }
+  customColumnsLoaded = true;
+  rememberCustomStamp();
+  return state.customColumns;
+}
+
+// 渲染表单里的自定义字段区块。book 为空(新增)时全部留空。
+function renderCustomFieldInputs(book) {  const box = $('#customFieldsBox');
+  const cols = state.customColumns || [];
+  const section = $('#customFieldsSection');
+  if (!box || !section) return;
+  if (!cols.length) { section.classList.add('hidden'); box.innerHTML = ''; return; }
+  section.classList.remove('hidden');
+
+  const current = (book && book.custom) || {};
+  box.innerHTML = cols.map((c) => {
+    const id = 'cf_' + c.label;
+    // 多值字段回填成逗号分隔串(数组 → "a, b")
+    let val = current[c.label];
+    if (Array.isArray(val)) val = val.join(', ');
+    val = val == null ? '' : String(val);
+    const hint = c.is_multiple ? '<span class="label-sub">多个值用逗号分隔</span>' : '';
+
+    // 枚举用 select(受控词表,避免手敲出错 —— calibre 的枚举字段同样是下拉)
+    if (c.datatype === 'enumeration' && !c.is_multiple) {
+      const opts = ['<option value="">未填</option>']
+        .concat(c.options.map((o) => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o)}</option>`));
+      return `<div class="field"><label for="${id}">${esc(c.name)} ${hint}</label>
+        <select id="${id}" data-cf-label="${esc(c.label)}">${opts.join('')}</select></div>`;
+    }
+    if (c.datatype === 'bool' && !c.is_multiple) {
+      const sel = (v) => (val === v ? ' selected' : '');
+      return `<div class="field"><label for="${id}">${esc(c.name)} ${hint}</label>
+        <select id="${id}" data-cf-label="${esc(c.label)}">
+          <option value=""${sel('')}>未填</option>
+          <option value="1"${sel('1')}>是</option>
+          <option value="0"${sel('0')}>否</option>
+        </select></div>`;
+    }
+
+    const type = (c.datatype === 'date') ? 'date'
+      : (['int', 'float', 'rating'].includes(c.datatype) ? 'number' : 'text');
+    const extra = c.datatype === 'rating' ? ' min="0" max="10" step="0.1"'
+      : (c.datatype === 'int' ? ' step="1"' : (c.datatype === 'float' ? ' step="any"' : ''));
+    return `<div class="field"><label for="${id}">${esc(c.name)} ${hint}</label>
+      <input type="${type}" id="${id}" data-cf-label="${esc(c.label)}" value="${esc(val)}"${extra}></div>`;
+  }).join('');
+}
+
+// 从表单收集自定义值 → { label: value }
+function collectCustomValues() {
+  const out = {};
+  for (const el of $$('#customFieldsBox [data-cf-label]')) {
+    const label = el.dataset.cfLabel;
+    const v = String(el.value || '').trim();
+    // 只提交非空值:空 = 未填。这样既支持"清空某字段"(服务端把空串当删除),
+    // 也不会因为提交一堆空串把别的字段误清(服务端按 label 局部更新)
+    out[label] = v;
+  }
+  return out;
+}
+
+/* ============ 系列 + 其它标识符(表单区) ============
+ * A3:系列名与序号是两个字段,但允许在系列名里写「基地 [3]」由服务端拆
+ * (core/series.parseSeriesInput),所以这里不做客户端拆分 —— 保持单一真相。
+ * A5:除 ISBN/豆瓣外可加任意类型标识符,行数不固定,故动态增删。
+ *   已由 ISBN / 豆瓣专用输入框覆盖的类型不在此重复(避免两处输入同一类型)。
+ */
+const ID_TYPE_HINT = ['goodreads', 'doi', 'amazon', 'openlibrary', 'google', 'issn', 'url'];
+
+// 这些类型的值由专用输入框维护,不在"其它标识符"里重复出现
+const ID_DEDICATED = new Set(['isbn', 'douban', 'douban_id']);
+
+let idRowSeq = 0;
+
+function idRowHtml(type = '', value = '') {
+  idRowSeq += 1;
+  const u = `id_row_${idRowSeq}`;
+  return `<div class="id-row" data-id-row>
+    <input type="text" class="id-type" id="${u}_t" list="idTypeSuggestions" placeholder="类型(如 goodreads)" value="${esc(type)}" aria-label="标识符类型">
+    <input type="text" class="id-value" id="${u}_v" placeholder="值" value="${esc(value)}" aria-label="标识符值">
+    <button type="button" class="icon-btn id-row-del" data-id-del aria-label="删除这一行" title="删除">✕</button>
+  </div>`;
+}
+
+// 按书的 identifiers 回填"其它标识符"行(跳过专用类型)
+function renderIdRows(book) {
+  const box = $('#idRows');
+  if (!box) return;
+  const ids = (book && book.identifiers) || {};
+  const others = Object.entries(ids).filter(([t]) => !ID_DEDICATED.has(String(t).toLowerCase()));
+  box.innerHTML = others.map(([t, v]) => idRowHtml(t, v)).join('');
+}
+
+// 收集"其它标识符"→ { type: value };类型或值为空的行忽略
+function collectIdRows() {
+  const out = {};
+  for (const row of $$('#idRows [data-id-row]')) {
+    const t = row.querySelector('.id-type').value.trim().toLowerCase();
+    const v = row.querySelector('.id-value').value.trim();
+    if (!t) continue;                 // 没填类型 = 空行,忽略
+    out[t] = v;                       // 值为空 = 删除该标识符(服务端语义)
+  }
+  return out;
+}
+
+// 标识符行:增删(事件委托,渲染后无需重复绑定)
+$('#addIdRowBtn').addEventListener('click', () => {
+  const box = $('#idRows');
+  box.insertAdjacentHTML('beforeend', idRowHtml());
+  const rows = $$('#idRows [data-id-row]');
+  rows[rows.length - 1].querySelector('.id-type').focus();
+});
+
+$('#idRows').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-id-del]');
+  if (btn) btn.closest('[data-id-row]').remove();
+});
+
+/* ============ 豆瓣元数据填充(NewDouban 移植) ============ */const doubanBtn = $('#doubanFetchBtn');
 const doubanStatus = $('#doubanStatus');
 const doubanCandidates = $('#doubanCandidates');
 let doubanSearching = false;
@@ -951,6 +1158,14 @@ $('#bookForm').addEventListener('submit', async (e) => {
     isbn: $('#fIsbn').value,
     rating: Number($('#fRating').value) || 0,
     douban_id: $('#fDoubanId').value,
+    // A3 系列:序号留空则传空串,服务端按"未指定"处理(不会存成 0 之外的值)
+    series: $('#fSeries').value.trim(),
+    series_index: $('#fSeriesIndex').value.trim(),
+    // A5 标识符:isbn / douban_id 走上面的专用字段,其余类型在这里
+    identifiers: collectIdRows(),
+    // 自定义字段值(label → 字符串);服务端按 label 局部更新,
+    // 空串表示"清空该字段"
+    custom: collectCustomValues(),
   };
 
   const id = $('#bookId').value;
@@ -1102,10 +1317,26 @@ function goBack() {
 // state.settings.notesRepo,用户操作可能早于首屏请求返回,先 await 再判定。
 const settingsReady = (async () => {
   await loadSettings();
+  // 自定义字段定义:必须早于任何一次 openBookModal 完成,否则编辑弹窗里
+  // renderCustomFieldInputs 会拿到空数组(表现为"字段偶尔不显示")。
+  // 与 settingsReady 同一思路:先备好,由调用方 await。
+  await loadCustomColumns();
   // 标签建议(datalist):编辑弹窗打开前备好,失败静默(不影响其它功能)
   sharedStats().then((data) => {
     if (!data) return;
     $('#tagSuggestions').innerHTML =
       data.topTags.map((t) => `<option value="${esc(t.tag)}">`).join('');
   });
+  // A3:系列名建议(datalist),数据来自 /api/series;失败静默
+  api('/api/series').then((list) => {
+    const el = $('#seriesSuggestions');
+    if (el && Array.isArray(list)) {
+      el.innerHTML = list.map((s) => `<option value="${esc(s.name)}">`).join('');
+    }
+  }).catch(() => { /* 没系列或接口失败都不影响主流程 */ });
+  // A5:标识符类型建议(常用类型;用户可以填任意类型)
+  const idTypeEl = $('#idTypeSuggestions');
+  if (idTypeEl) {
+    idTypeEl.innerHTML = ID_TYPE_HINT.map((t) => `<option value="${esc(t)}">`).join('');
+  }
 })();

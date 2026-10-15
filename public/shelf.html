@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=36">
+  <link rel="stylesheet" href="/css/style.css?v=38">
 </head>
 <body data-page="shelf">
   <main>
@@ -35,6 +35,9 @@
           <option value="updated">最近更新</option>
           <option value="finish">读完日期</option>
           <option value="title">书名</option>
+          <option value="author">作者</option>
+          <option value="series">系列</option>
+          <option value="created">添加时间</option>
         </select>
         <button type="button" id="syntaxBtn" class="btn btn-ghost syntax-btn" title="高级搜索语法">语法?</button>
       </div>
@@ -73,7 +76,11 @@
             <tr><td><code>pubyear:2008</code></td><td>出版年,可用 <code>pubyear&lt;2010</code> 这类范围</td></tr>
             <tr><td><code>publisher:译文</code></td><td>出版社(子串)</td></tr>
             <tr><td><code>isbn:978...</code></td><td>ISBN(子串)</td></tr>
+            <tr><td><code>series:基地</code></td><td>系列(精确匹配)</td></tr>
+            <tr><td><code>series_index:&gt;=2</code></td><td>系列序号,支持 &gt; &lt; &gt;= &lt;= = !=</td></tr>
+            <tr><td><code>identifier:goodreads:5907</code></td><td>标识符(类型:值;只写类型表示"有该类标识符")</td></tr>
             <tr><td><code>format:epub</code></td><td>电子书格式(已上传)</td></tr>
+            <tr><td><code>#页数:&gt;300</code></td><td>自定义字段(<code>#</code> 开头;数值可比较)</td></tr>
           </table>
           <p>其它写法:</p>
           <ul>
@@ -93,8 +100,8 @@
     </div>
   </main>
 
-  <script defer src="/js/chrome.js?v=3"></script>
-  <script defer src="/js/common.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=3"></script>
+  <script defer src="/js/chrome.js?v=4"></script>
+  <script defer src="/js/common.js?v=4"></script>
+  <script defer src="/js/page-shelf.js?v=4"></script>
 </body>
 </html>

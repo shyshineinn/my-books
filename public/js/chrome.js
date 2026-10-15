@@ -122,6 +122,15 @@ function overlaysHtml() {
             <input type="text" id="fTags" list="tagSuggestions">
             <datalist id="tagSuggestions"></datalist>
           </div>
+          <div class="field">
+            <label for="fSeries">系列 <span class="label-sub">可写「基地 [3]」直接带序号</span></label>
+            <input type="text" id="fSeries" list="seriesSuggestions" maxlength="200" placeholder="如:基地 [3]">
+            <datalist id="seriesSuggestions"></datalist>
+          </div>
+          <div class="field">
+            <label for="fSeriesIndex">系列序号 <span class="label-sub">可留空;支持小数(2.5)</span></label>
+            <input type="number" id="fSeriesIndex" step="0.1" min="0" placeholder="如:3">
+          </div>
           <div class="field field-full">
             <label>阅读记录 <span class="label-sub">每次读的起止时间,开始/读完日期与读过次数据此自动生成</span></label>
             <div id="readLogs" class="read-logs"></div>
@@ -166,6 +175,20 @@ function overlaysHtml() {
           <div class="field field-full">
             <label>读书心得</label>
             <p class="field-hint">在右上角 ⚙ 配置 GitHub 仓库后,把 .md 文件按书名(如 三体.md)放入仓库即可自动关联,详情页点"读书心得"查看</p>
+          </div>
+          <!-- 其它标识符(A5):除 ISBN / 豆瓣 id 外可加任意类型。
+               行由 common.js 动态增删;类型名自由填(如 goodreads / doi)。 -->
+          <div class="field field-full">
+            <label>其它标识符 <span class="label-sub">如 goodreads / doi / amazon;每类型一个值</span></label>
+            <div id="idRows" class="id-rows"></div>
+            <datalist id="idTypeSuggestions"></datalist>
+            <button type="button" id="addIdRowBtn" class="btn btn-ghost add-log-btn">＋ 添加标识符</button>
+          </div>
+          <!-- 自定义字段:控件由 common.js 按 custom_columns 注册表动态生成。
+               没有任何自定义字段时整块隐藏(不留空标题)。 -->
+          <div class="field field-full" id="customFieldsSection" hidden>
+            <label>自定义字段 <span class="label-sub">在「分类」页管理字段定义</span></label>
+            <div class="form-grid" id="customFieldsBox"></div>
           </div>
         </div>
         <div class="form-foot">

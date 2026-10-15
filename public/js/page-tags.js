@@ -15,6 +15,9 @@ const cats = { tags: [], authors: [] };
 const KIND_LABEL = { tags: '标签', authors: '作者' };
 let mergeCtx = null; // { kind, fromId, fromName }
 
+// 自定义字段的三份视图:全部 / 生效中 / 已删除(可恢复)
+const fieldsState = { all: [], active: [], deleted: [] };
+
 function shelfHref(kind, name) {
   const key = kind === 'tags' ? 'tag' : 'author';
   return '/shelf?' + key + '=' + encodeURIComponent(name);
@@ -147,5 +150,217 @@ bindList('tags', '#tagsList');
 bindList('authors', '#authorsList');
 $('#mergeConfirm').addEventListener('click', confirmMerge);
 
-/* ============ 启动 ============ */
+/* ============ 自定义字段管理(对标 calibre 自定义列) ============
+ * 字段定义存在服务端(custom_columns 表),这里只做增删改的入口。
+ * 删除是软删除(可恢复);「彻底删除」会连所有取值一起清掉,故二次确认。
+ * 任何变更后必须让编辑弹窗里的定义缓存失效 —— 用 localStorage 戳跨页通信:
+ * 书架页在启动时读 STAMP_KEY,发现戳变了就重新拉定义。 */
+
+const FIELDS_STAMP_KEY = 'mybooks.customFields.stamp';
+let fieldCtx = null;        // { id } 编辑态;null = 新建
+
+const DATATYPE_LABEL = {
+  text: '单行文本', comments: '长文本', int: '整数', float: '小数',
+  rating: '评分', date: '日期', bool: '是/否', enumeration: '枚举', series: '系列',
+};
+
+// 通知其它页面:字段定义变了(下次加载书架时重新拉)
+function bumpFieldsStamp() {
+  try { localStorage.setItem(FIELDS_STAMP_KEY, String(Date.now())); } catch { /* 隐私模式等忽略 */ }
+}
+
+function renderFields() {
+  const list = $('#fieldsList');
+  const active = fieldsState.active;
+  $('#fieldsCount').textContent = `${active.length} 个`;
+
+  if (!active.length) {
+    list.innerHTML = '<p class="cat-empty-row">还没有自定义字段。点右上「新建字段」加一个,比如「系列」或「页数」。</p>';
+  } else {
+    list.innerHTML = active.map((c) => `
+      <div class="cat-row" data-field-id="${c.id}">
+        <span class="field-name">${esc(c.name)}</span>
+        <code class="field-label">#${esc(c.label)}</code>
+        <span class="field-type">${esc(DATATYPE_LABEL[c.datatype] || c.datatype)}${c.is_multiple ? ' · 多值' : ''}</span>
+        <span class="cat-n" title="已填写的书籍数">${c.usage}</span>
+        <div class="cat-ops">
+          <button type="button" class="cat-op" data-fact="edit" aria-label="编辑「${esc(c.name)}」" title="编辑">✎</button>
+          <button type="button" class="cat-op" data-fact="delete" aria-label="删除「${esc(c.name)}」" title="删除(可恢复)">✕</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // 已删除字段(可恢复)
+  const deleted = fieldsState.deleted;
+  const box = $('#fieldsDeletedBox');
+  if (!deleted.length) {
+    box.classList.add('hidden');
+    $('#fieldsDeletedList').innerHTML = '';
+  } else {
+    box.classList.remove('hidden');
+    $('#fieldsDeletedList').innerHTML = deleted.map((c) => `
+      <div class="cat-row is-deleted" data-field-id="${c.id}">
+        <span class="field-name">${esc(c.name)}</span>
+        <code class="field-label">#${esc(c.label)}</code>
+        <span class="field-type">${esc(DATATYPE_LABEL[c.datatype] || c.datatype)}</span>
+        <span class="cat-n" title="仍保留的取值数">${c.usage}</span>
+        <div class="cat-ops">
+          <button type="button" class="cat-op" data-fact="restore" title="恢复该字段">↺</button>
+          <button type="button" class="cat-op danger" data-fact="purge" title="彻底删除(连同取值,不可恢复)">🗑</button>
+        </div>
+      </div>`).join('');
+  }
+}
+
+async function loadFields() {
+  let all = [];
+  try {
+    all = await api('/api/custom-fields?includeDeleted=1');
+  } catch (e) {
+    toast(e.message, true);
+  }
+  fieldsState.all = all;
+  fieldsState.active = all.filter((c) => !c.mark_for_delete);
+  fieldsState.deleted = all.filter((c) => c.mark_for_delete);
+  renderFields();
+}
+
+/* ---------- 新建 / 编辑弹窗 ---------- */
+function syncFieldModalVisibility() {
+  const dt = $('#cfDatatype').value;
+  const editing = !!fieldCtx;
+  // 枚举才显示选项输入
+  $('#cfOptionsField').classList.toggle('hidden', dt !== 'enumeration');
+  // 只有 text 能多值:其余类型把选择器禁掉(与后端同一条规则,前端先给出反馈)
+  const canMultiple = dt === 'text';
+  $('#cfMultiple').disabled = !canMultiple || editing;
+  if (!canMultiple) $('#cfMultiple').value = '0';
+  if (editing) $('#cfMultiple').disabled = true;
+  // 编辑态锁定类型与多值
+  $('#cfDatatype').disabled = editing;
+  $('#cfLabel').disabled = editing;
+  $('#cfTypeLockedHint').hidden = !editing;
+}
+
+function openFieldModal(col) {
+  fieldCtx = col ? { id: col.id } : null;
+  $('#fieldModalTitle').textContent = col ? `编辑字段「${col.name}」` : '新建字段';
+  $('#cfName').value = col ? col.name : '';
+  $('#cfLabel').value = col ? col.label : '';
+  $('#cfDatatype').value = col ? col.datatype : 'text';
+  $('#cfMultiple').value = col && col.is_multiple ? '1' : '0';
+  $('#cfOptions').value = col && col.options ? col.options.join(', ') : '';
+  $('#fieldError').textContent = '';
+  syncFieldModalVisibility();
+  openModal('#fieldModal');
+  setTimeout(() => { (col ? $('#cfName') : $('#cfName')).focus(); }, 60);
+}
+
+async function saveField() {
+  const errEl = $('#fieldError');
+  errEl.textContent = '';
+  const name = $('#cfName').value.trim();
+  const label = $('#cfLabel').value.trim().toLowerCase();
+  if (!name) { errEl.textContent = '请填写字段名称'; return; }
+  if (!fieldCtx && !label) { errEl.textContent = '请填写字段标识(用于检索)'; return; }
+
+  const body = {
+    name,
+    datatype: $('#cfDatatype').value,
+    is_multiple: $('#cfMultiple').value === '1',
+    options: $('#cfOptionsField').classList.contains('hidden') ? [] : $('#cfOptions').value,
+  };
+  if (!fieldCtx) body.label = label;
+
+  const btn = $('#fieldSaveBtn');
+  btn.disabled = true;
+  try {
+    if (fieldCtx) {
+      const res = await api('/api/custom-fields/' + fieldCtx.id, { method: 'PUT', body: JSON.stringify(body) });
+      fieldsState.all = res.columns;
+      toast('字段已更新');
+    } else {
+      const res = await api('/api/custom-fields', { method: 'POST', body: JSON.stringify(body) });
+      fieldsState.all = res.columns;
+      toast('字段已创建,现在可以在书籍里填写了');
+    }
+    fieldCtx = null;
+    bumpFieldsStamp();
+    closeModals();
+    await loadFields();
+    // 字段增删会改变编辑弹窗的输入控件,让本站缓存的字段定义失效
+    customColumnsLoaded = false;
+    await loadCustomColumns(true);
+  } catch (e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteField(col) {
+  const used = col.usage ? `它已被 ${col.usage} 本书填写` : '还没有书填写它';
+  if (!confirm(`删除字段「${col.name}」?\n${used},${col.usage ? '取值会保留' : '可随时恢复'}。\n删除后该字段不再出现在书籍表单与检索里,但可以在下方「已删除的字段」中恢复。`)) return;
+  try {
+    const res = await api('/api/custom-fields/' + col.id, { method: 'DELETE' });
+    fieldsState.all = res.columns;
+    bumpFieldsStamp();
+    await loadFields();
+    customColumnsLoaded = false;
+    await loadCustomColumns(true);
+    toast('已删除(可恢复)');
+  } catch (e) { toast(e.message, true); }
+}
+
+async function restoreField(col) {
+  try {
+    const res = await api(`/api/custom-fields/${col.id}/restore`, { method: 'POST' });
+    fieldsState.all = res.columns;
+    bumpFieldsStamp();
+    await loadFields();
+    customColumnsLoaded = false;
+    await loadCustomColumns(true);
+    toast('已恢复');
+  } catch (e) { toast(e.message, true); }
+}
+
+async function purgeField(col) {
+  const used = col.usage ? `,并永久删除 ${col.usage} 本书上填写的值` : '';
+  if (!confirm(`彻底删除字段「${col.name}」?\n将移除字段定义${used}。\n此操作不可恢复(取值不会保留),确定继续?`)) return;
+  try {
+    const res = await api(`/api/custom-fields/${col.id}?purge=1`, { method: 'DELETE' });
+    fieldsState.all = res.columns;
+    bumpFieldsStamp();
+    await loadFields();
+    customColumnsLoaded = false;
+    await loadCustomColumns(true);
+    toast('已彻底删除');
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- 事件绑定 ---------- */
+$('#addFieldBtn').addEventListener('click', () => openFieldModal(null));
+$('#fieldSaveBtn').addEventListener('click', saveField);
+$('#cfDatatype').addEventListener('change', syncFieldModalVisibility);
+
+$('#fieldsList').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cat-op');
+  if (!btn) return;
+  const col = fieldsState.active.find((c) => String(c.id) === btn.closest('.cat-row').dataset.fieldId);
+  if (!col) return;
+  if (btn.dataset.fact === 'edit') openFieldModal(col);
+  else if (btn.dataset.fact === 'delete') deleteField(col);
+});
+
+$('#fieldsDeletedList').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cat-op');
+  if (!btn) return;
+  const col = fieldsState.deleted.find((c) => String(c.id) === btn.closest('.cat-row').dataset.fieldId);
+  if (!col) return;
+  if (btn.dataset.fact === 'restore') restoreField(col);
+  else if (btn.dataset.fact === 'purge') purgeField(col);
+});
+
+/* ---------- 启动 ---------- */
 load();
+loadFields();

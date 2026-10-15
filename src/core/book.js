@@ -11,6 +11,10 @@
 
 const STATUSES = ['wish', 'reading', 'done'];
 
+const { titleSort, authorsToSortString } = require('./sort_keys');
+const { parseSeriesInput, clampSeriesIndex } = require('./series');
+const { parseIdentifiers } = require('./identifiers');
+
 // 多作者分隔符:& , ， 、 / —— 有意不含间隔号 ·(马尔克斯、赫拉利等译名内含 ·)
 const AUTHOR_SEP = /[&，、,/]+/;
 const AUTHOR_JOIN = '、';
@@ -48,8 +52,40 @@ function parseBook(body) {
   tags = [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))];
 
   // 作者:优先取 body.authors 数组,否则按分隔符拆 body.author 字符串;
-  // 归一化后 author = 展示缓存(「、」连接),author_sort = 首位作者(排序键)。
+  // 归一化后 author = 展示缓存(「、」连接)。
+  // author_sort = A8 起改用图书馆惯例的倒装键(「Smith, John」),多作者用 ' & '
+  // 连接 —— 对标 calibre authors_to_sort_string(metadata/__init__.py:141-142)。
+  // 单 token(中文名/笔名)原样返回,所以中文书的排序结果与改造前一致。
   const authors = Array.isArray(body.authors) ? splitAuthors(body.authors) : splitAuthors(body.author);
+
+  // 系列(A3):支持 `系列名 [序号]` 输入语法(对标 calibre _get_series_values)。
+  // 显式传 series_index 时优先用它;并支持 body.series_index 独立更新。
+  //
+  // 注意"只改序号"这种局部提交:请求体里没有 series 时,**不能**擅自把序号
+  // 归 0 —— 系列名要由 mergeUpdate 从数据库旧值补上,序号得一起留着,
+  // 否则"只把序号从 3 改成 7"会退化成 0(实测踩过)。
+  // 只在两种情况归 0:① 显式传了 series 且为空(真的移出系列)② 有系列名但没给序号。
+  const seriesProvided = 'series' in (body || {});
+  const seriesParsed = parseSeriesInput(body.series);
+  let seriesName = seriesParsed.series;
+  let seriesIndex = seriesParsed.series_index;
+  if (body.series_index !== undefined && body.series_index !== '') {
+    seriesIndex = clampSeriesIndex(body.series_index);
+  }
+  if (seriesProvided && !seriesName) {
+    seriesIndex = 0;                 // 显式清空系列 → 序号一并清掉
+  } else if (!seriesProvided && body.series_index === undefined) {
+    seriesIndex = 0;                 // 请求体完全没提系列 → 交给 mergeUpdate 兜底
+  }
+
+  // 标识符(A5):任意 type → 值。isbn / douban_id 仍走专用列(双写在 db 层完成)
+  const ids = parseIdentifiers({
+    ...(body.identifiers && typeof body.identifiers === 'object' ? body.identifiers : {}),
+    ...(body.isbn !== undefined ? { isbn: body.isbn } : {}),
+    ...(body.douban_id !== undefined || body.doubanId !== undefined
+      ? { douban: body.douban_id !== undefined ? body.douban_id : body.doubanId }
+      : {}),
+  });
 
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
   const start = String(body.start_date || '').trim();
@@ -106,8 +142,11 @@ function parseBook(body) {
     errors,
     values: {
       title,
+      // title_sort:剥引号 + 英语冠词移位(「The Hobbit」→「Hobbit, The」)。
+      // 中文书名不含冠词 → 原样,排序行为与改造前一致
+      title_sort: titleSort(title),
       author: authors.join(AUTHOR_JOIN),
-      author_sort: authors[0] || '',
+      author_sort: authorsToSortString(authors),
       status,
       summary: String(body.summary || '').trim().slice(0, 1000),
       tags: JSON.stringify(tags),
@@ -123,6 +162,10 @@ function parseBook(body) {
       isbn: String(body.isbn || '').trim().slice(0, 20),
       rating: clampRating(body.rating),
       douban_id: String(body.douban_id || body.doubanId || '').trim().slice(0, 32),
+      // A3 系列 / A5 标识符(A12 起)
+      series: seriesName.slice(0, 200),
+      series_index: seriesIndex || 0,
+      identifiers: ids.values,
     },
   };
 }
@@ -144,6 +187,8 @@ function mergeUpdate(existing, values, body) {
     merged.author = existing.author;
     merged.author_sort = existing.author_sort;
   }
+  // 书名变了要重算排序键(前端正常会传 title,但脚本可能只改标题_sort 之外的东西)
+  if (!('title' in body)) merged.title_sort = existing.title_sort;
   if (!('notes_url' in body)) merged.notes_url = existing.notes_url;
   if (!('cover' in body)) merged.cover = existing.cover;
   if (!('read_count' in body)) merged.read_count = existing.read_count;
@@ -152,7 +197,24 @@ function mergeUpdate(existing, values, body) {
   if (!('pub_year' in body)) merged.pub_year = existing.pub_year;
   if (!('isbn' in body)) merged.isbn = existing.isbn;
   if (!('rating' in body)) merged.rating = existing.rating;
-  if (!('douban_id' in body)) merged.douban_id = existing.douban_id;
+  if (!('douban_id' in body) && !('doubanId' in body)) merged.douban_id = existing.douban_id;
+  // A3/A5:未提供就保留旧值。
+  // series 的四种组合都要照顾到(序号 0 = 未指定):
+  //   · 都没提            → 系列名与序号全部保留
+  //   · 只提 series_index → 系列名保留(parseBook 已给出新序号)
+  //   · 只提 series       → 序号用新值(parseBook 已算),系列名用新值
+  //   · 显式 series: ''   → 一起清空
+  if (!('series' in body) && !('series_index' in body)) {
+    merged.series = existing.series || '';
+    merged.series_index = existing.series_index || 0;
+  } else if (!('series' in body)) {
+    merged.series = existing.series || '';        // 只改序号:系列名保留
+  } else if (!('series_index' in body) && String(body.series || '').trim()) {
+    // 只改系列名(没给序号):沿用旧序号,避免"改个名字序号就没了"
+    merged.series_index = merged.series_index || existing.series_index || 0;
+  }
+  // identifiers:未提供就完全不动(由 db 层按"未出现的类型保持不动"处理)
+  if (!('identifiers' in body)) merged.identifiers = null;
   return merged;
 }
 

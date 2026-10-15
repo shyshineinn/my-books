@@ -7,6 +7,8 @@
  *   2. JSON 字段可解析(tags / read_logs)
  *   3. 日期字段格式合法(YYYY-MM-DD,允许空)
  *   4. 逻辑一致性(读完日期 ≥ 开始日期;read_logs 与 read_count 关系)
+ *   5. v12 起新增:uuid / title_sort 是否回填、series_index 合法性、
+ *      标识符孤儿行与"同类型同值"冲突、自定义字段孤儿值
  *
  * 用法(服务器或本地):
  *   node data-check.js            # 检查默认 data/books.db
@@ -77,6 +79,103 @@ for (const r of rows) {
 
   // 状态枚举
   if (!['wish', 'reading', 'done'].includes(r.status)) problem(`${tag} status 非法: "${r.status}"`);
+}
+
+/* ---------- 5. v12 数据模型检查(表不存在则整段跳过,兼容旧备份) ---------- */
+
+// 某张表是否存在(旧备份里没有 v11/v12 的表,检查脚本要能吃旧库)
+function hasTable(name) {
+  return !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
+}
+function hasColumn(table, col) {
+  if (!hasTable(table)) return false;
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+}
+
+// 5.1 uuid 与 title_sort 回填情况(v12 迁移应逐行补齐)
+if (hasColumn('books', 'uuid')) {
+  const emptyUuid = db.prepare("SELECT COUNT(*) n FROM books WHERE uuid = ''").get().n;
+  if (emptyUuid) problem(`${emptyUuid} 本书缺少 uuid(v12 迁移应已回填;删掉该列或重跑迁移可修)`);
+  else console.log('✓ uuid 已全部回填');
+
+  const dupUuid = db.prepare("SELECT uuid, COUNT(*) n FROM books WHERE uuid <> '' GROUP BY uuid HAVING n > 1").all();
+  if (dupUuid.length) problem(`uuid 重复:${JSON.stringify(dupUuid)}`);
+
+  // 格式抽查:非标准 UUID 说明是手工写入的
+  const badFmt = db.prepare("SELECT id, uuid FROM books WHERE uuid <> ''").all()
+    .filter((r) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.uuid));
+  if (badFmt.length) problem(`uuid 格式异常 ${badFmt.length} 行,例:${JSON.stringify(badFmt[0])}`);
+}
+
+if (hasColumn('books', 'title_sort')) {
+  const emptyTs = db.prepare("SELECT COUNT(*) n FROM books WHERE title_sort = '' AND title <> ''").get().n;
+  if (emptyTs) problem(`${emptyTs} 本书 title_sort 为空(排序会退化到 title)`);
+  else console.log('✓ title_sort 已全部回填');
+}
+
+// 5.2 series_index 合法性:0 表示未指定;负数是脏数据
+if (hasColumn('books', 'series_index')) {
+  const badIdx = db.prepare('SELECT id, title, series, series_index FROM books WHERE series_index < 0').all();
+  for (const r of badIdx) problem(`《${r.title}》series_index 为负:${r.series_index}`);
+  const orphanIdx = db.prepare("SELECT COUNT(*) n FROM books WHERE series = '' AND series_index <> 0").get().n;
+  if (orphanIdx) problem(`${orphanIdx} 本书没有系列却有序号(序号应归 0)`);
+}
+
+// 5.3 标识符:孤儿行 + 同类型同值冲突
+if (hasTable('book_identifiers')) {
+  const orphans = db.prepare('SELECT COUNT(*) n FROM book_identifiers WHERE book NOT IN (SELECT id FROM books)').get().n;
+  if (orphans) problem(`book_identifiers 有 ${orphans} 行孤儿(指向不存在的书)`);
+
+  const emptyVal = db.prepare("SELECT COUNT(*) n FROM book_identifiers WHERE value = ''").get().n;
+  if (emptyVal) problem(`book_identifiers 有 ${emptyVal} 行空值(应删行而不是留空)`);
+
+  // 同类型同值被多本占用:不一定是错(如合订本共用 ISBN),但值得人看一眼
+  const conflicts = db.prepare(`
+    SELECT type, value, COUNT(*) n FROM book_identifiers WHERE value <> ''
+    GROUP BY type, value COLLATE NOCASE HAVING n > 1
+  `).all();
+  if (conflicts.length) {
+    // 用"提示"而非"问题":不改变退出码,避免正常数据被判失败
+    console.log(`  [提示] ${conflicts.length} 组标识符被多本书共用(可能是合订本/再版):`);
+    for (const c of conflicts.slice(0, 5)) console.log(`         ${c.type}:${c.value} × ${c.n}`);
+  } else {
+    console.log('✓ 标识符无孤儿、无空值、无重复');
+  }
+}
+
+// 5.4 自定义字段:孤儿值 + 枚举选项完整性
+if (hasTable('book_custom_values')) {
+  const orphanCv = db.prepare('SELECT COUNT(*) n FROM book_custom_values WHERE column_id NOT IN (SELECT id FROM custom_columns)').get().n;
+  if (orphanCv) problem(`book_custom_values 有 ${orphanCv} 行孤儿(指向已删字段)`);
+  const emptyCv = db.prepare("SELECT COUNT(*) n FROM book_custom_values WHERE value = ''").get().n;
+  if (emptyCv) problem(`book_custom_values 有 ${emptyCv} 行空值(约定应为不留行)`);
+}
+
+if (hasTable('custom_columns')) {
+  const DATATYPES = ['text', 'comments', 'int', 'float', 'bool', 'date', 'rating', 'enumeration', 'series'];
+  for (const c of db.prepare('SELECT * FROM custom_columns').all()) {
+    if (!DATATYPES.includes(c.datatype)) problem(`自定义字段 ${c.label} 类型非法:${c.datatype}`);
+    if (c.datatype === 'enumeration') {
+      let opts = [];
+      try { opts = JSON.parse(c.options || '[]'); } catch { opts = null; }
+      if (!Array.isArray(opts)) problem(`自定义字段 ${c.label} 的 options 不是合法 JSON 数组`);
+      else if (!opts.length) problem(`自定义字段 ${c.label} 是枚举类型但没有可选值`);
+    }
+    if (c.is_multiple && c.datatype !== 'text') {
+      problem(`自定义字段 ${c.label} 声明了多值但类型是 ${c.datatype}(只有 text 允许多值)`);
+    }
+  }
+  // 多值字段的存储值应是 JSON 数组
+  const multiCols = db.prepare("SELECT id, label FROM custom_columns WHERE is_multiple = 1").all();
+  for (const col of multiCols) {
+    const vals = db.prepare('SELECT book, value FROM book_custom_values WHERE column_id = ? AND value <> ?').all(col.id, '');
+    for (const v of vals) {
+      try {
+        if (!Array.isArray(JSON.parse(v.value))) problem(`字段 ${col.label} 的书 ${v.book} 多值存储不是数组`);
+      } catch { problem(`字段 ${col.label} 的书 ${v.book} 多值存储不是合法 JSON`); }
+    }
+  }
+  console.log('✓ 自定义字段定义与取值检查完成');
 }
 
 db.close();

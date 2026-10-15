@@ -277,8 +277,133 @@ function migrateV10(db, dataDir) {
   `);
 }
 
+// v11:自定义字段(对标 calibre custom_columns + FieldMetadata 注册表)
+//     用户可运行时增删字段,不必再改代码加列 —— 这是 A 组「数据模型」的地基。
+//
+//     两张表,语义分别是"定义"与"取值":
+//       custom_columns      字段注册表(label 机器名 / name 显示名 / datatype /
+//                           is_multiple / options / 排序 / 软删除标记)
+//       book_custom_values  取值表,PK(book, column) —— 一本书一个字段一行
+//
+//     与 calibre 的差异(有意为之,理由见 core/custom_fields.js 头部):
+//     calibre 给每个字段建独立物理表 custom_column_N;本项目用单张值表,
+//     因为"schema 只由 migrations 定义"是既有不变量,运行时 DDL 会破坏它。
+//
+//     健壮性要点(均取自 calibre 的写法):
+//       · datatype 列带 CHECK 白名单 —— 非法类型进不了库(calibre 靠 Python 侧校验,
+//         这里再加一道 schema 级防线;两份清单由测试钉死一致)
+//       · label 唯一且 COLLATE NOCASE —— 大小写不同视为同一个字段
+//       · 值表对 book / column 双外键 + ON DELETE CASCADE —— 删书/删字段自动清值,
+//         不留孤儿行(本项目已开 PRAGMA foreign_keys=ON)
+//       · 删字段是"软删除"(mark_for_delete=1),值先保留,由调用方决定何时物理清
+function migrateV11(db, dataDir) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS custom_columns (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      label           TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+      name            TEXT    NOT NULL,
+      datatype        TEXT    NOT NULL
+                              CHECK (datatype IN ('text','comments','int','float','bool','date','rating','enumeration','series')),
+      is_multiple     INTEGER NOT NULL DEFAULT 0 CHECK (is_multiple IN (0,1)),
+      options         TEXT    NOT NULL DEFAULT '[]',
+      display_order   INTEGER NOT NULL DEFAULT 0,
+      mark_for_delete INTEGER NOT NULL DEFAULT 0 CHECK (mark_for_delete IN (0,1)),
+      created_at      TEXT    NOT NULL,
+      updated_at      TEXT    NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_custom_values (
+      book       INTEGER NOT NULL REFERENCES books(id)          ON DELETE CASCADE,
+      column_id  INTEGER NOT NULL REFERENCES custom_columns(id) ON DELETE CASCADE,
+      value      TEXT    NOT NULL DEFAULT '',
+      updated_at TEXT    NOT NULL,
+      PRIMARY KEY (book, column_id)
+    )
+  `);
+  // 按字段检索(如 #series:"基地")时按 column_id 过滤,建索引
+  db.exec('CREATE INDEX IF NOT EXISTS book_custom_values_col_idx ON book_custom_values (column_id)');
+}
+
+// v12:A 组剩余数据模型(系列 / 标识符 / uuid / 排序键)
+//
+//     · books.series / books.series_index —— 系列与系列序号,对标 calibre
+//       (metadata_sqlite.sql:12 的 series_index REAL DEFAULT 1.0)。
+//       序号用 REAL:中篇插队很常见(第 2.5 册)。
+//       不建 series 值表:一本书只属于一个系列(calibre 也是 UNIQUE(book)),
+//       改名/合并用一条 UPDATE 即可,"带计数的系列列表"用 GROUP BY 即可。
+//     · books.title_sort —— 书名排序键(剥引号 + 英语冠词移位),
+//       对标 calibre title_sort()(ebooks/metadata/__init__.py:203-228)。
+//       改造前直接 ORDER BY title,导致 "The Hobbit" 排在 T 组。
+//     · books.uuid —— 单本稳定标识,对标 calibre books.uuid
+//       (schema_upgrades.py:204 的 ALTER TABLE books ADD COLUMN uuid TEXT)。
+//       用途:跨库/导入导出时识别"同一本书",不受自增 id 变化影响。
+//     · book_identifiers —— 任意类型的标识符(isbn/goodreads/doi…),
+//       对标 calibre identifiers 表 UNIQUE(book,type)
+//       (metadata_sqlite.sql:105-110)。isbn/douban_id 两列**保留**
+//       (豆瓣抓取/FTS/前端都在用),新表承接**其余**类型,避免牵动既有链路。
+//
+//     回填:title_sort 按现有 title 算;uuid 逐行生成;series 相关列默认空。
+function migrateV12(db, dataDir) {
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+
+  if (!cols.includes('series')) {
+    db.exec("ALTER TABLE books ADD COLUMN series TEXT NOT NULL DEFAULT ''");
+  }
+  if (!cols.includes('series_index')) {
+    // REAL NOT NULL DEFAULT 0:0 表示"未指定序号"(calibre 默认 1.0,
+    // 但那是"第一个"的语义;本项目用 0 区分"没填",展示时不显示 #)
+    db.exec('ALTER TABLE books ADD COLUMN series_index REAL NOT NULL DEFAULT 0');
+  }
+  if (!cols.includes('title_sort')) {
+    db.exec("ALTER TABLE books ADD COLUMN title_sort TEXT NOT NULL DEFAULT ''");
+  }
+  if (!cols.includes('uuid')) {
+    db.exec("ALTER TABLE books ADD COLUMN uuid TEXT NOT NULL DEFAULT ''");
+  }
+
+  db.exec('CREATE INDEX IF NOT EXISTS books_series_idx ON books (series COLLATE NOCASE)');
+  db.exec('CREATE INDEX IF NOT EXISTS books_title_sort_idx ON books (title_sort COLLATE NOCASE)');
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_identifiers (
+      book  INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      type  TEXT    NOT NULL COLLATE NOCASE,
+      value TEXT    NOT NULL DEFAULT '',
+      PRIMARY KEY (book, type)
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS book_identifiers_type_idx ON book_identifiers (type, value COLLATE NOCASE)');
+
+  // 回填 title_sort / uuid。注意:迁移里**不能** require core/sort_keys 吗?
+  // 可以 —— src/db/ 依赖 src/core/ 是本项目的既定方向(见 db/categories.js
+  // 依赖 core/book.js)。但为让"迁移重放"结果与"当时代码"解耦,这里用同一份
+  // 纯函数:它是确定性的,重放历史库得到同样结果(与 migrateV8 的评分折算同理)。
+  const { titleSort } = require('../core/sort_keys');
+  const rows = db.prepare("SELECT id, title, uuid FROM books").all();
+  const updSort = db.prepare('UPDATE books SET title_sort = ? WHERE id = ?');
+  const updUuid = db.prepare('UPDATE books SET uuid = ? WHERE id = ?');
+  const crypto = require('node:crypto');
+  for (const r of rows) {
+    updSort.run(titleSort(r.title), r.id);
+    if (!r.uuid) updUuid.run(crypto.randomUUID(), r.id);
+  }
+
+  // 把 isbn / douban_id 两列同步进 identifiers 表(双写的第一半:
+  // 让新表成为"全部标识符"的完整视图,读的时候只需查新表 + 兜底旧列)
+  const withIds = db.prepare("SELECT id, isbn, douban_id FROM books WHERE isbn <> '' OR douban_id <> ''").all();
+  const insId = db.prepare(`
+    INSERT INTO book_identifiers (book, type, value) VALUES (?, ?, ?)
+    ON CONFLICT(book, type) DO NOTHING
+  `);
+  for (const r of withIds) {
+    if (r.isbn) insId.run(r.id, 'isbn', String(r.isbn).trim());
+    if (r.douban_id) insId.run(r.id, 'douban', String(r.douban_id).trim());
+  }
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
@@ -345,6 +470,26 @@ function now() {
   return new Date().toISOString();
 }
 
+// 事务包裹助手(嵌套安全)。
+// 为什么需要:本项目的写入路径有三层 —— routes(可能已开事务,如 categories)、
+// db/books(自己要保证"主表 + 关联表"原子)、db 内部的同步函数。
+// 若各层都无脑 BEGIN,SQLite 会报 "cannot start a transaction within a transaction"。
+// 所以:已在事务中就直接执行(并入外层事务,由外层决定提交/回滚),
+// 否则自己开一个。用 db.isTransaction 判断,不靠自己维护计数器 ——
+// 计数器在异常路径上极易与实际状态失同步。
+function inTransaction(handleDb, fn) {
+  if (handleDb.isTransaction) return fn();
+  handleDb.exec('BEGIN');
+  try {
+    const out = fn();
+    handleDb.exec('COMMIT');
+    return out;
+  } catch (err) {
+    try { handleDb.exec('ROLLBACK'); } catch { /* 回滚失败则保留原始错误 */ }
+    throw err;
+  }
+}
+
 // 默认实例:应用主库。测试通过 openDb(tempDir) 建隔离实例,不经此路径
 const db = openDb(DATA_DIR);
 
@@ -359,4 +504,4 @@ function setSetting(key, value) {
   ).run(key, String(value));
 }
 
-module.exports = { db, now, getSetting, setSetting, openDb, runMigrations, migrations };
+module.exports = { db, now, getSetting, setSetting, openDb, runMigrations, migrations, inTransaction };
