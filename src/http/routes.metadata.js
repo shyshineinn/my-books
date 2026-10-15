@@ -18,6 +18,7 @@ const { LruCache } = require('./lru');
 const router = express.Router();
 
 const COOKIE_FILE = path.join(__dirname, '..', '..', 'data', 'douban-cookie');
+const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 分钟:与文件头声明一致
 const searchCache = new LruCache(20);
 const UA_LIST = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -52,7 +53,9 @@ function isProhibited(html) {
   return typeof html === 'string' && html.includes('<title>禁止访问</title>');
 }
 
-router.get('/api/metadata/search', async (req, res) => {
+// 搜索处理函数:单独抽出(不写成 router.get 的内联回调),
+// 便于测试直接以假 req/res + 桩 fetch 驱动,验证缓存 TTL 行为。
+async function handleMetadataSearch(req, res) {
   const q = String(req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: '缺少搜索词(书名或 ISBN)', code: 'VALIDATION' });
 
@@ -61,8 +64,13 @@ router.get('/api/metadata/search', async (req, res) => {
 
   const hit = searchCache.get(searchKey);
   if (hit) {
-    res.set('X-Cache', 'hit');
-    return res.json({ results: hit, cookieless: !loadCookie() });
+    // TTL 检查(此前缺这一步:注释写着 10 分钟,代码却是"命中就返回",
+    // 条目只在被 20 条 LRU 淘汰前永久有效 —— 豆瓣改条目后一直拿旧数据)
+    if (Date.now() - hit.t < SEARCH_CACHE_TTL) {
+      res.set('X-Cache', 'hit');
+      return res.json({ results: hit.results, cookieless: !loadCookie() });
+    }
+    searchCache.delete(searchKey); // 过期条目主动清掉,别占着容量位
   }
 
   try {
@@ -96,7 +104,7 @@ router.get('/api/metadata/search', async (req, res) => {
       })
     );
     const results = details.filter(Boolean);
-    searchCache.set(searchKey, results);
+    searchCache.set(searchKey, { t: Date.now(), results });
     res.set('X-Cache', 'miss');
     res.json({ results, cookieless: !loadCookie() });
   } catch (err) {
@@ -106,6 +114,13 @@ router.get('/api/metadata/search', async (req, res) => {
     console.error('[douban] search failed:', err.message);
     res.status(500).json({ error: '豆瓣查询失败', code: 'INTERNAL' });
   }
-});
+}
+
+router.get('/api/metadata/search', handleMetadataSearch);
 
 module.exports = router;
+// 供测试:处理函数、缓存实例与 TTL 常量(与 middleware.auth.js 导出
+// resetTokenCache 同一思路 —— 路由照常注册,内部件可被单独驱动)
+module.exports.handleMetadataSearch = handleMetadataSearch;
+module.exports.searchCache = searchCache;
+module.exports.SEARCH_CACHE_TTL = SEARCH_CACHE_TTL;

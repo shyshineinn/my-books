@@ -118,7 +118,7 @@ html {
   min-height: 44px;
 }
 
-/* 品牌标(按钮,点击返回首页)——需清掉 button 原生外观,悬停反馈与右侧导航项一致 */
+/* 品牌标(链接,回首页)——需清掉链接下划线与 button 原生外观,悬停反馈与右侧导航项一致 */
 .brand {
   display: flex;
   align-items: center;
@@ -131,6 +131,7 @@ html {
   letter-spacing: -0.01em;
   white-space: nowrap;
   color: rgba(29, 29, 31, 0.8);
+  text-decoration: none;
   cursor: pointer;
   transition: color 0.2s var(--ease);
 }
@@ -164,7 +165,7 @@ html {
   margin-left: 10px;
 }
 
-.view-switch button {
+.view-switch a {
   border: 0;
   background: transparent;
   padding: 0 12px;
@@ -172,11 +173,14 @@ html {
   font-weight: 400;
   letter-spacing: -0.01em;
   color: rgba(29, 29, 31, 0.8);
+  text-decoration: none;
   min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   transition: color 0.2s var(--ease);
 }
 
-.view-switch button:hover {
+.view-switch a:hover {
   color: var(--ink);
   background: transparent;
 }
@@ -324,7 +328,8 @@ body.menu-open .mobile-menu-btn:hover span { background: #000; }
    顶部留白即菜单内边距的 34px,不再需要额外的 margin-top 为搜索框让位。 */
 .mm-links { display: flex; flex-direction: column; }
 
-.mm-links button {
+.mm-links a {
+  display: block;
   text-align: left;
   font-family: var(--sans);
   font-size: 28px;
@@ -337,28 +342,29 @@ body.menu-open .mobile-menu-btn:hover span { background: #000; }
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   padding: 11px 4px;
   opacity: 0;
+  text-decoration: none;
   transform: translateY(14px);
   transition: color 0.25s var(--ease);
 }
 
-.mm-links button:hover {
+.mm-links a:hover {
   color: rgba(29, 29, 31, 0.56);
 }
 
 /* 进项级联:基准 80ms,每项 +70ms
    注意:导航项增删时必须同步补/删一组 —— 漏掉的那项 animation-delay 为 0,
    会抢在其它项之前出现(菜单有 4 项、这里只写了 3 条时,「统计」就是这个表现) */
-.mobile-menu.open .mm-links button { animation: mm-item 0.45s var(--ease-out) forwards; }
-.mobile-menu.open .mm-links button:nth-child(1) { animation-delay: 0.08s; }
-.mobile-menu.open .mm-links button:nth-child(2) { animation-delay: 0.15s; }
-.mobile-menu.open .mm-links button:nth-child(3) { animation-delay: 0.22s; }
-.mobile-menu.open .mm-links button:nth-child(4) { animation-delay: 0.29s; }
+.mobile-menu.open .mm-links a { animation: mm-item 0.45s var(--ease-out) forwards; }
+.mobile-menu.open .mm-links a:nth-child(1) { animation-delay: 0.08s; }
+.mobile-menu.open .mm-links a:nth-child(2) { animation-delay: 0.15s; }
+.mobile-menu.open .mm-links a:nth-child(3) { animation-delay: 0.22s; }
+.mobile-menu.open .mm-links a:nth-child(4) { animation-delay: 0.29s; }
 
 @keyframes mm-item {
   to { opacity: 1; transform: none; }
 }
 
-.mm-links button:active { color: rgba(29, 29, 31, 0.56); }
+.mm-links a:active { color: rgba(29, 29, 31, 0.56); }
 
 .mm-foot { margin-top: auto; }
 
@@ -389,7 +395,7 @@ body.menu-open .mobile-menu-btn:hover span { background: #000; }
 
   /* —— 搜索展开态:整行让给搜索栏 ——
      点顶栏搜索图标后,收起品牌与其它图标,输入框铺满整行;
-     取消 / Esc / 回车提交都会收起(见 app.js 的 openSearchRow / closeSearchRow)。
+     取消 / Esc / 回车提交都会收起(见 common.js 的 openSearchRow / closeSearchRow)。
      字号必须 ≥16px,否则 iOS 聚焦输入框时会把整页放大。 */
   body.search-open .topbar .brand,
   body.search-open .topbar #searchBtn,
@@ -495,6 +501,7 @@ body.menu-open .mobile-menu-btn:hover span { background: #000; }
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-spec), var(--glass-lift);
   color: var(--glass-text);
+  text-decoration: none;   /* .btn 也挂在 <a> 上(首页 CTA 是跨页链接) */
   transition: background 0.25s var(--ease), border-color 0.25s var(--ease),
     box-shadow 0.25s var(--ease), transform 0.12s var(--ease), color 0.25s var(--ease);
 }
@@ -1194,6 +1201,7 @@ main {
   color: var(--glass-text);
   min-height: 32px;
   letter-spacing: 0.04em;
+  text-decoration: none;   /* 统计页标签云已改为链接(点击跳书架筛选) */
   box-shadow:
     inset 0 1px 1px rgba(255, 255, 255, 0.65),
     0 3px 10px rgba(36, 29, 20, 0.07);
@@ -1730,6 +1738,7 @@ main {
   padding: 3px 14px;
   font-size: 12.5px;
   color: var(--glass-text);
+  text-decoration: none;   /* 心得页"回到书架"是链接,与重试按钮同形 */
 }
 
 .notes-retry:hover { background: var(--glass-fill-hover); border-color: var(--glass-edge-hover); }
@@ -1942,7 +1951,9 @@ footer .footer-legal a.beian-ps img {
 }
 
 /* ============ 首页(Apple 式展示页) ============ */
-#homeView {
+/* 多页拆分后首页是独立文档:整页全出血(主容器不限宽,Hero 顶到导航栏下方),
+   变量直接挂在 main.page-home 上(旧规则挂在 #homeView 上,已随视图拆分退役) */
+main.page-home {
   --home-bg: #ffffff;
   --home-surface: #f5f5f7;
   --home-text: #1d1d1f;
@@ -1951,12 +1962,10 @@ footer .footer-legal a.beian-ps img {
   --home-dark: #000000;
   --home-dark-text: #f5f5f7;
   --home-dark-sub: #86868b;
-  padding: 0;
+  max-width: none;
+  padding: 0 0 80px;
   overflow-x: clip;
 }
-
-/* 首页视图:主容器全出血,Hero 顶到导航栏下方 */
-main:has(#homeView:not(.hidden)) { padding: 0 0 80px; max-width: none; }
 
 .home-eyebrow {
   font-family: var(--ent-text);
@@ -2212,6 +2221,7 @@ main:has(#homeView:not(.hidden)) { padding: 0 0 80px; max-width: none; }
   color: var(--home-link);
   padding: 6px 2px;
   cursor: pointer;
+  text-decoration: none;   /* 心得入口已改为链接(独立页面),与按钮样式保持一致 */
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s var(--ease), opacity 0.2s var(--ease);
 }
@@ -2920,6 +2930,10 @@ main:has(#homeView:not(.hidden)) { padding: 0 0 80px; max-width: none; }
   .panel { padding: 22px 20px; }
   .stats-hero { padding: 26px 22px 24px; }
   .hstat .num { font-size: 32px; }
+}
+
+/* 窄横屏(横屏手机/小窗):弹窗保留贴底抽屉形态 */
+@media (max-width: 559.98px) and (orientation: landscape) {
   .modal { align-items: flex-end; }
   .modal-box {
     max-height: 94dvh;
@@ -2947,6 +2961,22 @@ main:has(#homeView:not(.hidden)) { padding: 0 0 80px; max-width: none; }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .detail-body { flex-direction: row; }
   .detail-cover { width: 200px; align-self: flex-start; }
+}
+
+/* 竖屏:所有弹窗垂直居中(浮层卡片,四角圆角)——
+   不再贴底成抽屉、也不再拉满全高;刘海与底部横条用安全区留白避开。
+   放在 820px 块之后:竖屏大平板(≥820px)原本已居中,这里统一收进同一规则。 */
+@media (orientation: portrait) {
+  .modal {
+    align-items: center;
+    padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  .modal-box {
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-pop);
+    max-height: 100%;
+  }
 }
 
 @media (min-width: 1100px) {

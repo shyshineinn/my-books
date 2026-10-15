@@ -126,4 +126,16 @@ function mergeUpdate(existing, values, body) {
   return merged;
 }
 
-module.exports = { STATUSES, parseBook, mergeUpdate };
+// 从封面字段取出"本站 uploads/ 里的文件名";外链封面返回空串。
+// 删书时据此清理磁盘:只有 /uploads/<文件名> 这种本站自存的图才该删,
+// 豆瓣等外链封面只是个地址,没有本地文件可删。
+// 只认单层文件名(含 / 一律拒绝),越界路径在 fs-utils 的 removeUnderBase 还有第二道收口。
+function coverUploadFile(cover) {
+  const s = String(cover || '').trim();
+  if (!s.startsWith('/uploads/')) return '';
+  const rel = s.slice('/uploads/'.length);
+  if (!rel || rel.includes('/') || rel.includes('\\')) return '';
+  return rel;
+}
+
+module.exports = { STATUSES, parseBook, mergeUpdate, coverUploadFile };

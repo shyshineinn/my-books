@@ -42,6 +42,12 @@ class LruCache {
 
   has(key) { return this.map.has(key); }
 
+  // 主动移除条目:供"过期即删"的缓存使用。
+  // 只判过期不删的话,过期条目仍占着容量位,会把还新鲜的其他条目挤出缓存。
+  delete(key) { return this.map.delete(key); }
+
+  clear() { this.map.clear(); }
+
   get size() { return this.map.size; }
 
   stats() { return { size: this.size, capacity: this.capacity, hits: this.hits, misses: this.misses, evictions: this.evictions }; }

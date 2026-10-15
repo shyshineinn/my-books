@@ -11,6 +11,8 @@
 const express = require('express');
 
 const { parseBook, mergeUpdate } = require('../core/book');
+const { removeUnderBase } = require('../core/fs-utils');
+const { UPLOAD_DIR, FILES_DIR } = require('../core/paths');
 const books = require('../db/books');
 const bookFiles = require('../db/book_files');
 const { db } = require('../db/index');
@@ -80,8 +82,25 @@ router.put('/api/books/:id', (req, res) => {
 router.delete('/api/books/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (id === null) return badId(res);
-  const ok = books.deleteBook(id);
+
+  // 先删记录,拿到它占用的磁盘资产(book_files 行会随外键级联消失,
+  // 顺序反了就再也对不上文件)。约定见 migrateV7 注释:登记在 db 层清,
+  // 磁盘文件由路由层删 —— 这里补上此前漏掉的那一半。
+  const { ok, assets } = books.deleteBook(id);
   if (!ok) return notFound(res);
+
+  let failed = 0;
+  for (const p of assets.ebookFiles) {
+    if (!removeUnderBase(FILES_DIR, p)) failed += 1;
+  }
+  for (const p of assets.coverFiles) {
+    if (!removeUnderBase(UPLOAD_DIR, p)) failed += 1;
+  }
+  if (failed) {
+    // 记录已删、文件没删净:数据一致性没破,只是磁盘留垃圾。
+    // 不谎报失败(书确实删了),但要在日志里留痕,便于人工清理。
+    console.error(`[delete] 书 id=${id} 已删除,但有 ${failed} 个文件未能从磁盘移除`);
+  }
   res.json({ ok: true });
 });
 

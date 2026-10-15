@@ -240,7 +240,16 @@ function runMigrations(db, dataDir) {
 /* ---------- 打开数据库(工厂):默认项目 data/,测试可传临时目录 ---------- */
 function openDb(dataDir = DATA_DIR) {
   fs.mkdirSync(dataDir, { recursive: true });
-  const db = new DatabaseSync(path.join(dataDir, 'books.db'));
+  const dbPath = path.join(dataDir, 'books.db');
+
+  // 判"新库"要看**打开之前**库文件是否存在,而不是打开之后书架是否为空:
+  //   · 用"表为空"当条件 → 用户把书删光后,下次 pm2 restart / 部署重启
+  //     会把 17 本示例书整批塞回来(实测过的坑:删干净 = 复活)
+  //   · 用"文件不存在"当条件 → 全新库才播种;老库哪怕被清空也保持空着
+  // 只判存在性即可:空文件同样由迁移建表,种子只在真正的第一次启动写入。
+  const isNewLibrary = !fs.existsSync(dbPath);
+
+  const db = new DatabaseSync(dbPath);
   applyPragmas(db);
 
   const result = runMigrations(db, dataDir);
@@ -248,16 +257,15 @@ function openDb(dataDir = DATA_DIR) {
     console.log(`[db] schema 迁移完成: v${result.from} → v${result.to}`);
   }
 
-  // 种子数据:仅当书架为空(全新库)
-  const count = db.prepare('SELECT COUNT(*) AS n FROM books').get().n;
-  if (count === 0) {
+  // 种子数据:仅当这是一个全新的库文件(与书架当前是否为空无关)
+  if (isNewLibrary) {
     const insert = db.prepare(`
       INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)
     `);
-    const now = new Date().toISOString();
+    const nowTs = now();
     for (const b of samples) {
-      insert.run(b.title, b.author, b.status, b.summary || '', JSON.stringify(b.tags), b.start_date, b.finish_date, b.read_count, JSON.stringify(b.read_logs || []), now, now);
+      insert.run(b.title, b.author, b.status, b.summary || '', JSON.stringify(b.tags), b.start_date, b.finish_date, b.read_count, JSON.stringify(b.read_logs || []), nowTs, nowTs);
     }
   }
   return db;

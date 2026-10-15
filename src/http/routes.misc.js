@@ -4,17 +4,16 @@
 
 const express = require('express');
 const fs = require('node:fs');
-const path = require('node:path');
 const crypto = require('node:crypto');
 
 const settings = require('../db/settings');
 const stats = require('../db/stats');
 const { atomicWrite } = require('../core/fs-utils');
+const { UPLOAD_DIR } = require('../core/paths');
 
 const router = express.Router();
 
-// 封面上传目录(与原版一致:项目根 uploads/,启动时确保存在)
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
+// 封面上传目录(与电子书目录同为磁盘资产,位置定义见 core/paths.js)
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // 全局设置:心得仓库

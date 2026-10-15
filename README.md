@@ -30,15 +30,17 @@
 
 ### 页面与视图
 
-单页应用,顶部导航在五个视图间切换:
+多页应用(MPA),每个视图是独立页面,顶部导航用 `<a href>` 真实跳转:
 
-| 视图 | 内容 |
-| --- | --- |
-| **首页** | Apple 官网式排版:Hero 标语 → 「最新上架」特色卡 → 双列书格(4 本)→ 「Endless entertainment.」双排无限轮播(复刻 apple.com media-gallery:自动播放、进度条圆点、拖拽/甩动、键盘方向键) |
-| **书架** | 封面卡片网格,状态页签(想读/在读/已读)带计数,标签筛选 + 排序,支持添加 / 编辑 / 删除书籍(删除有确认提示) |
-| **榜单** | 英雄区(总藏书 / 读完数)+ **重读榜**(读过两次以上的书,按次数排序,至多 8 本) |
-| **统计** | 阅读印象 Hero(总藏书 / 已读及占比 / 在读 / 想读)+ 每年读完柱状图 + 标签分布(点击标签跳回书架筛选) |
-| **读书心得** | 子页面,渲染单本书的 Markdown 心得,支持 hash 深链 `#/notes/<id>`(浏览器前进后退可用) |
+| 页面 | URL | 内容 |
+| --- | --- | --- |
+| **首页** | `/` | Apple 官网式排版:Hero 标语 → 「最新上架」特色卡 → 双列书格(4 本)→ 「Endless entertainment.」双排无限轮播(复刻 apple.com media-gallery:自动播放、进度条圆点、拖拽/甩动、键盘方向键) |
+| **书架** | `/shelf` | 封面卡片网格,状态页签(想读/在读/已读)带计数,标签筛选 + 排序,支持添加 / 编辑 / 删除书籍(删除有确认提示);URL 查询串 `?q=&status=&tag=&sort=` 携带筛选条件,可分享/回退 |
+| **榜单** | `/rank` | 英雄区(总藏书 / 读完数)+ **重读榜**(读过两次以上的书,按次数排序,至多 8 本) |
+| **统计** | `/stats` | 阅读印象 Hero(总藏书 / 已读及占比 / 在读 / 想读)+ 每年读完柱状图 + 标签分布(点击标签跳 `/shelf?tag=…` 筛选) |
+| **读书心得** | `/notes/:id` | 独立页面,渲染单本书的 Markdown 心得 |
+
+> 旧单页深链 `#/notes/<id>`、`#/rank` 由 `chrome.js` 的 `legacyHashRedirect` 用 `location.replace` 兼容跳转到新页面,老书签/分享链接照常可用。
 
 ### 记录字段与阅读记录
 
@@ -140,7 +142,7 @@ npm start     # 启动服务
 ### 总体架构
 
 ```
-        浏览器(SPA:原生 JS,无构建;public/ 静态文件)
+        浏览器(MPA:原生 JS,无构建;public/ 静态文件)
             │  fetch /api/*(JSON)          fetch /api/notes、/api/img-proxy
             ▼                                        │
    ┌─────────────────────┐   301 跳 HTTPS             ▼
@@ -261,16 +263,16 @@ npm start     # 启动服务
 
 ### 前端架构(public/)
 
-- **无构建管线**:4 个 `<script>` 按序加载 —— `vendor/marked.umd.js`、`vendor/purify.min.js`、`js/endless-gallery.js`、`js/app.js`;样式单文件 `css/style.css`
-- **缓存失效**:`index.html` 里静态资源用版本号查询串(`style.css?v=23`、`app.js?v=25`…)控制;**改动静态文件后记得同步递增对应 `?v=`**
-- `js/app.js`(约 1600 行)模块划分:
-  - 全局状态 `state { q, status, tag, sort, view, prevView, books, settings }` + `api()` fetch 封装
-  - 视图切换 `switchView()`:home / shelf / rank / stats / notes 五个 `<section>` 显隐切换;hash 路由 `#/notes/<id>`、`#/rank`
-  - 书架渲染、统计渲染、榜单渲染、首页渲染均由事件委托绑定,重渲染无需重复挂监听
-  - **竞态防护**:列表 / 统计 / 取色各自维护会话号(`fetchSeq`、`statsSeq`、`tintSeq`),旧响应一律丢弃
-  - 表单:阅读记录编辑器 + 状态联动;封面编辑器(链接 / 上传 / 移除,类型与 5MB 前置校验)
-  - 自定义下拉:原生 `<select>` 隐藏作唯一数据源,视觉上渲染「胶囊按钮 + 圆角浮层」,选中后回写 `select.value` 并派发 `change`
-  - 移动端:全屏菜单、顶栏搜索展开、左边缘右滑返回(层级:弹窗 → 菜单 → 搜索栏 → 下拉 → 子页面/深链 → 返回首页)
+- **无构建管线**:五个 HTML 页面(`index.html` / `shelf.html` / `rank.html` / `stats.html` / `notes.html`)各带自己的 `<main>`;顶栏 / 弹窗 / 移动端菜单 / 页脚由 `js/chrome.js` 按 `body[data-page]` 统一注入(单一来源,避免五份副本手工同步);样式单文件 `css/style.css`
+- **脚本加载顺序**(全部 `defer`,classic script 共享全局):`chrome.js` → `common.js` → `page-<name>.js`;`vendor/marked.umd.js` + `vendor/purify.min.js` 只在心得页加载,`endless-gallery.js` 只在首页加载
+- **干净 URL**:`express.static` 的 `extensions:['html']` 让 `/shelf` → `shelf.html`;`/notes/:id` 用显式路由(非法 id 重定向回书架);HTML 一律 `Cache-Control: no-cache`,靠 `?v=` 的静态资源长缓存不受影响
+- **跨页协调**:弹窗保存/删除后派发 `books-changed` 文档事件刷新本页数据;顶栏搜索在非书架页回车跳 `/shelf?q=…`,在书架页则派发 `shelf-search` 实时筛选;`/api/stats` 全站共享缓存(`sharedStats`),变更时作废
+- **缓存失效**:各页面 HTML 里静态资源用版本号查询串(`style.css?v=31`、`chrome.js?v=1`…)控制;**改动静态文件后记得同步递增对应 `?v=`,并同步 `sw.js` 的 `SHELL_ASSETS` 清单与 `CACHE_VERSION`**
+- 模块划分:
+  - `js/chrome.js`(约 250 行):外壳注入(顶栏/弹窗/菜单/Toast/页脚)、旧 hash 深链兼容、Service Worker 注册
+  - `js/common.js`(约 900 行):`api()` fetch 封装(401 提示 token 并重试)、详情/编辑弹窗、表单(阅读记录编辑器 + 状态联动;封面编辑器;电子书上传)、自定义下拉(原生 `<select>` 隐藏作唯一数据源,视觉渲染「胶囊按钮 + 圆角浮层」,选中回写 `value` 并派发 `change`)、搜索接线、移动端全屏菜单与左边缘右滑返回(层级:弹窗 → 菜单 → 搜索栏 → 下拉 → 返回首页)、`sharedStats` 缓存
+  - `js/page-*.js`:各页渲染与数据加载,筛选状态存页面闭包
+  - **竞态防护**:列表 / 取色各自维护会话号(`fetchSeq`、`tintSeq`),旧响应一律丢弃
 - `js/endless-gallery.js`(约 560 行):逐项复刻 apple.com 首页 media-gallery ——
   - 卡片绝对定位 + `translate3d`,位置用**模运算取最短路径**,循环无跳变;两排共享同一索引、各排按自身数量取模
   - 4.16s 自动播放周期(进度条晚 160ms 起跑)、1s `cubic-bezier(0.645,0.045,0.355,1)` 滑动
@@ -285,7 +287,7 @@ npm start     # 启动服务
 - **请求竞态防护**:列表 / 统计 / 取色都带会话号,连续操作只采纳最后一次结果
 - **零构建的 Markdown 管线**:marked + DOMPurify 以 UMD 形式从 `node_modules` 经 Express 直出,升级依赖即升级前端库
 - **PUT 局部更新语义**:未提交的字段保留旧值,方便脚本 / 旧客户端只改部分字段
-- **静态资源版本号**:改 `public/` 下文件后同步递增 `index.html` 里的 `?v=`,避免线上缓存旧资源
+- **静态资源版本号**:改 `public/` 下文件后同步递增各页面 HTML 里的 `?v=`,并同步 `sw.js` 的 `SHELL_ASSETS` 与 `CACHE_VERSION`,避免线上缓存旧资源
 
 ### 安全设计
 
@@ -335,11 +337,15 @@ my-books/
 │   ├── nginx-ecook.helloac.top.conf  # ecook 子域名站点(同机共存的另一站点)
 │   └── update.sh                     # 一键更新:备份 → 拉代码 → 装依赖 → 重启 → 自检
 ├── public/
-│   ├── index.html                    # 单页应用结构(页脚含备案号)
+│   ├── index.html                    # 首页(页脚含备案号;外壳由 chrome.js 注入)
+│   ├── shelf.html / rank.html / stats.html / notes.html   # 书架 / 榜单 / 统计 / 心得页
 │   ├── logo.png / logo-mark.png / add-icon.png
 │   ├── css/style.css                 # Apple 风格响应式样式(单文件)
+│   ├── sw.js                         # Service Worker(离线壳缓存,清单需与页面引用同步)
 │   └── js/
-│       ├── app.js                    # 前端主逻辑(约 1600 行)
+│       ├── chrome.js                 # 全站外壳注入(顶栏/弹窗/菜单/页脚)+ 旧 hash 兼容
+│       ├── common.js                 # 共享逻辑:api/弹窗/表单/搜索/滑动返回/共享统计
+│       ├── page-home.js / page-shelf.js / page-rank.js / page-stats.js / page-notes.js  # 各页逻辑
 │       └── endless-gallery.js        # 首页复刻 apple.com 的双排无限轮播
 ├── data/                             # 运行时自动创建;.gitignore 忽略 *.db
 │   ├── books.db                      # SQLite 数据库(唯一数据文件)

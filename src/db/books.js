@@ -4,8 +4,9 @@
  * ============================================================ */
 
 const { db, now } = require('./index');
-const { STATUSES } = require('../core/book');
+const { STATUSES, coverUploadFile } = require('../core/book');
 const search = require('./search');
+const bookFiles = require('./book_files');
 
 const SORTS = {
   updated: 'updated_at DESC',
@@ -71,10 +72,41 @@ function updateBook(id, merged) {
   return updated;
 }
 
-function deleteBook(id) {
-  const result = db.prepare('DELETE FROM books WHERE id = ?').run(id);
-  if (result.changes > 0) search.removeBook(db, id); // 同步全文索引
-  return result.changes > 0;
+// 收集一本书占用的磁盘资产:{ ebookFiles:[books-files 相对名], coverFiles:[uploads 相对名] }
+// db 句柄由调用方传入(与 search.js / book_files.js 同纪律)—— 测试可用
+// openDb(临时目录) 隔离验证,不碰生产库。
+//
+// 必须在 DELETE **之前**调用:book_files 行随外键 ON DELETE CASCADE 一起消失,
+// 删完再查只剩磁盘上的孤儿文件、无从对应。
+// 封面:cover 列只有"/uploads/<文件名>"这一种本地形态(外链封面没有本地文件)。
+// 同一张封面图可能被多本书引用(手动复制同一个 URL),仍被引用的不删。
+function collectAssets(handleDb, id) {
+  const row = handleDb.prepare('SELECT * FROM books WHERE id = ?').get(id);
+  if (!row) return null;
+
+  const coverFile = coverUploadFile(row.cover);
+  const coverRefs = coverFile
+    ? handleDb.prepare('SELECT COUNT(*) AS n FROM books WHERE id != ? AND cover = ?')
+      .get(id, `/uploads/${coverFile}`).n
+    : 0;
+
+  return {
+    ebookFiles: bookFiles.listFiles(handleDb, id).map((f) => f.path),
+    coverFiles: coverFile && coverRefs === 0 ? [coverFile] : [],
+  };
 }
 
-module.exports = { listBooks, getBook, addBook, updateBook, deleteBook, SORTS };
+// 删除书籍,并返回它占用的磁盘资产(约定见 migrateV7 注释:登记在 db 层清,
+// 磁盘文件由路由层删 —— 这里把资产清单交出去,补上此前漏掉的那一半)。
+// 返回 { ok, assets }:ok=false 时 assets 为 null,路由层据此不删任何文件
+// (书没删成,文件必须留在原地)。
+function deleteBook(id) {
+  const assets = collectAssets(db, id);
+  if (!assets) return { ok: false, assets: null };
+
+  const result = db.prepare('DELETE FROM books WHERE id = ?').run(id);
+  if (result.changes > 0) search.removeBook(db, id); // 同步全文索引
+  return { ok: result.changes > 0, assets };
+}
+
+module.exports = { listBooks, getBook, addBook, updateBook, deleteBook, collectAssets, SORTS };

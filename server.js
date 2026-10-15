@@ -24,7 +24,13 @@ app.use(express.json({ limit: '10mb' }));
 // 静态资源缓存策略:HTML 一律 no-cache(每次向服务器验证新鲜度),
 // 解决"备案号/新功能要强制刷新才出现"—— index.html 自身没有 ?v= 缓存戳,
 // 浏览器会缓存它,导致新发布的页面内容看不到。其余资源靠 ?v= 长缓存不受影响。
+// extensions:['html'] 提供干净 URL:/shelf → shelf.html、/rank → rank.html、/stats → stats.html
+// 注意:/notes 裸路径要重定向,必须挂在 static 之前 —— 否则会被 extensions
+// 的 /notes → /notes.html 内部重写抢先命中(无 id 的心得页只能显示"找不到")。
+app.get('/notes', (req, res) => res.redirect('/shelf'));
+
 app.use(express.static(path.join(__dirname, 'public'), {
+  extensions: ['html'],
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
   },
@@ -32,6 +38,15 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // 电子书文件:GET 下载/阅读用(上传经 /api/* 走鉴权);原文件名不落盘
 app.use('/books-files', express.static(path.join(__dirname, 'books-files')));
+
+// 读书心得页:/notes/<书籍 id> —— 带路径参数,静态目录兜不住,显式路由。
+// 与 *.html 同一套 no-cache 策略;非法 id 直接回书架(旧 hash 深链也收敛到这里)。
+app.get('/notes/:id(\\d+)', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public', 'notes.html'));
+});
+// 非法/缺失 id 的心得链接:/notes/abc → 书架(页面脚本会给出"找不到这本书"的引导)
+app.get('/notes/:rest(.*)', (req, res) => res.redirect('/shelf'));
 
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
 // token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。

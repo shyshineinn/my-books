@@ -1,7 +1,7 @@
 /* ============================================================
  * My books · Service Worker(PWA 离线与缓存层)
  *
- * 缓存策略(与 API 缓存头正交,只管"端上"的体验):
+ * 缓存策略(与 API 缓存头正交:只管"端上"的体验):
  *   · App Shell(HTML/CSS/JS/图标/字体):cache-first,版本号失效
  *     —— 页面版本升级靠 CACHE_VERSION 变更 + 旧缓存清理
  *   · API(GET /api/*):network-first,失败回退缓存
@@ -9,23 +9,29 @@
  *   · 封面图片(/uploads/*、外链封面):cache-first,上限 60 张
  *   · POST/PUT/DELETE 永不缓存
  *
- * 版本管理:CACHE_VERSION 改动(index.html 的 ?v= 递增)后,
+ * 版本管理:CACHE_VERSION 改动(css/js 的 ?v= 递增)后,
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v8';
+const CACHE_VERSION = 'v10';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
 const IMG_LIMIT = 60;
 
-// App Shell 资源清单:与 index.html 引用的资源保持同步
-// (改了 css/js 记得同步这里 —— 与 index.html 的 ?v= 同理)
-// 注意:**不缓存 / 和 *.html** —— HTML 必须每次向服务器验证,
+// App Shell 资源清单:与各页面 HTML 引用的资源保持同步
+// (改了 css/js 记得同步这里 —— 与 HTML 的 ?v= 同理)
+// 注意:**不缓存 / *.html 与 /notes/*** —— HTML 必须每次向服务器验证,
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/css/style.css?v=29',
-  '/js/app.js?v=38',
+  '/css/style.css?v=31',
+  '/js/chrome.js?v=1',
+  '/js/common.js?v=1',
+  '/js/page-home.js?v=1',
+  '/js/page-shelf.js?v=1',
+  '/js/page-rank.js?v=1',
+  '/js/page-stats.js?v=1',
+  '/js/page-notes.js?v=1',
   '/js/endless-gallery.js?v=6',
   '/vendor/marked.umd.js',
   '/vendor/purify.min.js',
@@ -69,7 +75,7 @@ async function trimImageCache() {
  *   TypeError: Failed to execute 'put' on 'Cache': Partial response (status code 206) is unsupported
  * 而 `res.ok` 对 206 是 true(ok = 200~299),所以只判断 res.ok 拦不住。
  * 这在 pdf.js 上必现:它用 Range 请求分块读 PDF,服务器回 206 →
- * cache.put 抛异常 → respondWith 的 Promise 被 reject → 浏览器判定
+ * cache.put 抛异常 → respondWith 的 Promise 被 reject → 浏览器判
  * SW 处理失败 → 阅读器拿到空响应 → PDF 永远空白(且 console 无报错)。
  */
 function isCacheable(res) {
@@ -81,7 +87,7 @@ function isCacheable(res) {
 }
 
 /* 安全的缓存写入:任何失败都吞掉,绝不影响响应本身。
- * 缓存是「锦上添花」,不能因为写缓存失败而让用户拿不到内容。 */
+ * 缓存是「锦上添花」,不能因为写缓存失败而让用户拿不到内容。*/
 function putCacheQuietly(cacheName, req, res) {
   if (!isCacheable(res)) return;
   try {
@@ -99,7 +105,7 @@ self.addEventListener('fetch', (event) => {
   // 只处理同源 GET(外链/POST/PUT/DELETE 直接放行)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // Range 请求(断点/分块读取,如 pdf.js 读 PDF、音视频拖动)一律不拦截:
+  // Range 请求(断点/分块读取,如 pdf.js 读 PDF、视频拖动)一律不拦截:
   // 交给浏览器直连,避免 206 引发的缓存异常
   if (req.headers.has('range')) return;
 
@@ -151,7 +157,11 @@ self.addEventListener('fetch', (event) => {
 
   // HTML 文档:network-first(与 API 同策略)—— 内容更新立即可见,
   // 离线时回退缓存版本。绝不 cache-first,否则发布新内容用户看不到。
-  if (req.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+  // 多页后各页面(/、/shelf、/rank、/stats、/notes/:id)都是独立文档:
+  // 离线兜底先按"去掉查询串的自身路径"找缓存(浏览过就有),再退回首页。
+  if (req.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')
+      || url.pathname.startsWith('/notes/')) {
+    const pathOnly = url.origin + url.pathname;
     event.respondWith(
       fetch(req)
         .then((res) => {
@@ -160,8 +170,10 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() =>
           caches.match(req).then((cached) =>
-            cached || caches.match('/').then((root) => root ||
-              new Response('当前离线', { status: 503, headers: { 'Content-Type': 'text/plain; charset=UTF-8' } }))
+            cached || caches.match(pathOnly).then((same) =>
+              same || caches.match('/').then((root) => root ||
+                new Response('当前离线', { status: 503, headers: { 'Content-Type': 'text/plain; charset=UTF-8' } }))
+            )
           )
         )
     );

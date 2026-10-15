@@ -20,10 +20,11 @@ const { db } = require('../db/index');
 const books = require('../db/books');
 const bookFiles = require('../db/book_files');
 const { validateEbookFile, ebookFileName } = require('../core/ebook');
+const { removeUnderBase } = require('../core/fs-utils');
+const { FILES_DIR } = require('../core/paths');
 
 const router = express.Router();
 
-const FILES_DIR = path.join(__dirname, '..', '..', 'books-files');
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 
 // 磁盘流式存储:大文件(PDF 可达 80MB)不再整份读进内存,
@@ -37,9 +38,12 @@ const upload = multer({
   limits: { fileSize: 80 * 1024 * 1024 },
 });
 
+// 删除电子书目录内的文件:统一走 fs-utils 的边界收口(拒绝越出 FILES_DIR 的路径),
+// 与 routes.books.js 删书时的清理共用同一套删除纪律。
 function removeFileQuiet(relPath) {
-  if (!relPath) return;
-  try { fs.unlinkSync(path.join(FILES_DIR, relPath)); } catch { /* 文件可能已不存在 */ }
+  if (!removeUnderBase(FILES_DIR, relPath)) {
+    console.error(`[files] 未能删除或路径越界: ${relPath}`);
+  }
 }
 
 // multer 错误(超 80MB 触发 LIMIT_FILE_SIZE)转规范 JSON,不掉进兜底 500
