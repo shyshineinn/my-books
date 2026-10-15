@@ -92,7 +92,7 @@ test('v8:存量 5 分制评分折算为 10 分制(×2,封顶 10;0 分不动)', (
   ins.run('旧五星书甲', 4.5);  // → 9.0
   ins.run('旧五星书乙', 5);    // → 10(封顶)
   ins.run('旧五星书丙', 0);    // 未评分,不动
-  db.exec(`PRAGMA user_version = ${migrations.length - 1}`); // 退回一步,只重放 v8
+  db.exec('PRAGMA user_version = 7'); // v8 位于索引 7(迁移只追加,永不重排);重放 v8 折算评分
   runMigrations(db, dir);
 
   const rows = db.prepare("SELECT title, rating FROM books WHERE title LIKE '旧五星书%' ORDER BY id").all();

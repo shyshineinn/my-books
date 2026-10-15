@@ -35,6 +35,7 @@ const NAV_ITEMS = [
   { id: 'shelf', label: '书架', href: '/shelf' },
   { id: 'rank', label: '榜单', href: '/rank' },
   { id: 'stats', label: '统计', href: '/stats' },
+  { id: 'tags', label: '分类', href: '/tags' },
 ];
 
 function navHtml(current) {

@@ -4,21 +4,23 @@
  * ============================================================ */
 
 const { db, now } = require('./index');
-const { STATUSES, coverUploadFile } = require('../core/book');
+const { STATUSES, coverUploadFile, splitAuthors } = require('../core/book');
 const search = require('./search');
 const bookFiles = require('./book_files');
+const categories = require('./categories');
 
 const SORTS = {
   updated: 'updated_at DESC',
   created: 'created_at DESC',
   finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC',
   title: 'title COLLATE NOCASE ASC',
+  author: 'author_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
 };
 
 // 书籍列表:有搜索词时走独立全文检索层(search.js),其余走主表
-function listBooks({ q, status, tag, sort } = {}) {
+function listBooks({ q, status, tag, author, sort } = {}) {
   if (q && String(q).trim()) {
-    return search.searchBooks(db, { q, status, tag, sort });
+    return search.searchBooks(db, { q, status, tag, author, sort });
   }
   const where = [];
   const params = [];
@@ -29,6 +31,10 @@ function listBooks({ q, status, tag, sort } = {}) {
   if (tag) {
     where.push('tags LIKE ?');
     params.push(`%"${tag}"%`);
+  }
+  if (author) {
+    where.push('author LIKE ?');
+    params.push(`%${search.escapeLike(author)}%`);
   }
 
   const order = SORTS[sort] || SORTS.updated;
@@ -44,10 +50,12 @@ function getBook(id) {
 function addBook(values) {
   const ts = now();
   const result = db.prepare(`
-    INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, created_at, updated_at)
-    VALUES (@title, @author, @status, @summary, @tags, @start_date, @finish_date, @cover, @notes_url, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @ts, @ts)
+    INSERT INTO books (title, author, author_sort, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, created_at, updated_at)
+    VALUES (@title, @author, @author_sort, @status, @summary, @tags, @start_date, @finish_date, @cover, @notes_url, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @ts, @ts)
   `).run({ ...values, ts });
   const created = getBook(result.lastInsertRowid);
+  categories.syncBookTags(db, created.id, categories.parseTagNames(created.tags));
+  categories.syncBookAuthors(db, created.id, splitAuthors(created.author));
   search.indexBook(db, created); // 同步全文索引
   return created;
 }
@@ -60,7 +68,7 @@ function updateBook(id, merged) {
   const oldRow = getBook(id);
   if (!oldRow) return null;
   db.prepare(`
-    UPDATE books SET title = @title, author = @author, status = @status,
+    UPDATE books SET title = @title, author = @author, author_sort = @author_sort, status = @status,
       summary = @summary, tags = @tags, start_date = @start_date, finish_date = @finish_date,
       cover = @cover, notes_url = @notes_url, read_count = @read_count, read_logs = @read_logs,
       publisher = @publisher, pub_year = @pub_year, isbn = @isbn, rating = @rating, douban_id = @douban_id,
@@ -68,6 +76,8 @@ function updateBook(id, merged) {
     WHERE id = @id
   `).run({ ...merged, ts: now(), id });
   const updated = getBook(id);
+  categories.syncBookTags(db, id, categories.parseTagNames(updated.tags));
+  categories.syncBookAuthors(db, id, splitAuthors(updated.author));
   search.updateBookIndex(db, id, oldRow, updated);
   return updated;
 }
@@ -105,7 +115,10 @@ function deleteBook(id) {
   if (!assets) return { ok: false, assets: null };
 
   const result = db.prepare('DELETE FROM books WHERE id = ?').run(id);
-  if (result.changes > 0) search.removeBook(db, id); // 同步全文索引
+  if (result.changes > 0) {
+    search.removeBook(db, id); // 同步全文索引
+    categories.pruneOrphans(db); // 删书后清掉失去全部引用的标签 / 作者
+  }
   return { ok: result.changes > 0, assets };
 }
 

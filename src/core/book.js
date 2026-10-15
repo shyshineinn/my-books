@@ -11,6 +11,26 @@
 
 const STATUSES = ['wish', 'reading', 'done'];
 
+// 多作者分隔符:& , ， 、 / —— 有意不含间隔号 ·(马尔克斯、赫拉利等译名内含 ·)
+const AUTHOR_SEP = /[&，、,/]+/;
+const AUTHOR_JOIN = '、';
+
+// 把作者串按分隔符拆成去重去空的数组(纯函数)。单作者原样返回单元素。
+function splitAuthors(input) {
+  const raw = Array.isArray(input) ? input : String(input || '').split(AUTHOR_SEP);
+  const out = [];
+  const seen = new Set();
+  for (const a of raw) {
+    const name = String(a == null ? '' : a).trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
 // 校验并规范化请求体里的书籍字段(纯函数:不产生任何副作用)
 function parseBook(body) {
   const errors = [];
@@ -26,6 +46,10 @@ function parseBook(body) {
   }
   if (!Array.isArray(tags)) tags = [];
   tags = [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))];
+
+  // 作者:优先取 body.authors 数组,否则按分隔符拆 body.author 字符串;
+  // 归一化后 author = 展示缓存(「、」连接),author_sort = 首位作者(排序键)。
+  const authors = Array.isArray(body.authors) ? splitAuthors(body.authors) : splitAuthors(body.author);
 
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
   const start = String(body.start_date || '').trim();
@@ -82,7 +106,8 @@ function parseBook(body) {
     errors,
     values: {
       title,
-      author: String(body.author || '').trim(),
+      author: authors.join(AUTHOR_JOIN),
+      author_sort: authors[0] || '',
       status,
       summary: String(body.summary || '').trim().slice(0, 1000),
       tags: JSON.stringify(tags),
@@ -115,6 +140,10 @@ function clampRating(v) {
 function mergeUpdate(existing, values, body) {
   const merged = { ...values };
   if (!('summary' in body)) merged.summary = existing.summary;
+  if (!('author' in body) && !('authors' in body)) {
+    merged.author = existing.author;
+    merged.author_sort = existing.author_sort;
+  }
   if (!('notes_url' in body)) merged.notes_url = existing.notes_url;
   if (!('cover' in body)) merged.cover = existing.cover;
   if (!('read_count' in body)) merged.read_count = existing.read_count;
@@ -139,4 +168,4 @@ function coverUploadFile(cover) {
   return rel;
 }
 
-module.exports = { STATUSES, parseBook, mergeUpdate, coverUploadFile };
+module.exports = { STATUSES, parseBook, mergeUpdate, coverUploadFile, splitAuthors };

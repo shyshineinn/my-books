@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=33">
+  <link rel="stylesheet" href="/css/style.css?v=36">
 </head>
 <body data-page="shelf">
   <main>
@@ -25,6 +25,9 @@
         <button type="button" data-status="done">已读 <em id="countDone"></em></button>
       </div>
       <div class="toolbar-right">
+        <select id="authorFilter" aria-label="按作者筛选">
+          <option value="">全部作者</option>
+        </select>
         <select id="tagFilter" aria-label="按标签筛选">
           <option value="">全部标签</option>
         </select>
@@ -33,6 +36,15 @@
           <option value="finish">读完日期</option>
           <option value="title">书名</option>
         </select>
+        <button type="button" id="syntaxBtn" class="btn btn-ghost syntax-btn" title="高级搜索语法">语法?</button>
+      </div>
+    </div>
+    <div class="saved-bar" id="savedBar" hidden>
+      <span class="saved-title">保存的搜索</span>
+      <div class="saved-chips" id="savedChips"></div>
+      <div class="saved-actions">
+        <button type="button" id="saveCurrentBtn" class="chip-save" hidden>☆ 保存当前</button>
+        <button type="button" id="manageSavedBtn" class="chip-manage" hidden>管理</button>
       </div>
     </div>
     <div id="bookGrid" class="book-grid"></div>
@@ -42,10 +54,47 @@
       <p class="hint" id="emptyText">添加第一本书,开始你的阅读记录之旅。</p>
       <button type="button" id="emptyAddBtn" class="btn btn-primary">＋ 添加书籍</button>
     </div>
+
+    <!-- 高级搜索语法说明(本页专属;弹窗关闭逻辑复用 common.js 的 data-close) -->
+    <div id="syntaxModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-box syntax-box">
+        <div class="modal-head">
+          <h2>高级搜索语法</h2>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+        </div>
+        <div class="syntax-body">
+          <p>在搜索框把多条条件用空格连起来即「并且」,支持这些字段:</p>
+          <table class="syntax-table">
+            <tr><td><code>tag:科幻</code></td><td>标签(精确匹配归一化标签)</td></tr>
+            <tr><td><code>author:刘慈欣</code></td><td>作者(精确匹配归一化作者)</td></tr>
+            <tr><td><code>title:三体</code></td><td>书名(子串)</td></tr>
+            <tr><td><code>status:done</code></td><td>状态:想读 wish / 在读 reading / 已读 done(或中文)</td></tr>
+            <tr><td><code>rating&gt;=9</code></td><td>评分,支持 &gt; &lt; &gt;= &lt;= = !=</td></tr>
+            <tr><td><code>pubyear:2008</code></td><td>出版年,可用 <code>pubyear&lt;2010</code> 这类范围</td></tr>
+            <tr><td><code>publisher:译文</code></td><td>出版社(子串)</td></tr>
+            <tr><td><code>isbn:978...</code></td><td>ISBN(子串)</td></tr>
+            <tr><td><code>format:epub</code></td><td>电子书格式(已上传)</td></tr>
+          </table>
+          <p>其它写法:</p>
+          <ul>
+            <li><code>or</code> —— 把条件改成「或者」:<code>status:done or 活着</code></li>
+            <li><code>not</code> / 前导 <code>-</code> —— 否定紧随其后的一条:<code>not tag:草稿</code></li>
+            <li>值含空格加引号:<code>publisher:"上海译文"</code></li>
+            <li>不写字段名的词按书名 / 作者 / 简介 / 标签全文检索</li>
+          </ul>
+          <p class="syntax-example">组合示例:<code>status:done rating&gt;=9 三体</code></p>
+        </div>
+        <div class="form-foot">
+          <div class="form-foot-btns">
+            <button type="button" class="btn btn-ghost" data-close>知道了</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
-  <script defer src="/js/chrome.js?v=2"></script>
+  <script defer src="/js/chrome.js?v=3"></script>
   <script defer src="/js/common.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=1"></script>
+  <script defer src="/js/page-shelf.js?v=3"></script>
 </body>
 </html>

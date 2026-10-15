@@ -221,8 +221,64 @@ function migrateV8(db, dataDir) {
   db.exec('UPDATE books SET rating = min(10, round(rating * 2, 1)) WHERE rating > 0');
 }
 
+// v9:标签 / 作者归一化(对标 calibre categories)
+//     · 新表 tags / book_tags / authors / book_authors 成为真源;
+//       books.tags、books.author 降级为「派生缓存」(展示 / FTS / 统计 / 前端零改动),
+//       新增 books.author_sort 缓存(首位作者,供按作者排序)。
+//     · 回填:按现有 tags JSON 与 author 串建链接,再回写规范化缓存;
+//       author 若含多作者分隔符会被拆开并「、」重组 → 缓存变化,故随后 reindexAll。
+//     · 纯增量:回退只需 DROP 四表 + 删 author_sort 列,books 原列与数据不动。
+function migrateV9(db, dataDir) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE COLLATE NOCASE
+    );
+    CREATE TABLE IF NOT EXISTS book_tags (
+      book INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      tag  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+      PRIMARY KEY (book, tag)
+    );
+    CREATE INDEX IF NOT EXISTS book_tags_tag_idx ON book_tags (tag);
+    CREATE TABLE IF NOT EXISTS authors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      sort TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS book_authors (
+      book   INTEGER NOT NULL REFERENCES books(id)   ON DELETE CASCADE,
+      author INTEGER NOT NULL REFERENCES authors(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (book, author)
+    );
+    CREATE INDEX IF NOT EXISTS book_authors_author_idx ON book_authors (author);
+  `);
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+  if (!cols.includes('author_sort')) db.exec("ALTER TABLE books ADD COLUMN author_sort TEXT NOT NULL DEFAULT ''");
+
+  require('./categories').rebuildAll(db);
+  require('./search').reindexAll(db);
+}
+
+// v10:保存的搜索 / 虚拟图书馆(对标 calibre db/library_item.py)
+//     一行 = 一条命名查询:query 存原始语法串(交给 core/query 现解析),
+//     sort 存排序白名单键(空则用默认 updated)。name 大小写不敏感唯一。
+//     纯增量:回退只需 DROP 本表,不碰任何既有数据。
+function migrateV10(db, dataDir) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_searches (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      query      TEXT NOT NULL DEFAULT '',
+      sort       TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
@@ -275,6 +331,11 @@ function openDb(dataDir = DATA_DIR) {
     for (const b of samples) {
       insert.run(b.title, b.author, b.status, b.summary || '', JSON.stringify(b.tags), b.start_date, b.finish_date, b.read_count, JSON.stringify(b.read_logs || []), nowTs, nowTs);
     }
+    // 种子走裸 INSERT,绕过了 books.js 的 addBook 同步路径,故此处显式补两步:
+    //   · rebuildAll:按种子的 tags/author 建归一化链接与缓存(含 author_sort)
+    //   · reindexAll:把种子灌进 FTS(历史上新库种子从未进全文索引,一并修正)
+    require('./categories').rebuildAll(db);
+    require('./search').reindexAll(db);
   }
   return db;
 }

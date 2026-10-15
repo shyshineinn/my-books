@@ -5,7 +5,7 @@
  * ============================================================ */
 
 const shelf = {
-  q: '', status: '', tag: '', sort: 'updated', books: [],
+  q: '', status: '', tag: '', author: '', sort: 'updated', books: [],
 };
 
 let fetchSeq = 0; // 请求序号:连续查询时只渲染最后一次的结果,避免旧响应覆盖新结果
@@ -16,6 +16,7 @@ async function fetchBooks() {
   if (shelf.q) params.set('q', shelf.q);
   if (shelf.status) params.set('status', shelf.status);
   if (shelf.tag) params.set('tag', shelf.tag);
+  if (shelf.author) params.set('author', shelf.author);
   params.set('sort', shelf.sort);
 
   try {
@@ -28,13 +29,14 @@ async function fetchBooks() {
     shelf.books = [];
   }
   renderGrid();
+  renderSaved(); // 刷新"保存的搜索"高亮与"保存当前"按钮可见性
 }
 
 function renderGrid() {
   const grid = $('#bookGrid');
   const empty = $('#emptyState');
   grid.innerHTML = '';
-  const filtered = shelf.q || shelf.status || shelf.tag;
+  const filtered = shelf.q || shelf.status || shelf.tag || shelf.author;
 
   if (!shelf.books.length) {
     if (filtered) {
@@ -107,6 +109,23 @@ function updateTagFilter(topTags) {
   syncCustomSelect(sel);   // 选项集合重建后,同步自定义下拉面板
 }
 
+// 作者下拉取自归一化后的 /api/authors(全量,带引用数)
+async function loadAuthorFilter() {
+  let authors;
+  try {
+    authors = await api('/api/authors');
+  } catch { return; }   // 拉取失败静默:保留「全部作者」,不影响其它筛选
+  const sel = $('#authorFilter');
+  const current = shelf.author;
+  const names = authors.map((a) => a.name);
+  if (current && !names.includes(current)) names.unshift(current);
+  sel.innerHTML = '<option value="">全部作者</option>' +
+    names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value = current;
+  syncCustomSelect(sel);
+}
+
+initCustomSelect($('#authorFilter'));
 initCustomSelect($('#tagFilter'));
 initCustomSelect($('#sortSelect'));
 
@@ -124,6 +143,11 @@ $('#tagFilter').addEventListener('change', () => {
   fetchBooks();
 });
 
+$('#authorFilter').addEventListener('change', () => {
+  shelf.author = $('#authorFilter').value;
+  fetchBooks();
+});
+
 $('#sortSelect').addEventListener('change', () => {
   shelf.sort = $('#sortSelect').value;
   fetchBooks();
@@ -134,14 +158,17 @@ $('#sortSelect').addEventListener('change', () => {
    筛选 UI 一并回到「全部 / 全部标签」,避免界面与实际条件脱节。
    注意:清空搜索框不会动筛选,只有"发起检索"才清。 */
 function clearShelfFilters() {
-  if (!shelf.status && !shelf.tag) return;
+  if (!shelf.status && !shelf.tag && !shelf.author) return;
   shelf.status = '';
   shelf.tag = '';
+  shelf.author = '';
   $$('#statusTabs button').forEach((b) => b.classList.toggle('active', b.dataset.status === ''));
-  const sel = $('#tagFilter');
-  if (sel) {
-    sel.value = '';
-    syncCustomSelect(sel);   // 程序改 value 不触发 change,自定义下拉需手动同步
+  for (const id of ['#tagFilter', '#authorFilter']) {
+    const sel = $(id);
+    if (sel) {
+      sel.value = '';
+      syncCustomSelect(sel);   // 程序改 value 不触发 change,自定义下拉需手动同步
+    }
   }
 }
 
@@ -175,6 +202,7 @@ function applyUrlParams() {
   shelf.q = p.get('q') || '';
   shelf.status = p.get('status') || '';
   shelf.tag = p.get('tag') || '';
+  shelf.author = p.get('author') || '';
   if (['updated', 'finish', 'title'].includes(p.get('sort'))) shelf.sort = p.get('sort');
 
   if (shelf.q) $('#searchInput').value = shelf.q;
@@ -188,6 +216,7 @@ function applyUrlParams() {
 document.addEventListener('books-changed', () => {
   fetchBooks();
   loadShelfStats();
+  loadAuthorFilter();
 });
 
 // 筛选条件写回地址栏(replaceState 不新增历史),刷新/分享保住当前视图
@@ -196,6 +225,7 @@ function syncUrl() {
   if (shelf.q) p.set('q', shelf.q);
   if (shelf.status) p.set('status', shelf.status);
   if (shelf.tag) p.set('tag', shelf.tag);
+  if (shelf.author) p.set('author', shelf.author);
   if (shelf.sort !== 'updated') p.set('sort', shelf.sort);
   const qs = p.toString();
   history.replaceState(null, '', qs ? '/shelf?' + qs : '/shelf');
@@ -204,9 +234,98 @@ function syncUrl() {
 document.addEventListener('shelf-search', syncUrl);
 $('#statusTabs').addEventListener('click', syncUrl);
 $('#tagFilter').addEventListener('change', syncUrl);
+$('#authorFilter').addEventListener('change', syncUrl);
 $('#sortSelect').addEventListener('change', syncUrl);
+
+/* ============ 高级搜索:保存的搜索(虚拟图书馆)+ 语法说明 ============
+ * 保存的是原始查询串(交给后端 core/query 现解析)+ 排序键。
+ * 点胶囊 → 把 query 灌回搜索框并套用排序;有查询时可"保存当前";
+ * "管理"进入编辑态,逐条显示重命名 / 删除。写操作经 requireAdmin 鉴权。 */
+
+let savedItems = [];
+
+async function loadSavedSearches() {
+  try {
+    savedItems = await api('/api/saved-searches');
+  } catch { savedItems = []; } // 拉取失败静默:不影响普通检索
+  renderSaved();
+}
+
+function renderSaved() {
+  const bar = $('#savedBar');
+  const canSave = !!String(shelf.q || '').trim();
+  bar.hidden = savedItems.length === 0 && !canSave;
+  $('#saveCurrentBtn').hidden = !canSave;
+  $('#manageSavedBtn').hidden = savedItems.length === 0;
+  if (savedItems.length === 0) bar.classList.remove('managing');
+
+  $('#savedChips').innerHTML = savedItems.map((item) => {
+    const active = String(item.query) === String(shelf.q) && (item.sort || 'updated') === shelf.sort;
+    return `<span class="chip${active ? ' active' : ''}" data-id="${item.id}">`
+      + `<button type="button" class="chip-label" data-act="apply">${esc(item.name)}</button>`
+      + '<button type="button" class="chip-act" data-act="rename" title="重命名">✎</button>'
+      + '<button type="button" class="chip-act" data-act="del" title="删除">✕</button>'
+      + '</span>';
+  }).join('');
+}
+
+function findSaved(id) { return savedItems.find((x) => String(x.id) === String(id)); }
+
+async function applySaved(item) {
+  shelf.q = item.query || '';
+  $('#searchInput').value = shelf.q;
+  if (['updated', 'finish', 'title'].includes(item.sort)) {
+    shelf.sort = item.sort;
+    $('#sortSelect').value = shelf.sort;
+    syncCustomSelect($('#sortSelect'));
+  }
+  if (shelf.q) clearShelfFilters();
+  await fetchBooks();
+  syncUrl();
+}
+
+$('#savedChips').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const item = findSaved(btn.closest('.chip').dataset.id);
+  if (!item) return;
+  const act = btn.dataset.act;
+  try {
+    if (act === 'apply') {
+      if (!$('#savedBar').classList.contains('managing')) await applySaved(item);
+    } else if (act === 'rename') {
+      const name = prompt('重命名该保存的搜索:', item.name);
+      if (name === null || !name.trim()) return;
+      const res = await api('/api/saved-searches/' + item.id, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) });
+      savedItems = res.items; renderSaved(); toast('已重命名');
+    } else if (act === 'del') {
+      if (!confirm(`删除保存的搜索「${item.name}」?`)) return;
+      const res = await api('/api/saved-searches/' + item.id, { method: 'DELETE' });
+      savedItems = res.items; renderSaved(); toast('已删除');
+    }
+  } catch (err) { toast(err.message, true); }
+});
+
+$('#saveCurrentBtn').addEventListener('click', async () => {
+  const q = String(shelf.q || '').trim();
+  if (!q) return;
+  const name = prompt('为当前搜索命名(保存后可一键套用):', q.slice(0, 20));
+  if (name === null || !name.trim()) return;
+  try {
+    const res = await api('/api/saved-searches', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim(), query: q, sort: shelf.sort }),
+    });
+    savedItems = res.items; renderSaved(); toast('已保存该搜索');
+  } catch (err) { toast(err.message, true); }
+});
+
+$('#manageSavedBtn').addEventListener('click', () => $('#savedBar').classList.toggle('managing'));
+$('#syntaxBtn').addEventListener('click', () => openModal('#syntaxModal'));
 
 /* ============ 启动 ============ */
 applyUrlParams();
 fetchBooks();
 loadShelfStats();
+loadAuthorFilter();
+loadSavedSearches();

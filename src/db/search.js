@@ -9,10 +9,13 @@
  *    因此 1~2 字短词走 LIKE 兜底(见 searchBooks 的短词分支)。
  *  · 检索走 BM25 相关度排序;与 status/tag 过滤器、排序白名单正交。
  *
- * 依赖方向纪律:本模块只 import node: 内置,不 import express / core,
- * 操作由调用方传入的 db 句柄完成 —— 便于 books.js 复用,也利于测试
- * 用 openDb(临时目录) 隔离验证。
+ * 依赖方向纪律:本模块不 import express、不做 I/O,操作由调用方传入的
+ * db 句柄完成 —— 便于 books.js 复用,也利于测试用 openDb(临时目录) 隔离。
+ * 唯一的 import 是纯函数 core/query(查询语法解析),与 categories 依赖
+ * core/book 同构:db 层依赖 core 层的纯逻辑是本项目的既定分层方向。
  * ============================================================ */
+
+const { parseQuery } = require('../core/query');
 
 const TRIGRAM_MIN = 3; // trigram 只索引/匹配 >=3 字符的片段
 
@@ -82,70 +85,218 @@ function escapeLike(s) {
   return String(s).replace(/[\\%_]/g, (ch) => '\\' + ch);
 }
 
+/* ---------- 结构化查询构件(字段谓词 / 自由词 / 布尔 / 否定) ---------- */
+
+// 自由词 LIKE 兜底覆盖的列集合(书名/作者/简介/标签全文)
+const LIKE_COLS =
+  "(b.title LIKE ? ESCAPE '\\' OR b.author LIKE ? ESCAPE '\\' OR b.summary LIKE ? ESCAPE '\\' OR b.tags LIKE ? ESCAPE '\\')";
+
+function likeClause(term) {
+  const v = `%${escapeLike(String(term).trim())}%`;
+  return { sql: LIKE_COLS, params: [v, v, v, v] };
+}
+
+// 长自由词:走 FTS 子查询 —— 外部内容表按 rowid 回链主表 id,
+// 这样自由词能和其它字段谓词以 AND/OR 自由组合(纯 bm25 排序只在
+// 整串自由词检索时保留,见 plainSearch)。
+function ftsClause(term) {
+  return {
+    sql: 'b.id IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ?)',
+    params: [toFtsQuery(term)],
+  };
+}
+
+function freeClause(term, forceLike) {
+  return !forceLike && meaningfulLen(term) >= TRIGRAM_MIN ? ftsClause(term) : likeClause(term);
+}
+
+// 字段谓词 → SQL 片段。返回 null 表示无法安全求值(如 rating 非数字),调用方跳过该条。
+// op 来自 core/query:eq/ne/ge/le/gt/lt。文本字段只区分 eq(子串)与 ne,范围运算符按 eq 处理。
+function fieldClause({ field, op, value }) {
+  const likeVal = `%${escapeLike(String(value).trim())}%`;
+  const numericCmp = { eq: '=', ne: '<>', ge: '>=', le: '<=', gt: '>', lt: '<' };
+  switch (field) {
+    case 'status':
+      return { sql: op === 'ne' ? 'b.status <> ?' : 'b.status = ?', params: [value] };
+    case 'tag':
+      return {
+        sql:
+          (op === 'ne' ? 'NOT EXISTS' : 'EXISTS') +
+          '(SELECT 1 FROM book_tags bt JOIN tags t ON t.id = bt.tag WHERE bt.book = b.id AND t.name = ?)',
+        params: [value],
+      };
+    case 'author':
+      return {
+        sql:
+          (op === 'ne' ? 'NOT EXISTS' : 'EXISTS') +
+          '(SELECT 1 FROM book_authors ba JOIN authors a ON a.id = ba.author WHERE ba.book = b.id AND a.name = ?)',
+        params: [value],
+      };
+    case 'title':
+      return { sql: op === 'ne' ? 'b.title NOT LIKE ? ESCAPE \'\\\'' : 'b.title LIKE ? ESCAPE \'\\\'', params: [likeVal] };
+    case 'publisher':
+      return { sql: op === 'ne' ? 'b.publisher NOT LIKE ? ESCAPE \'\\\'' : 'b.publisher LIKE ? ESCAPE \'\\\'', params: [likeVal] };
+    case 'isbn':
+      return { sql: op === 'ne' ? 'b.isbn NOT LIKE ? ESCAPE \'\\\'' : 'b.isbn LIKE ? ESCAPE \'\\\'', params: [likeVal] };
+    case 'format': {
+      const f = String(value).trim().toUpperCase();
+      return {
+        sql:
+          (op === 'ne' ? 'NOT EXISTS' : 'EXISTS') +
+          '(SELECT 1 FROM book_files bf WHERE bf.book = b.id AND bf.format = ?)',
+        params: [f],
+      };
+    }
+    case 'rating': {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      return { sql: `b.rating ${numericCmp[op] || '='} ?`, params: [n] };
+    }
+    case 'pubyear': {
+      const n = Number(value);
+      const cmp = { ge: '>=', le: '<=', gt: '>', lt: '<' }[op];
+      if (cmp && Number.isFinite(n)) {
+        return { sql: `b.pub_year <> '' AND CAST(b.pub_year AS INTEGER) ${cmp} ?`, params: [n] };
+      }
+      return { sql: op === 'ne' ? 'b.pub_year NOT LIKE ? ESCAPE \'\\\'' : 'b.pub_year LIKE ? ESCAPE \'\\\'', params: [likeVal] };
+    }
+    default:
+      return null;
+  }
+}
+
+// 独立入参(status/tag/author)沿用改造前的 SQL,保证向后兼容与既有测试零变化。
+function legacyFilterClauses(status, tag, author) {
+  const STATUSES = ['wish', 'reading', 'done'];
+  const clauses = [];
+  if (status && STATUSES.includes(status)) clauses.push({ sql: 'b.status = ?', params: [status] });
+  if (tag) clauses.push({ sql: 'b.tags LIKE ?', params: [`%"${escapeLike(tag)}"%`] });
+  if (author) clauses.push({ sql: 'b.author LIKE ?', params: [`%${escapeLike(author)}%`] });
+  return clauses;
+}
+
 /* ---------- 检索主入口(供 routes 与 books.listBooks 复用) ---------- */
 
-// 返回完整书籍行(SELECT * FROM books 的同构),按相关度或白名单排序。
-// 入参 { q, status, tag, sort } 与 listBooks 一致;q 为空时行为与 listBooks 相同。
-function searchBooks(db, { q, status, tag, sort } = {}) {
-  const STATUSES = ['wish', 'reading', 'done'];
-  const SORTS = {
-    updated: 'updated_at DESC',
-    created: 'created_at DESC',
-    finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC',
-    title: 'title COLLATE NOCASE ASC',
-  };
+const SORTS = {
+  updated: 'updated_at DESC',
+  created: 'created_at DESC',
+  finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC',
+  title: 'title COLLATE NOCASE ASC',
+  author: 'author_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
+};
 
-  const filters = [];
-  const params = [];
-  if (status && STATUSES.includes(status)) {
-    filters.push('b.status = ?');
-    params.push(status);
-  }
-  if (tag) {
-    filters.push('b.tags LIKE ?');
-    params.push(`%"${escapeLike(tag)}"%`);
-  }
+// 纯自由词检索(整串当一个短语)—— 与结构化改造前的行为逐字一致:
+// 短词走 LIKE,长词走 FTS5 trigram 短语匹配 + BM25 相关度排序。
+// status/tag/author 独立过滤器始终正交叠加。
+function plainSearch(db, rawQ, legacy, order) {
+  const legacyWhere = legacy.map((c) => c.sql);
+  const legacyParams = legacy.flatMap((c) => c.params);
 
-  // 无搜索词:原样走主表(排序白名单生效)
-  if (!q || !String(q).trim()) {
-    const order = SORTS[sort] || SORTS.updated;
-    const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
-    return db.prepare(`SELECT b.* FROM books b ${where} ORDER BY ${order}`).all(...params);
-  }
-
-  // 短词(1~2 字):trigram 无法索引,回退 LIKE(覆盖书名/作者/简介/标签)
-  if (meaningfulLen(q) < TRIGRAM_MIN) {
-    const like = `%${escapeLike(String(q).trim())}%`;
-    const likeClause = '(b.title LIKE ? ESCAPE \'\\\' OR b.author LIKE ? ESCAPE \'\\\' OR b.summary LIKE ? ESCAPE \'\\\' OR b.tags LIKE ? ESCAPE \'\\\')';
-    const where = [likeClause, ...filters].join(' AND ');
-    const order = SORTS[sort] || SORTS.updated;
+  if (meaningfulLen(rawQ) < TRIGRAM_MIN) {
+    const like = `%${escapeLike(rawQ)}%`;
+    const where = [LIKE_COLS, ...legacyWhere].join(' AND ');
     return db
       .prepare(`SELECT b.* FROM books b WHERE ${where} ORDER BY ${order}`)
-      .all(like, like, like, like, ...params);
+      .all(like, like, like, like, ...legacyParams);
   }
 
-  // 长词:FTS5 trigram 短语匹配 + BM25 相关度排序;status/tag 仍生效。
-  // 兜底:用户输入可能构成非法 MATCH 表达式(如裸引号、特殊运算符组合),
+  const fts = toFtsQuery(rawQ);
+  const andLegacy = legacyWhere.length ? 'AND ' + legacyWhere.join(' AND ') : '';
+  // 兜底:用户输入可能构成非法 MATCH 表达式(裸引号、运算符组合),
   // FTS 抛异常时回退 LIKE —— 检索是只读操作,宁降级不报错。
-  const fts = toFtsQuery(q);
-  const where = filters.length ? 'AND ' + filters.join(' AND ') : '';
   try {
     return db
       .prepare(
         `SELECT b.* FROM books_fts f JOIN books b ON b.id = f.rowid
-         WHERE books_fts MATCH ? ${where}
+         WHERE books_fts MATCH ? ${andLegacy}
          ORDER BY bm25(books_fts)`
       )
-      .all(fts, ...params);
+      .all(fts, ...legacyParams);
   } catch (err) {
-    if (!/fts|MATCH/i.test(err.message)) throw err; // 非 FTS 错误原样抛出
-    const like = `%${escapeLike(String(q).trim())}%`;
-    const likeClause = '(b.title LIKE ? ESCAPE \'\\\' OR b.author LIKE ? ESCAPE \'\\\' OR b.summary LIKE ? ESCAPE \'\\\' OR b.tags LIKE ? ESCAPE \'\\\')';
-    const likeWhereFull = [likeClause, ...filters].join(' AND ');
+    if (!/fts|MATCH/i.test(err.message)) throw err;
+    const like = `%${escapeLike(rawQ)}%`;
+    const where = [LIKE_COLS, ...legacyWhere].join(' AND ');
     return db
-      .prepare(`SELECT b.* FROM books b WHERE ${likeWhereFull} ORDER BY ${SORTS[sort] || SORTS.updated}`)
-      .all(like, like, like, like, ...params);
+      .prepare(`SELECT b.* FROM books b WHERE ${where} ORDER BY ${order}`)
+      .all(like, like, like, like, ...legacyParams);
   }
+}
+
+// 结构化检索:字段谓词 + 自由词(可含 FTS)→ 统一以 books 主表为驱动,
+// 各条款按 or 标志整体 OR 或默认 AND;否定条款恒为 AND NOT(...)。
+// 这里不追求 BM25(排序交给 SORTS/显式 sort),换取布尔组合的正确与简单。
+function structuredSearch(db, parsed, legacy, order) {
+  const build = (forceLike) => {
+    const pos = [];
+    const posParams = [];
+    for (const f of parsed.filters) {
+      const c = fieldClause(f);
+      if (c) { pos.push(c.sql); posParams.push(...c.params); }
+    }
+    for (const t of parsed.free) {
+      const c = freeClause(t, forceLike);
+      pos.push(c.sql); posParams.push(...c.params);
+    }
+    const neg = [];
+    const negParams = [];
+    for (const f of parsed.notFilters) {
+      const c = fieldClause(f);
+      if (c) { neg.push(`NOT (${c.sql})`); negParams.push(...c.params); }
+    }
+    for (const t of parsed.notFree) {
+      const c = freeClause(t, forceLike);
+      neg.push(`NOT (${c.sql})`); negParams.push(...c.params);
+    }
+    return { pos, posParams, neg, negParams };
+  };
+
+  const assemble = ({ pos, posParams, neg, negParams }) => {
+    let positiveSql = '';
+    if (pos.length === 1) positiveSql = pos[0];
+    else if (pos.length > 1) positiveSql = parsed.or ? `(${pos.join(' OR ')})` : pos.join(' AND ');
+    const chunks = [];
+    if (positiveSql) chunks.push(positiveSql);
+    for (const c of legacy) chunks.push(c.sql);
+    for (const n of neg) chunks.push(n);
+    const where = chunks.length ? 'WHERE ' + chunks.join(' AND ') : '';
+    const params = [...posParams, ...legacy.flatMap((c) => c.params), ...negParams];
+    return { sql: `SELECT b.* FROM books b ${where} ORDER BY ${order}`, params };
+  };
+
+  const useFts = parsed.free.some((t) => meaningfulLen(t) >= TRIGRAM_MIN);
+  try {
+    const q = assemble(build(false));
+    return db.prepare(q.sql).all(...q.params);
+  } catch (err) {
+    if (useFts && /fts|MATCH/i.test(err.message)) {
+      const q = assemble(build(true)); // 自由词全部降级为 LIKE
+      return db.prepare(q.sql).all(...q.params);
+    }
+    throw err;
+  }
+}
+
+// 返回完整书籍行(SELECT * FROM books 的同构),按相关度或白名单排序。
+// 入参 { q, status, tag, author, sort }:q 为空走主表;纯自由词走 plainSearch;
+// 含字段谓词/布尔/否定则走 structuredSearch。status/tag/author 独立过滤器恒正交生效。
+function searchBooks(db, { q, status, tag, author, sort } = {}) {
+  const order = SORTS[sort] || SORTS.updated;
+  const legacy = legacyFilterClauses(status, tag, author);
+
+  if (!q || !String(q).trim()) {
+    const where = legacy.length ? 'WHERE ' + legacy.map((c) => c.sql).join(' AND ') : '';
+    const params = legacy.flatMap((c) => c.params);
+    return db.prepare(`SELECT b.* FROM books b ${where} ORDER BY ${order}`).all(...params);
+  }
+
+  const parsed = parseQuery(q);
+  const hasStructure =
+    parsed.filters.length > 0 || parsed.notFilters.length > 0 || parsed.notFree.length > 0 || parsed.or;
+
+  if (!hasStructure) {
+    return plainSearch(db, String(q).trim(), legacy, order);
+  }
+  return structuredSearch(db, parsed, legacy, order);
 }
 
 module.exports = {

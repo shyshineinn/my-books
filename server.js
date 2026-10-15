@@ -13,6 +13,8 @@ const routesMisc = require('./src/http/routes.misc');
 const routesProxy = require('./src/http/routes.proxy');
 const routesFiles = require('./src/http/routes.files');
 const routesMetadata = require('./src/http/routes.metadata');
+const routesCategories = require('./src/http/routes.categories');
+const routesSavedSearches = require('./src/http/routes.savedSearches');
 const { requireAdmin } = require('./src/http/middleware.auth');
 
 const app = express();
@@ -72,11 +74,15 @@ apiV1.use(routesMisc);
 apiV1.use(routesProxy);
 apiV1.use(routesFiles);
 apiV1.use(routesMetadata);
+apiV1.use(routesCategories);
+apiV1.use(routesSavedSearches);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
 app.use(routesMisc);
 app.use(routesProxy);
+app.use(routesCategories);
+app.use(routesSavedSearches);
 
 // Markdown 渲染库(浏览器版;marked v16+ 的 exports 限制子路径,需手动拼接包内路径)
 const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')), 'lib', 'marked.umd.js');
