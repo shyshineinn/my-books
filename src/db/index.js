@@ -213,8 +213,16 @@ function migrateV7(db, dataDir) {
   db.exec('ALTER TABLE books DROP COLUMN file_size');
 }
 
+// v8:评分改为 10 分制(与豆瓣原始分一致,不再折半)
+//     存量数据曾按「豆瓣 10 分折半」存 5 分制(clampRating 旧版封顶 5),
+//     ×2 还原为 10 分制;曾因折算进位丢过精度的值(8.9→4.5)只能近似还原(→9.0)。
+//     rating = 0 表示未评分,不迁移。
+function migrateV8(db, dataDir) {
+  db.exec('UPDATE books SET rating = min(10, round(rating * 2, 1)) WHERE rating > 0');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

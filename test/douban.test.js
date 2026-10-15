@@ -48,7 +48,7 @@ test('parseBookPage:标题/作者/出版社/出版年/ISBN/评分/封面', () =>
   assert.equal(m.publisher, '重庆出版社');
   assert.equal(m.pubYear, '2008-1');
   assert.equal(m.isbn, '9787536692930');
-  assert.equal(m.rating, 4.7, '豆瓣 9.3 折算 5 分制应为 4.7'); // 9.3/2=4.65 → round(46.5)/10=4.7
+  assert.equal(m.rating, 9.3, '豆瓣原始分 9.3 应原样保留(本站 10 分制)');
   assert.ok(m.cover.includes('s29053580.jpg'));
   assert.equal(m.doubanId, '2567698');
 });
@@ -75,7 +75,7 @@ test('mapToBook:映射到 my-books 字段形状', () => {
   assert.equal(b.title, '三体');
   assert.equal(b.author, '刘慈欣');
   assert.equal(b.isbn, '9787536692930');
-  assert.equal(b.rating, 4.7);
+  assert.equal(b.rating, 9.3);
   assert.ok(b.doubanUrl.includes('/subject/2567698/'));
 });
 

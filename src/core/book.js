@@ -102,11 +102,12 @@ function parseBook(body) {
   };
 }
 
-// 评分:0~5,一位小数;非法输入归 0(与豆瓣折算规则一致)
+// 评分:0~10(与豆瓣原始分同制,2026 年起本站不再折半),一位小数;
+// 非法输入归 0。旧库存的 5 分制值由 migrateV8 ×2 迁移到 10 分制
 function clampRating(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) return 0;
-  return Math.min(5, Math.round(n * 10) / 10);
+  return Math.min(10, Math.round(n * 10) / 10);
 }
 
 // PUT 局部更新语义:表单未提供的字段保留数据库旧值,

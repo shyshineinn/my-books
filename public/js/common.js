@@ -26,12 +26,14 @@ function esc(s) {
   }[c]));
 }
 
-// 评分星级(0~5,支持半星);只渲染图形,数值由调用处决定是否展示
+// 评分星级(5 星图形;输入为豆瓣 10 分制,÷2 折算星宽,四舍五入到半星)
+// 只渲染图形,数值由调用处决定是否展示
 function starHtml(rating) {
-  const r = Math.max(0, Math.min(5, Number(rating) || 0));
+  const score = Math.max(0, Math.min(10, Number(rating) || 0));
+  const stars = Math.round(score) / 2;
   let out = '';
   for (let i = 1; i <= 5; i++) {
-    const cls = r >= i ? 'on' : (r >= i - 0.5 ? 'half' : '');
+    const cls = stars >= i ? 'on' : (stars >= i - 0.5 ? 'half' : '');
     out += `<span class="star${cls ? ' ' + cls : ''}">★</span>`;
   }
   return out;
@@ -378,7 +380,7 @@ async function openDetail(id) {
       ${book.author ? `<div class="detail-author">${esc(book.author)}</div>` : ''}
       <div class="card-meta">
         <span class="status-inline ${book.status}">${STATUS_LABEL[book.status]}</span>
-        ${rating > 0 ? `<span class="detail-rating" title="豆瓣评分 ${rating} / 5">${starHtml(rating)}<b>${rating}</b></span>` : ''}
+        ${rating > 0 ? `<span class="detail-rating" title="豆瓣评分 ${rating} / 10">${starHtml(rating)}<b>${rating}</b></span>` : ''}
       </div>
       <div class="detail-rows">
         ${legacyDates.length ? `<div class="detail-row"><span class="k">日期</span><span class="v">${esc(legacyDates.join(' · '))}</span></div>` : ''}

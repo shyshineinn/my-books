@@ -54,6 +54,21 @@ test('简介截断到 1000 字', () => {
   assert.equal(values.summary.length, 1000);
 });
 
+test('评分:10 分制限界 0~10,一位小数,非法输入归 0', () => {
+  const a = parseBook({ title: 'x', rating: 8.9 });
+  assert.equal(a.values.rating, 8.9, '豆瓣原始分应原样保留');
+
+  const b = parseBook({ title: 'x', rating: 12 });
+  assert.equal(b.values.rating, 10, '超出 10 分封顶');
+
+  const c = parseBook({ title: 'x', rating: 4.45 });
+  assert.equal(c.values.rating, 4.5, '规整到一位小数');
+
+  for (const bad of ['abc', -1, null, undefined, '']) {
+    assert.equal(parseBook({ title: 'x', rating: bad }).values.rating, 0, `非法输入 ${String(bad)} 应归 0`);
+  }
+});
+
 /* ---------- 阅读记录是唯一日期来源(核心规则) ---------- */
 
 test('有阅读记录时:读过次数 = 已读完的记录条数,请求体旧值被忽略', () => {

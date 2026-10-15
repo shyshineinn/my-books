@@ -85,6 +85,24 @@ test('旧库升级:user_version=0 的老库补齐列且数据保留', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('v8:存量 5 分制评分折算为 10 分制(×2,封顶 10;0 分不动)', () => {
+  const dir = tempDir();
+  const db = openDb(dir); // 一次到位到最新版
+  const ins = db.prepare("INSERT INTO books (title, status, tags, rating, created_at, updated_at) VALUES (?, 'done', '[]', ?, '2024-01-01', '2024-01-01')");
+  ins.run('旧五星书甲', 4.5);  // → 9.0
+  ins.run('旧五星书乙', 5);    // → 10(封顶)
+  ins.run('旧五星书丙', 0);    // 未评分,不动
+  db.exec(`PRAGMA user_version = ${migrations.length - 1}`); // 退回一步,只重放 v8
+  runMigrations(db, dir);
+
+  const rows = db.prepare("SELECT title, rating FROM books WHERE title LIKE '旧五星书%' ORDER BY id").all();
+  assert.equal(rows[0].rating, 9);
+  assert.equal(rows[1].rating, 10);
+  assert.equal(rows[2].rating, 0);
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('失败回滚:迁移抛异常时 user_version 与半成品变更全部回退', () => {
   const dir = tempDir();
   const db = openDb(dir);

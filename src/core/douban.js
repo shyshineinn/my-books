@@ -77,9 +77,11 @@ function parseBookPage(html, doubanId) {
   const coverHref = $('a.nbg').first().attr('href') || '';
   if (coverHref && !coverHref.endsWith('update_image')) out.cover = coverHref;
 
-  // 评分(strong[property=v:average] 满分 10 → 折算 5 分制,与插件一致)
+  // 评分(strong[property=v:average]:豆瓣原始分即 10 分制,与本站量表一致,原样保留。
+  // 此前折半成 5 分制导致 8.9/9.0 这类不同分值合并成同一个数,与豆瓣页面对不上,
+  // 2026 年起本站评分统一为 10 分制,仅限界 0~10 并规整到一位小数)
   const rating = parseFloat($('strong[property="v:average"]').first().text());
-  if (!Number.isNaN(rating) && rating > 0) out.rating = Math.round((rating / 2) * 10) / 10;
+  if (!Number.isNaN(rating) && rating > 0) out.rating = Math.min(10, Math.round(rating * 10) / 10);
 
   // 信息栏:作者/译者/出版社/出版年/ISBN/丛书
   $('span.pl').each((_, el) => {
