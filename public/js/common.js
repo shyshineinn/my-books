@@ -258,6 +258,22 @@ function initCustomSelect(select) {
     list[activeIdx].scrollIntoView({ block: 'nearest' });
   }
 
+  // 把浮层面板修正到视口内(窄屏必需)。
+  // 面板是 `right:0` 且 min-width:100%,比触发按钮宽 —— 在 320px 上会向左
+  // 溢出屏幕(实测:159px 的面板挂在 103px 按钮上,左边超出 38px,选项点不到)。
+  // 做法:先清掉上次的位移,量出真实边界,再按需横向平移;仍放不下时交给
+  // CSS 的 max-width 兜底换行/省略。
+  function fitMenuToViewport() {
+    menu.style.transform = '';
+    const b = menu.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const pad = 12;                      // 与屏幕边缘留出的呼吸位
+    let dx = 0;
+    if (b.right > vw - pad) dx = (vw - pad) - b.right;   // 右边出去了:左移
+    if (b.left + dx < pad) dx = pad - b.left;            // 左边仍出去了:右移
+    if (dx) menu.style.transform = `translateX(${Math.round(dx)}px)`;
+  }
+
   function open() {
     customSelects.forEach((r) => { if (r.wrap !== wrap) r.close(); });  // 同时只开一个
     build();
@@ -266,6 +282,7 @@ function initCustomSelect(select) {
     menu.hidden = false;
     wrap.classList.add('open');
     trigger.setAttribute('aria-expanded', 'true');
+    fitMenuToViewport();                 // 显示后立刻校正(读取布局会强制回流)
     const list = opts();
     highlight(Math.max(0, list.findIndex((el) => el.classList.contains('on'))));
     document.addEventListener('keydown', onKey, true);
@@ -275,6 +292,7 @@ function initCustomSelect(select) {
   function close() {
     if (!isOpen()) return;
     menu.hidden = true;
+    menu.style.transform = '';           // 复位,避免下次在其他位置打开时带着旧位移
     wrap.classList.remove('open');
     trigger.setAttribute('aria-expanded', 'false');
     document.removeEventListener('keydown', onKey, true);

@@ -13,7 +13,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v17';
+const CACHE_VERSION = 'v18';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -24,9 +24,9 @@ const IMG_LIMIT = 60;
 // 注意:**不缓存 / *.html 与 /notes/*** —— HTML 必须每次向服务器验证,
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/css/style.css?v=38',
+  '/css/style.css?v=39',
   '/js/chrome.js?v=4',
-  '/js/common.js?v=4',
+  '/js/common.js?v=5',
   '/js/page-home.js?v=1',
   '/js/page-shelf.js?v=4',
   '/js/page-rank.js?v=1',

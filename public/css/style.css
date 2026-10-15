@@ -689,7 +689,24 @@ main {
 
 .status-tabs button.active em { opacity: 1; }
 
-.toolbar-right { display: flex; gap: 10px; margin-left: auto; }
+/* 右侧控件组:作者 / 标签 / 排序 / 语法按钮。
+ *
+ * 竖屏溢出的根因(2026-10-15 实测):本行是 flex 行,四个子项都是
+ * `white-space: nowrap`,而 flex 子项的 min-width 默认是 **auto**(= 内容宽度),
+ * 所以整组恒定 403px、**永不收缩**;`.toolbar` 的 flex-wrap 只能换它自己的行,
+ * 管不了"某个子项比容器还宽"。结果 documentElement.scrollWidth 被撑到 421px,
+ * 320~414px 视口下都能左右滑动。
+ *
+ * 修法:让这一组自己可换行 + 允许收缩到容器宽度以下(min-width:0 是解开
+ * "nowrap 内容卡住 flex" 的关键),子项再按需截断。 */
+.toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 100%;
+}
 
 /* ============================================================
    自定义下拉(.sel)
@@ -699,7 +716,10 @@ main {
    触发按钮 = 与 .btn 同款白底发丝线胶囊;面板 = 白底 / 18px 圆角 / 单一投影;
    选中项 = Action Blue 实底胶囊(与书架分段控件、.btn-primary 同一语言)。
    ============================================================ */
-.sel { position: relative; }
+/* 选择器容器:min-width:0 让它能在窄屏被压缩(否则 flex 子项按内容撑住,
+   触发按钮与标签会一起把工具栏顶宽 —— 见 .toolbar-right 的说明)。
+   max-width:100% 保证自己也不会超出所在行。 */
+.sel { position: relative; min-width: 0; max-width: 100%; }
 
 /* 原生 select 保留在 DOM 中(JS 读写 value / options),仅视觉隐藏 */
 .sel > select {
@@ -721,6 +741,10 @@ main {
   gap: 9px;
   padding: 7px 13px 7px 15px;
   min-height: 36px;
+  /* 窄屏可收缩:min-width:0 解除 flex 的"不低于内容宽度"默认,
+     max-width:100% 与父级同宽上限;文字用省略号收尾(见 .sel-label) */
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 999px;
   background: #ffffff;
@@ -732,6 +756,14 @@ main {
   white-space: nowrap;
   cursor: pointer;
   transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+}
+
+/* 选中项文字:超宽时省略,避免长作者名/长标签把按钮撑爆(触发按钮内溢出）*/
+.sel-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sel-trigger:hover { background: #fafafc; border-color: rgba(0, 0, 0, 0.18); }
@@ -767,6 +799,12 @@ main {
   border-radius: 18px;
   box-shadow: var(--shadow-pop);
   transform-origin: top right;
+  /* 注意:**动画只做透明度,不碰 transform**。
+     面板的 transform 被 JS 用于"窄屏把它平移回视口内"
+     (common.js 的 fitMenuToViewport),而 CSS 动画在播放期间会**覆盖**
+     内联 transform —— 曾用 translateY+scale 做入场,导致窄屏校正位移被吃掉、
+     长下拉(作者列表 159px)挂在 103px 按钮上时左边超出屏幕 38px、选项点不到。
+     实测教训:定位用的 transform 与动画用的 transform 不能共用同一个属性。 */
   animation: sel-menu-in 0.18s var(--ease-out) both;
 }
 
@@ -775,8 +813,8 @@ main {
 .sel-menu::-webkit-scrollbar { display: none; }   /* Chromium / Safari */
 
 @keyframes sel-menu-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .sel-option {
