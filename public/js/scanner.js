@@ -108,8 +108,8 @@
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.innerHTML = `
-      <div class="scan-box">
-        <div class="scan-head">
+      <div class="modal-box">
+        <div class="modal-head">
           <h2>扫描书籍条形码</h2>
           <button type="button" class="icon-btn" data-scan-close aria-label="关闭">✕</button>
         </div>

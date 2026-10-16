@@ -1304,7 +1304,9 @@ main {
 }
 
 /* 表单 */
-.form-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+/* flex:1 0 auto —— 固定高度弹窗里由内容块吸收底部剩余空白,把 .form-foot 顶到卡片底部;
+   flex-shrink:0 保证内容超长时不被压缩(整卡滚动而不是压扁行) */
+.form-grid { display: grid; grid-template-columns: 1fr; gap: 16px; flex: 1 0 auto; }
 
 .field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .field-full { grid-column: 1 / -1; }
@@ -1525,6 +1527,7 @@ main {
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid var(--hairline-soft);
+  flex: 0 0 auto;   /* 贴底对象:不参与伸缩 */
 }
 
 .form-error { color: #e30000; font-size: 13px; }
@@ -1532,12 +1535,15 @@ main {
 .form-foot-btns { display: flex; gap: 10px; margin-left: auto; }
 .form-foot-btns .btn { padding: 10px 22px; font-size: 15px; }
 
+/* 书籍表单:自身纵向 flex 化,让内层 .form-grid 撑开、底栏贴底(固定高度弹窗) */
+#bookForm { flex: 1 0 auto; display: flex; flex-direction: column; }
+
 /* 详情弹窗 */
-.detail-box { max-width: 720px; position: relative; }
+.detail-box { position: relative; }   /* 宽度随 .modal-box 家族(620),不再单独放宽 */
 
 .detail-close { position: absolute; top: 20px; right: 20px; z-index: 2; }
 
-.detail-body { display: flex; flex-direction: column; gap: 24px; padding-top: 4px; }
+.detail-body { display: flex; flex-direction: column; gap: 24px; padding-top: 4px; flex: 1 0 auto; }
 
 .detail-cover {
   width: 172px;
@@ -1563,7 +1569,8 @@ main {
 
 .detail-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-.detail-info { flex: 1; min-width: 0; }
+/* 纵向 flex:让操作行能贴到卡片底部(固定高度弹窗) */
+.detail-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 .detail-info h2 {
   font-family: var(--serif);
@@ -1631,7 +1638,8 @@ main {
 }
 .detail-block-v { margin: 0; min-width: 0; }
 
-.detail-actions { display: flex; gap: 10px; margin-top: 18px; }
+/* margin-top:auto —— 固定高度下操作行贴底;上方间距由 .notes-entry 的 margin-bottom 保证 */
+.detail-actions { display: flex; gap: 10px; margin-top: auto; }
 .detail-actions .btn { padding: 9px 20px; font-size: 14px; }
 
 /* 详情弹窗里的心得入口(紧凑玻璃按钮,与其他按钮一致) */
@@ -1642,6 +1650,8 @@ main {
   align-items: center;
   justify-content: center;
   margin-top: 16px;
+  margin-bottom: 18px;   /* 与 .detail-actions 的最小间距(margin-top:auto 会归零) */
+  align-self: flex-start;   /* flex 列里保持内容宽度,不被拉满 */
   padding: 8px 18px;
   font-size: 14px;
   font-weight: 600;
@@ -2986,9 +2996,10 @@ main.page-home {
   .stats-panels { grid-template-columns: 1fr 1fr; }
   .panel-wide { grid-column: 1 / -1; }
   .modal { align-items: center; padding: 28px; }
-  /* vh 在前作旧内核(微信 X5 等不支持 dvh)回退:否则本条 dvh 被整行丢弃 →
-     .modal-box 无高度上限 → 超视口内容居中裁切、顶到底像整页 */
-  .modal-box { border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); max-height: calc(100vh - 56px); max-height: calc(100dvh - 56px); }
+  /* 固定高度(2026-10-16 统一所有弹窗):每张卡片都是「视口高 - 56px」,内容少留白、
+     内容多内部滚动(底栏贴底见 .form-grid / .detail-info 的 flex)。
+     vh 在前作旧内核(微信 X5 等不支持 dvh)回退:否则本条 dvh 被整行丢弃 → 高度规则失效 */
+  .modal-box { border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); height: calc(100vh - 56px); height: calc(100dvh - 56px); }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .detail-body { flex-direction: row; }
   .detail-cover { width: 200px; align-self: flex-start; }
@@ -3000,7 +3011,7 @@ main.page-home {
 
    2026-10-15 收紧:此前竖屏沿用桌面级的 26px/24px 内边距、24px 标题、16px 间距,
    表单弹窗实测占到 95% 高(390×844),像整页而非弹窗。现在:
-     · max-height 84dvh —— 上下留出背景,一眼看出是浮层(表单内部滚动)
+     · 固定高 84dvh(2026-10-16 起所有弹窗同高:内容少留白、内容多内部滚动、底栏贴底)
      · 内边距/标题/间距/文本域/封面预览整体下调一档
      · 输入框字号保持 17px、高度保持 44px(iOS 聚焦不放大 + 触控目标不缩水) */
 @media (orientation: portrait) {
@@ -3012,8 +3023,8 @@ main.page-home {
   .modal-box {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
-    max-height: 84vh;      /* 回退:不支持 dvh 的旧内核仍限高 */
-    max-height: 84dvh;
+    height: 84vh;      /* 回退:不支持 dvh 的旧内核 */
+    height: 84dvh;
     padding: 20px 16px 22px;
   }
 
@@ -3053,8 +3064,8 @@ main.page-home {
     padding: 0;
   }
   .modal-box {
-    max-height: 92vh;      /* 回退:不支持 dvh 的旧内核仍限高 */
-    max-height: 92dvh;
+    height: 92vh;      /* 回退:不支持 dvh 的旧内核 */
+    height: 92dvh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: var(--shadow-pop);
     padding: 18px 16px max(22px, env(safe-area-inset-bottom));
@@ -3485,8 +3496,7 @@ body.menu-open { overflow: hidden; }
 .isbn-input-row input[type="text"] { flex: 1; min-width: 0; }
 .isbn-input-row .btn { flex: 0 0 auto; padding: 10px 16px; white-space: nowrap; }
 
-/* 批量弹窗:选项勾选行 + 逐条结果清单 */
-.isbn-batch-box { max-width: 620px; }
+/* 批量弹窗:选项勾选行 + 逐条结果清单(宽度/高度随 .modal-box 家族,无需覆写) */
 .check-row {
   display: flex; align-items: center; gap: 8px;
   font-size: 13.5px; font-weight: 400; letter-spacing: 0;
@@ -3518,28 +3528,24 @@ body.menu-open { overflow: hidden; }
 .isbn-view-btn { flex: 0 0 auto; border: 0; background: none; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; }
 .isbn-view-btn:hover { text-decoration: underline; }
 
-/* 扫码浮层(scanner.js 自建 DOM,非 .modal;层叠序高于普通弹窗 100) */
+/* 扫码浮层(scanner.js 自建 DOM;层叠序高于普通弹窗 100)。
+   卡片与头部改用 .modal-box / .modal-head 家族类(scanner.js 中),
+   宽度/高度/内边距/底栏间距与其他弹窗完全一致;这里只留浮层本身与扫码专属样式 */
 .scan-overlay {
   position: fixed; inset: 0; z-index: 120;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.48);
   display: flex; align-items: center; justify-content: center;
   padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
            max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   animation: modal-fade 0.25s var(--ease-out);
 }
-.scan-box {
-  background: var(--card); width: 100%; max-width: 460px; max-height: 100%;
-  overflow-y: auto; border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
-  padding: 20px 18px 22px;
-  display: flex; flex-direction: column;
-  scrollbar-width: none;
+/* 与 .modal 同步的朝向微调 —— 必须放在上面基础规则之后(同优先级靠源序),否则被压住 */
+@media (min-width: 820px) {
+  .scan-overlay { padding: 28px; }
 }
-.scan-box::-webkit-scrollbar { display: none; }
-.scan-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline-soft);
+@media (orientation: landscape) and (max-height: 500px) {
+  .scan-overlay { align-items: flex-end; padding: 0; }
 }
-.scan-head h2 { font-family: var(--serif); font-size: 19px; font-weight: 700; letter-spacing: 0.05em; margin: 0; }
 .scan-reader { position: relative; width: 100%; border-radius: 14px; overflow: hidden; background: #000; }
 .scan-reader:empty { display: none; }   /* 摄像头未启动/不可用时不留黑块 */
 .scan-reader video { width: 100%; display: block; }
@@ -3547,7 +3553,8 @@ body.menu-open { overflow: hidden; }
 .scan-status { margin: 8px 0 0; min-height: 18px; font-size: 13px; color: var(--ink-3); text-align: center; word-break: break-all; line-height: 1.5; }
 .scan-status-ok { color: var(--accent); }
 .scan-status-err { color: #e30000; }
-.scan-manual { display: flex; gap: 8px; margin-top: 14px; }
+/* margin-top:auto + padding 等值 —— 固定高度下把这行贴到卡片底部,紧凑时与原先 14px 间距相同 */
+.scan-manual { display: flex; gap: 8px; margin-top: auto; padding-top: 14px; }
 .scan-manual input {
   flex: 1; min-width: 0;
   border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 12px;
