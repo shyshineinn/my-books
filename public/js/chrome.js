@@ -92,11 +92,11 @@ function overlaysHtml() {
         <input type="hidden" id="bookId">
         <input type="hidden" id="fPublisher">
         <input type="hidden" id="fPubYear">
-        <input type="hidden" id="fIsbn">
         <input type="hidden" id="fRating">
         <input type="hidden" id="fDoubanId">
         <div class="douban-fetch-row">
           <button type="button" id="doubanFetchBtn" class="btn btn-ghost douban-btn">✨ 从豆瓣填充元数据</button>
+          <button type="button" id="isbnBatchBtn" class="btn btn-ghost">按 ISBN 批量添加</button>
           <span id="doubanStatus" class="douban-status"></span>
         </div>
         <div id="doubanCandidates" class="douban-candidates hidden"></div>
@@ -130,6 +130,14 @@ function overlaysHtml() {
           <div class="field">
             <label for="fSeriesIndex">系列序号 <span class="label-sub">可留空;支持小数(2.5)</span></label>
             <input type="number" id="fSeriesIndex" step="0.1" min="0" placeholder="如:3">
+          </div>
+          <div class="field field-full">
+            <label for="fIsbn">ISBN <span class="label-sub">书籍条形码上的 13 位数字,可扫码或手输</span></label>
+            <div class="isbn-input-row">
+              <input type="text" id="fIsbn" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="如 9787536692930">
+              <button type="button" id="isbnScanBtn" class="btn btn-ghost" title="用摄像头扫描书籍条形码">扫码</button>
+            </div>
+            <p class="field-hint">填好 ISBN 后点「✨ 从豆瓣填充元数据」会按 ISBN 精确匹配,比书名更准</p>
           </div>
           <div class="field field-full">
             <label>阅读记录 <span class="label-sub">每次读的起止时间,开始/读完日期与读过次数据此自动生成</span></label>
@@ -233,6 +241,42 @@ function overlaysHtml() {
         <div class="form-foot-btns">
           <button type="button" class="btn btn-ghost" data-close>取消</button>
           <button type="button" class="btn btn-primary" id="settingsSave">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 按 ISBN 批量添加弹窗(对标 calibre 的 Add from ISBN 对话框):
+       多行 ISBN → 服务器逐条校验/查重/抓元数据/建档,结果按条列出。
+       查不到的条目给「手动录入」入口,而不是像 calibre 那样建空标题占位记录。 -->
+  <div id="isbnBatchModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box isbn-batch-box">
+      <div class="modal-head">
+        <h2>按 ISBN 批量添加</h2>
+        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+      </div>
+      <div class="form-grid">
+        <div class="field field-full">
+          <label for="isbnBatchInput">ISBN 列表 <span class="label-sub">一行一个;也支持从表格粘贴(逗号/分号分隔)</span></label>
+          <textarea id="isbnBatchInput" rows="6" placeholder="9787536692930&#10;9787115428028&#10;…" spellcheck="false"></textarea>
+          <p class="field-hint">一次最多 50 个。逐条查重,元数据优先豆瓣、其次 Open Library</p>
+        </div>
+        <div class="field">
+          <label for="isbnBatchTags">统一标签 <span class="label-sub">可选,逗号分隔</span></label>
+          <input type="text" id="isbnBatchTags" list="tagSuggestions" placeholder="如:科幻, 待读">
+        </div>
+        <div class="field">
+          <label>选项</label>
+          <label class="check-row"><input type="checkbox" id="isbnBatchCheck" checked> 跳过书库中已有的 ISBN</label>
+          <label class="check-row"><input type="checkbox" id="isbnBatchConvert"> ISBN-10 统一转 13 位</label>
+        </div>
+      </div>
+      <div id="isbnBatchResults" class="isbn-batch-results hidden" aria-live="polite"></div>
+      <div class="form-foot">
+        <span id="isbnBatchError" class="form-error"></span>
+        <div class="form-foot-btns">
+          <button type="button" class="btn btn-ghost" data-close>关闭</button>
+          <button type="button" class="btn btn-primary" id="isbnBatchSubmit">开始添加</button>
         </div>
       </div>
     </div>

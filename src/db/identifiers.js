@@ -16,6 +16,7 @@
  * ============================================================ */
 
 const core = require('../core/identifiers');
+const { isbnKey } = require('../core/isbn');
 
 // isbn / douban_id 这两个"有专用列"的类型(双写的对象)
 const COLUMN_BACKED = { isbn: 'isbn', douban: 'douban_id', douban_id: 'douban_id' };
@@ -139,6 +140,28 @@ function findDuplicates(handleDb) {
   `).all();
 }
 
+// ISBN 查重索引:「按 ISBN 添加」用,归一化键 → { id, title }。
+// 读两边(books.isbn 列 + book_identifiers 表)并用同一套 isbnKey 归一 ——
+// 连字符、ISBN-10 与对应 ISBN-13 混存也能比中(calibre 的做法也是
+// normalize_isbn 两边归一后比对,见 gui2/actions/add.py:421)。
+// 同一键被多本书占用时保留先遇到的一行;这类脏数据由
+// /api/identifiers/duplicates 体检暴露,不在这里静默纠正。
+function listIsbnIndex(handleDb) {
+  const out = new Map();
+  const rows = handleDb.prepare(`
+    SELECT id, title, isbn AS value FROM books WHERE isbn <> ''
+    UNION ALL
+    SELECT b.id AS id, b.title AS title, i.value AS value
+    FROM book_identifiers i JOIN books b ON b.id = i.book
+    WHERE i.type = 'isbn' AND i.value <> ''
+  `).all();
+  for (const r of rows) {
+    const key = isbnKey(r.value);
+    if (key && !out.has(key)) out.set(key, { id: r.id, title: r.title });
+  }
+  return out;
+}
+
 // 清理孤儿(字段被删/书被删后;外键 CASCADE 已能处理,这是兜底)
 function pruneOrphans(handleDb) {
   const r = handleDb.prepare(
@@ -154,6 +177,7 @@ module.exports = {
   setIdentifiers,
   removeIdentifier,
   listByType,
+  listIsbnIndex,
   findDuplicates,
   pruneOrphans,
 };

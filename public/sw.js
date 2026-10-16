@@ -13,7 +13,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v18';
+const CACHE_VERSION = 'v20';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -24,9 +24,10 @@ const IMG_LIMIT = 60;
 // 注意:**不缓存 / *.html 与 /notes/*** —— HTML 必须每次向服务器验证,
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/css/style.css?v=39',
-  '/js/chrome.js?v=4',
-  '/js/common.js?v=5',
+  '/css/style.css?v=41',
+  '/js/chrome.js?v=5',
+  '/js/common.js?v=6',
+  '/js/scanner.js?v=1',
   '/js/page-home.js?v=1',
   '/js/page-shelf.js?v=4',
   '/js/page-rank.js?v=1',
@@ -36,6 +37,9 @@ const SHELL_ASSETS = [
   '/js/endless-gallery.js?v=6',
   '/vendor/marked.umd.js',
   '/vendor/purify.min.js',
+  // 扫码解码库(/vendor/html5-qrcode.min.js,375KB)不进清单:
+  // 首次点「扫码」才由 scanner.js 懒加载,之后走本文件的 cache-first
+  // 分支自动进缓存(PWA 离线可用);预缓存会把首屏安装拖大
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',

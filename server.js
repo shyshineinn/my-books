@@ -13,6 +13,7 @@ const routesMisc = require('./src/http/routes.misc');
 const routesProxy = require('./src/http/routes.proxy');
 const routesFiles = require('./src/http/routes.files');
 const routesMetadata = require('./src/http/routes.metadata');
+const routesIsbn = require('./src/http/routes.isbn');
 const routesCategories = require('./src/http/routes.categories');
 const routesSavedSearches = require('./src/http/routes.savedSearches');
 const routesCustomFields = require('./src/http/routes.customFields');
@@ -59,6 +60,8 @@ app.use('/api', requireAdmin);
 app.use(routesFiles);
 // 豆瓣元数据抓取(GET /api/v1/metadata/search)
 app.use(routesMetadata);
+// ISBN:单本校验查重 + 按 ISBN 批量添加
+app.use(routesIsbn);
 
 // API 版本化:多端(小程序/PWA/CLI)长期演进的保险。
 // v1 是对多端承诺的稳定契约;老的 /api/* 路径继续工作,现有前端(网页端)零改动。
@@ -75,6 +78,7 @@ apiV1.use(routesMisc);
 apiV1.use(routesProxy);
 apiV1.use(routesFiles);
 apiV1.use(routesMetadata);
+apiV1.use(routesIsbn);
 apiV1.use(routesCategories);
 apiV1.use(routesSavedSearches);
 apiV1.use(routesCustomFields);

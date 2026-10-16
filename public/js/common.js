@@ -365,6 +365,9 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    // 扫码浮层开着时,Escape 只关它(scanner.js 自己处理);
+    // 否则一次 Esc 会把下层表单一起关掉 —— 与 goBack 的逐层退出一致
+    if (window.BookScanner && BookScanner.isOpen()) return;
     closeModals();
     closeMobileMenu();
     closeSearchRow();
@@ -596,6 +599,8 @@ async function openBookModal(book) {
   }
   closeModals();
   $('#modalTitle').textContent = book ? '编辑书籍' : '添加书籍';
+  // 「按 ISBN 批量添加」只在新增时出现(编辑单本时没有意义)
+  $('#isbnBatchBtn').hidden = !!book;
   $('#bookId').value = book ? book.id : '';
   $('#fTitle').value = book ? book.title : '';
   $('#fAuthor').value = book ? book.author : '';
@@ -1009,8 +1014,20 @@ const doubanStatus = $('#doubanStatus');
 const doubanCandidates = $('#doubanCandidates');
 let doubanSearching = false;
 
-// 把豆瓣候选的元数据写进编辑表单(隐藏字段带 publisher 等新字段)
-function applyDoubanBook(d) {
+// 「其它标识符」按类型补/改一行(扫码回填 openlibrary id 用;已有同类型则更新)
+function ensureIdRow(type, value) {
+  for (const row of $$('#idRows [data-id-row]')) {
+    if (row.querySelector('.id-type').value.trim().toLowerCase() === type) {
+      row.querySelector('.id-value').value = value;
+      return;
+    }
+  }
+  $('#idRows').insertAdjacentHTML('beforeend', idRowHtml(type, value));
+}
+
+// 把元数据(豆瓣映射 / Open Library 映射,同一种形状)写进编辑表单。
+// 隐藏字段带 publisher / pubYear / rating / doubanId,提交时随表单保存。
+function applyBookMeta(d) {
   $('#fTitle').value = d.title || '';
   $('#fAuthor').value = d.author || '';
   $('#fSummary').value = d.summary || '';
@@ -1024,12 +1041,81 @@ function applyDoubanBook(d) {
   $('#fIsbn').value = d.isbn || '';
   $('#fRating').value = d.rating || 0;
   $('#fDoubanId').value = d.doubanId || '';
+  // 外文书的 Open Library 标识符:落进「其它标识符」行,保存时入库
+  if (d.openlibraryId) ensureIdRow('openlibrary', String(d.openlibraryId));
 }
+
+/* ============ 按 ISBN 回填(扫码 / 手输,GET /api/isbn/lookup) ============
+ * 服务端做完整校验(位数/校验位)与查重,前端不复制一份算法。
+ * 回填路径与「按 ISBN 批量添加」共用同一 lookupIsbn:豆瓣直查 → OL 兜底。 */
+
+// 按 ISBN 查元数据并回填表单;normalized 为服务端校验过的裸串
+async function fillFormByIsbn(normalized) {
+  doubanStatus.textContent = '正在按 ISBN 查询元数据…';
+  let data;
+  try {
+    data = await api('/api/isbn/lookup?isbn=' + encodeURIComponent(normalized));
+  } catch (e) {
+    doubanStatus.textContent = '';
+    toast(e.message, true);
+    return;
+  }
+  if (data.status === 'found') {
+    applyBookMeta(data.book);
+    // ISBN 以扫码/输入的校验结果为准(页面上的可能带连字符等排版差异)
+    $('#fIsbn').value = normalized;
+    doubanStatus.textContent = (data.source === 'openlibrary' ? '已从 Open Library 填充' : '已从豆瓣填充') + ',可继续修改';
+    toast('已按 ISBN 填充元数据');
+    return;
+  }
+  doubanStatus.textContent = '';
+  if (data.status === 'not_found') toast('豆瓣与 Open Library 都没有找到,ISBN 已保留,可手动填写');
+  else if (data.status === 'blocked') toast('豆瓣拒绝访问(配置 Cookie 可提高成功率,见 README)', true);
+  else toast('查询元数据失败,请稍后重试', true);
+}
+
+// 扫码/输入的统一入口:校验 → 查重(编辑时跳过自己)→ 回填
+async function acceptIsbnInput(raw) {
+  let chk;
+  try {
+    chk = await api('/api/isbn/check?isbn=' + encodeURIComponent(raw));
+  } catch (e) {
+    toast(e.message, true);
+    return false;
+  }
+  if (!chk.valid) return false;
+  const selfId = Number($('#bookId').value) || 0;
+  if (chk.duplicate && chk.duplicate.id !== selfId) {
+    toast(`书库已有《${chk.duplicate.title}》(同一 ISBN),没有重复添加`);
+    return true;
+  }
+  $('#fIsbn').value = chk.normalized;
+  await fillFormByIsbn(chk.normalized);
+  return true;
+}
+
+// 扫码入口:解码库懒加载在 scanner.js;识别到一次后引擎暂停,由这里接手
+$('#isbnScanBtn').addEventListener('click', () => {
+  if (!window.BookScanner) {
+    toast('扫码组件未加载,请刷新页面重试', true);
+    return;
+  }
+  BookScanner.open({
+    onDetect: async (raw) => {
+      if (await acceptIsbnInput(raw)) BookScanner.close();
+      else {
+        toast('扫到的不是合法 ISBN,请对准书背条形码重试', true);
+        BookScanner.resume();
+      }
+    },
+  });
+});
 
 doubanBtn.addEventListener('click', async () => {
   if (doubanSearching) return;
+  const isbnRaw = $('#fIsbn').value.trim();
   const q = $('#fTitle').value.trim();
-  if (!q) {
+  if (!isbnRaw && !q) {
     doubanStatus.textContent = '先填书名(或 ISBN)再检索';
     return;
   }
@@ -1039,6 +1125,39 @@ doubanBtn.addEventListener('click', async () => {
   doubanCandidates.classList.add('hidden');
   doubanCandidates.innerHTML = '';
   try {
+    // ISBN 优先:精确匹配(且自动兜底 Open Library),比书名搜索准;
+    // 编辑已有书时"重复"可能是自己,acceptIsbnInput 内部按 selfId 跳过
+    if (isbnRaw) {
+      let chk;
+      try {
+        chk = await api('/api/isbn/check?isbn=' + encodeURIComponent(isbnRaw));
+      } catch (e) {
+        doubanStatus.textContent = '';
+        toast(e.message, true);
+        return;
+      }
+      if (chk.valid) {
+        const selfId = Number($('#bookId').value) || 0;
+        if (chk.duplicate && chk.duplicate.id !== selfId) {
+          doubanStatus.textContent = '';
+          toast(`书库已有《${chk.duplicate.title}》(同一 ISBN),未自动填充`);
+          return;
+        }
+        $('#fIsbn').value = chk.normalized;
+        await fillFormByIsbn(chk.normalized);
+        return;
+      }
+      if (!q) {
+        doubanStatus.textContent = 'ISBN 不合法(位数或校验位不对),请检查后再试,或改用书名检索';
+        return;
+      }
+      // ISBN 不合法但有书名:退回书名搜索,不打断用户
+    }
+    if (!q) {
+      doubanStatus.textContent = '先填书名(或 ISBN)再检索';
+      return;
+    }
+    doubanStatus.textContent = '正在检索豆瓣…';
     const data = await api('/api/v1/metadata/search?q=' + encodeURIComponent(q));
     if (!data.results.length) {
       doubanStatus.textContent = '豆瓣没有找到,试试换个关键词';
@@ -1057,7 +1176,7 @@ doubanBtn.addEventListener('click', async () => {
     doubanCandidates.classList.remove('hidden');
     doubanCandidates.querySelectorAll('.douban-candidate').forEach((btn) => {
       btn.addEventListener('click', () => {
-        applyDoubanBook(data.results[Number(btn.dataset.i)]);
+        applyBookMeta(data.results[Number(btn.dataset.i)]);
         doubanCandidates.classList.add('hidden');
         doubanStatus.textContent = '已填充,可继续修改';
       });
@@ -1068,6 +1187,121 @@ doubanBtn.addEventListener('click', async () => {
   } finally {
     doubanSearching = false;
     doubanBtn.disabled = false;
+  }
+});
+
+/* ============ 按 ISBN 批量添加(对标 calibre Add from ISBN 对话框) ============
+ * 行拆分与上限校验在服务端(core/isbn_import),前端只做即时提示与结果渲染。
+ * 结果语义:created 已建档 / duplicate 库中或批内已有 / invalid 校验不过 /
+ * not_found 两个源都没查到 / blocked 豆瓣拒绝 / error 网络异常。 */
+const ISBN_BATCH_STATUS = {
+  created: { cls: 'ok', label: '已添加' },
+  duplicate: { cls: 'warn', label: '已存在' },
+  invalid: { cls: 'err', label: '无效' },
+  not_found: { cls: 'warn', label: '未找到' },
+  blocked: { cls: 'err', label: '豆瓣拒绝' },
+  error: { cls: 'err', label: '失败' },
+};
+
+function openIsbnBatchModal() {
+  closeModals();
+  $('#isbnBatchInput').value = '';
+  $('#isbnBatchTags').value = '';
+  $('#isbnBatchCheck').checked = true;
+  $('#isbnBatchConvert').checked = false;
+  $('#isbnBatchError').textContent = '';
+  $('#isbnBatchResults').classList.add('hidden');
+  $('#isbnBatchResults').innerHTML = '';
+  const btn = $('#isbnBatchSubmit');
+  btn.disabled = false;
+  btn.textContent = '开始添加';
+  openModal('#isbnBatchModal');
+}
+
+// 查不到的条目走「手动录入」:打开添加表单并预填 ISBN(calibre 此时建空标题
+// 占位记录,本项目书名非空是硬约束,改为引导手动补全 —— 不制造垃圾数据)
+async function startManualEntry(isbn) {
+  closeModals();
+  await openBookModal(null);
+  if (isbn) {
+    $('#fIsbn').value = isbn;
+    doubanStatus.textContent = '元数据没有查到,ISBN 已预填,请手动补全书名等信息';
+  }
+}
+
+function renderBatchResults(out) {
+  const box = $('#isbnBatchResults');
+  const rows = out.results.map((r) => {
+    const st = ISBN_BATCH_STATUS[r.status] || ISBN_BATCH_STATUS.error;
+    const main = r.status === 'created' ? `《${esc(r.title)}》`
+      : (r.status === 'duplicate' && r.existing) ? `《${esc(r.existing.title)}》`
+        : esc(r.error || '');
+    const manual = (r.status === 'not_found' || r.status === 'blocked')
+      ? `<button type="button" class="btn btn-ghost isbn-manual-btn" data-isbn="${esc(r.isbn)}">手动录入</button>`
+      : '';
+    const view = (r.status === 'duplicate' && r.existing)
+      ? `<button type="button" class="isbn-view-btn" data-book-id="${r.existing.id}">查看</button>`
+      : '';
+    return `<div class="isbn-result-row isbn-result-${st.cls}">
+      <span class="isbn-result-chip">${st.label}</span>
+      <span class="isbn-result-main"><span class="isbn-result-code">${esc(r.isbn || r.input)}</span>${main}</span>
+      ${manual}${view}
+    </div>`;
+  }).join('');
+  const s = out.summary;
+  box.innerHTML = `<p class="isbn-batch-summary">共 ${s.total} 条:新增 ${s.created} · 已存在 ${s.duplicate} · 无效 ${s.invalid} · 未找到 ${s.not_found}${s.blocked ? ' · 豆瓣拒绝 ' + s.blocked : ''}${s.error ? ' · 失败 ' + s.error : ''}</p>${rows}`;
+  box.classList.remove('hidden');
+
+  box.querySelectorAll('.isbn-manual-btn').forEach((btn) => {
+    btn.addEventListener('click', () => startManualEntry(btn.dataset.isbn));
+  });
+  box.querySelectorAll('.isbn-view-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      closeModals();
+      await openDetail(Number(btn.dataset.bookId));
+    });
+  });
+}
+
+$('#isbnBatchBtn').addEventListener('click', openIsbnBatchModal);
+
+$('#isbnBatchSubmit').addEventListener('click', async () => {
+  const errEl = $('#isbnBatchError');
+  errEl.textContent = '';
+  const entries = $('#isbnBatchInput').value.split(/[\r\n,;]+/).map((s) => s.trim()).filter(Boolean);
+  if (!entries.length) {
+    errEl.textContent = '请先粘贴或输入 ISBN 列表';
+    return;
+  }
+  if (entries.length > 50) {
+    errEl.textContent = `一次最多 50 个(当前 ${entries.length} 个),请分批添加`;
+    return;
+  }
+
+  const btn = $('#isbnBatchSubmit');
+  btn.disabled = true;
+  btn.textContent = `正在添加 ${entries.length} 条…`;
+  try {
+    const data = await api('/api/books/from-isbn', {
+      method: 'POST',
+      body: JSON.stringify({
+        isbns: entries,
+        tags: $('#isbnBatchTags').value,
+        check_existing: $('#isbnBatchCheck').checked,
+        convert_to_13: $('#isbnBatchConvert').checked,
+      }),
+    });
+    renderBatchResults(data);
+    if (data.summary.created) {
+      invalidateSharedStats();
+      notifyBooksChanged();
+    }
+    toast(`已完成:新增 ${data.summary.created} 本`);
+  } catch (e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '开始添加';
   }
 });
 
@@ -1255,6 +1489,8 @@ $('#addBtn').addEventListener('click', () => openBookModal(null));
  * 再走页面层级:心得页 → 历史回退,其它非首页 → 回首页。
  * 仅在竖屏/窄屏(≤819px,与全站断点一致)启用,横屏保持桌面行为。 */
 function goBack() {
+  // 0. 扫码浮层(scanner.js 自建 DOM,不是 .modal;相机在跑,优先关掉)
+  if (window.BookScanner && BookScanner.isOpen()) { BookScanner.close(); return true; }
   // 1. 任何浮层弹窗
   if ($$('.modal').some((m) => !m.classList.contains('hidden'))) { closeModals(); return true; }
   // 2. 移动端全屏菜单

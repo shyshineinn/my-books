@@ -96,6 +96,26 @@
 - 每种类型每本书一个值;清空该值即删除该标识符
 - `GET /api/identifiers/duplicates` 可查「同类型同值被多本书占用」(合订本 / 再版排查)
 
+### 按 ISBN 添加(扫码 / 批量)
+
+ISBN 是书的「身份证」:扫码或手输条码数字即可精确取元数据,比书名匹配准得多。
+
+- **扫码**:编辑弹窗里「扫码」按钮直接调起摄像头,识别封底 EAN-13 条形码;解码库
+  (`public/vendor/html5-qrcode.min.js`,约 375KB)**首次扫码才懒加载**,不上传图像、不依赖外部 CDN。
+  需 HTTPS 或 localhost(浏览器摄像头权限的硬要求),iOS Safari / 微信内浏览器可用;
+  无权限 / 无摄像头时给出明确指引,退路是手输
+- **精确回填**:填好 ISBN 点「✨ 从豆瓣填充元数据」会按 ISBN 直查(豆瓣的 `/isbn/` 短链,
+  比书名搜索准);豆瓣没收录的外版书自动回退 **Open Library**(免费开放 API,无需 key);
+  两源都未命中时保留 ISBN、提示手动填写
+- **批量添加**:弹窗里「按 ISBN 批量添加」,一次粘贴多行 ISBN(换行 / 逗号 / 分号分隔,单次 ≤50 条),
+  可顺带打标签;逐条给出结果 —— **已添加 / 已存在(可点开查看)/ 无效 / 未找到 / 豆瓣拒绝**,
+  「未找到」的可一键「手动录入」(跳到编辑弹窗,ISBN 已预填)
+- **查重**:录入前先按 ISBN 查库(编辑现有书时排除自身);批量导入默认勾选「跳过书库中已有的
+  ISBN」,不会重复建档;另有「ISBN-10 统一转 13 位」开关(两副面孔归到同一个查重键)
+
+> 对标 calibre 的 *Add books → Add from ISBN*(多行列表、逐条结果、查重、ISBN-10→13 同款);
+> calibre 自身没有扫码功能,扫码是网页端新增的路径。
+
 ### 电子书文件(只存不读)
 
 上传的电子书文件**仅作存储与下载**,站内在线阅读已于 2026-10-14 下线(见[历史](#历史决策记录))。
@@ -152,6 +172,7 @@ npm start     # 启动服务
 | 数据库 | SQLite 单文件 | `data/books.db`,启动时自动建表与迁移 |
 | 前端 | 原生 HTML / CSS / JS | **无框架、无构建、无打包器**,直接静态文件 + 事件委托 |
 | Markdown | marked(UMD)+ DOMPurify | 经 `/vendor/*` 端点直接从 `node_modules` 回包,绕开构建步骤 |
+| 扫码 | html5-qrcode 2.3.8(UMD) | 静态入库在 `public/vendor/`,首次扫码才懒加载;纯前端解码条形码(EAN-13)|
 | 测试 | Node 内置 test runner | `npm test`,零新增依赖 |
 | 托管 | PM2(主)/ systemd(备) | 单进程 fork 模式 |
 | 反代 | Nginx | TLS 终结、gzip、安全头、写接口 Basic 口令、静态长缓存 |
@@ -211,13 +232,17 @@ npm start     # 启动服务
   多值收窄 + 枚举选项)、`normalizeValue()` 按 9 种类型规范化取值、`displayValue()` 生成展示文本
 - `query.js`:高级搜索语法解析(字段谓词 / `and`·`or`·`not` / 否定 / `#自定义字段`)
 - `douban.js`:豆瓣搜索页与详情页解析(纯函数)+ 到 `books` 字段的映射
+- `isbn.js`:ISBN 校验 / 归一化(对标 calibre `check_isbn` / `normalize_isbn`)—— 校验位算法、
+  分隔符容错、全同数字拒绝、ISBN-10→13、`isbnKey` 查重键;`isbn_import.js`:「按 ISBN 批量添加」编排
+  (校验 → 查重 → 抓元数据 → 建档,逐条 created / duplicate / invalid / not_found / blocked / error)
+- `openlibrary.js`:Open Library 解析(edition / work / author 三跳 → `books` 字段映射),豆瓣未收录时兜底
 - `ebook.js`:电子书格式 / 大小 / 存储名规则;`fs-utils.js`:原子写 + 受边界约束的删除;`paths.js`:目录常量
 - `stats.js`:`computeStats()` 统计聚合(状态分组 / 按年读完 / 标签 Top12)
 
 **`src/db/` 数据访问(只 import node: 内置模块与 core)**
 
 - `index.js`:打开 `data/books.db`、**PRAGMA 加固**(`busy_timeout` / `WAL` / `foreign_keys`)、
-  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v11)、新库写 17 本种子数据;
+  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v12)、新库写 17 本种子数据;
   另导出 **`inTransaction(db, fn)`** —— 嵌套安全的事务包裹助手(各层都无脑 BEGIN 会报
   "cannot start a transaction within a transaction";用 `db.isTransaction` 判断,不靠计数器)
 - `search.js`:**独立全文检索层**(对标 calibre `db/search.py` + `db/fts`)。FTS5 虚表
@@ -229,7 +254,8 @@ npm start     # 启动服务
 - `custom_fields.js`:自定义字段注册表 CRUD(含**软删除 / 恢复 / 物理删除**)+ 取值读写
   (`setValues` 按 label 局部更新,空值删行);db 句柄由调用方传入(测试可完全隔离)
 - `identifiers.js`:标识符读写 —— `isbn` / `douban` 与 `books` 专用列**双写**,读以表为准、旧列兜底;
-  另有 `findDuplicates()` 冲突检测与 `pruneOrphans()` 兜底清理
+  另有 `findDuplicates()` 冲突检测、`pruneOrphans()` 兜底清理与 `listIsbnIndex()` 查重索引
+  (专用列 + 标识符表两条来源合并,ISBN-10/13 两形态归一后命中)
 - `categories.js`:标签 / 作者归一化(重命名 / 合并 / 删除后重算缓存并重建 FTS)
 - `book_files.js` / `saved_searches.js` / `settings.js` / `stats.js`
 
@@ -239,6 +265,10 @@ npm start     # 启动服务
   检索语法错误转 400
 - `routes.customFields.js`:自定义字段管理(列表带 `usage` 引用计数、新建、改、软删 / 恢复 / 彻底删除)
 - `routes.categories.js` / `routes.savedSearches.js` / `routes.files.js` / `routes.metadata.js`
+- `routes.isbn.js`:ISBN 校验查重(`/api/isbn/check`)、按 ISBN 查元数据(`/api/isbn/lookup`,不落库)、
+  批量添加(`/api/books/from-isbn`)
+- `metadata-sources.js`:元数据源网络层 —— 豆瓣(反爬 UA / Cookie / 限速 / 按 ISBN 短链直查)与
+  Open Library 兜底;组合入口 `lookupIsbn()` 让扫码回填与批量导入共用同一条取数链路
 - `routes.misc.js`:设置 / 上传(MIME 白名单 + 5MB + 随机文件名)/ 统计路由
 - `middleware.auth.js`:写接口鉴权(Bearer token、恒时比较、失败限速)
 - `routes.proxy.js`:两个出站代理,原样保留缓存与超时:
@@ -252,10 +282,12 @@ npm start     # 启动服务
 - 优雅退出:`SIGTERM` / `SIGINT` 先停止接新请求,3s 兜底强杀
 - `/vendor/marked.umd.js`、`/vendor/purify.min.js`:把 `node_modules` 里的 UMD 文件直接回给浏览器
   (marked v16+ 的 exports 限制子路径,需手动拼接包内路径),因此前端无需任何构建
+- `/vendor/html5-qrcode.min.js`:扫码解码库,静态入库在 `public/vendor/`(不进 `package.json`),
+  前端首次扫码才加载
 
 ### 测试
 
-`npm test`(Node 内置 test runner,零新依赖),当前 **233 条用例**全部通过(18 个文件):
+`npm test`(Node 内置 test runner,零新依赖),当前 **264 条用例**全部通过(23 个文件):
 
 - `test/book.test.js`(18 条):校验规则 + 核心推导规则 —— 有记录时日期与次数由记录推导、
   请求体旧值被忽略、进行中记录不计次数、无记录时保留兜底值(API 兼容)、PUT 保留旧值语义等
@@ -272,6 +304,15 @@ npm start     # 启动服务
   `titleSort`(冠词移位 / 中文原样 / 引号剥离 / 边界)、`authorToAuthorSort`(倒装 / 前缀称谓 / 多作者)、
   系列解析(`系列 [n]` / 小数序号 / `nextSeriesIndex`)、标识符(归一化 / 双写 / 清空 / 批量 / 冲突检测)、
   uuid 迁移回填与幂等、v12 迁移结构与「内置 series 与 #series 两个命名空间共存」
+- `test/isbn.test.js`(10 条)+ `test/openlibrary.test.js`(6 条,2026-10-16 新增):ISBN 基础层与 Open Library
+  映射 —— 校验位(ISBN-10 含 X / ISBN-13)、连字符与空格容错、全同数字与长度错拒绝、ISBN-10→13 重算、
+  `isbnKey` 两形态归一(查重不漏)、非法存量值退化比较;出版日期取年、封面 -1 视为无、作者去重上限、
+  edition/work/author 三跳字段映射与缺字段容错
+- `test/isbn-import.test.js`(10 条)+ `test/isbn-lookup.test.js`(5 条,2026-10-16 新增):批量导入编排与
+  查询链 —— 多行 / 逗号 / 分号拆分、无效逐条报 invalid、命中建档时 isbn/douban 标识符双写、
+  10 位存量 vs 13 位输入命中 duplicate、本次输入内重复只查一次、not_found/blocked/error 互不影响、
+  convertTo13 决定查询与存储形态、超 50 条拒绝、查重索引覆盖旧列与标识符表;豆瓣 `/isbn/` 直连 302、
+  跳搜索页时取 ISBN 精确匹配、候选不匹配宁可 not_found、豆瓣被拒且 OL 未命中报 blocked、OL 兜底成功
 - `test/categories.test.js`(11 条)/ `test/migrations.test.js`(6 条)/ `test/saved-searches.test.js`(8 条)/
   `test/ebook.test.js`(10 条)/ `test/delete-assets.test.js`(11 条)/ `test/douban.test.js`(7 条)/
   `test/fs-utils.test.js`(6 条)/ `test/lru.test.js`(7 条)/ `test/metadata-cache.test.js`(3 条)/
@@ -349,13 +390,13 @@ npm start     # 启动服务
 ### 前端架构(public/)
 
 - **无构建管线**:六个 HTML 页面(`index.html` / `shelf.html` / `rank.html` / `stats.html` / `tags.html` / `notes.html`)各带自己的 `<main>`;顶栏 / 弹窗 / 移动端菜单 / 页脚由 `js/chrome.js` 按 `body[data-page]` 统一注入(单一来源,避免多份副本手工同步);样式单文件 `css/style.css`
-- **脚本加载顺序**(全部 `defer`,classic script 共享全局):`chrome.js` → `common.js` → `page-<name>.js`;`vendor/marked.umd.js` + `vendor/purify.min.js` 只在心得页加载,`endless-gallery.js` 只在首页加载
+- **脚本加载顺序**(全部 `defer`,classic script 共享全局):`chrome.js` → `common.js` → `page-<name>.js`(`js/scanner.js` 紧随 `common.js`,扫码浮层打开时才注入解码库);`vendor/marked.umd.js` + `vendor/purify.min.js` 只在心得页加载,`endless-gallery.js` 只在首页加载
 - **干净 URL**:`express.static` 的 `extensions:['html']` 让 `/shelf` → `shelf.html`;`/notes/:id` 用显式路由(非法 id 重定向回书架);HTML 一律 `Cache-Control: no-cache`,靠 `?v=` 的静态资源长缓存不受影响
 - **跨页协调**:弹窗保存/删除后派发 `books-changed` 文档事件刷新本页数据;顶栏搜索在非书架页回车跳 `/shelf?q=…`,在书架页则派发 `shelf-search` 实时筛选;`/api/stats` 全站共享缓存(`sharedStats`),变更时作废
 - **缓存失效**:各页面 HTML 里静态资源用版本号查询串(`style.css?v=N`、`chrome.js?v=N`…)控制;**改动静态文件后记得同步递增对应 `?v=`,并同步 `sw.js` 的 `SHELL_ASSETS` 清单与 `CACHE_VERSION`**(这里的 N 只作示意:实际数字以各页面 HTML 为准,不要照抄本行)
 - 模块划分:
   - `js/chrome.js`(约 250 行):外壳注入(顶栏/弹窗/菜单/Toast/页脚)、旧 hash 深链兼容、Service Worker 注册
-  - `js/common.js`:`api()` fetch 封装(401 提示 token 并重试)、详情/编辑弹窗、表单(阅读记录编辑器 + 状态联动;封面编辑器;电子书上传;**自定义字段的动态控件**)、自定义下拉(原生 `<select>` 隐藏作唯一数据源,视觉渲染「胶囊按钮 + 圆角浮层」,选中回写 `value` 并派发 `change`)、搜索接线、移动端全屏菜单与左边缘右滑返回(层级:弹窗 → 菜单 → 搜索栏 → 下拉 → 返回首页)、`sharedStats` 缓存
+  - `js/common.js`:`api()` fetch 封装(401 提示 token 并重试)、详情/编辑弹窗、表单(阅读记录编辑器 + 状态联动;封面编辑器;电子书上传;**ISBN 输入与扫码回填、按 ISBN 批量添加弹窗**;**自定义字段的动态控件**)、自定义下拉(原生 `<select>` 隐藏作唯一数据源,视觉渲染「胶囊按钮 + 圆角浮层」,选中回写 `value` 并派发 `change`)、搜索接线、移动端全屏菜单与左边缘右滑返回(层级:弹窗 → 菜单 → 搜索栏 → 下拉 → 返回首页)、`sharedStats` 缓存
   - `js/page-*.js`:各页渲染与数据加载,筛选状态存页面闭包
   - **竞态防护**:列表 / 取色各自维护会话号(`fetchSeq`、`tintSeq`),旧响应一律丢弃
 - `js/endless-gallery.js`(约 560 行):逐项复刻 apple.com 首页 media-gallery ——
@@ -385,6 +426,7 @@ npm start     # 启动服务
 | 2026-10-15 | 评分统一为 **10 分制**(v8 迁移把存量 ×2) | 此前折半成 5 分制,8.9/9.0 折算后都成 4.5,与豆瓣页面对不上 |
 | 2026-10-15 | **自定义字段上线**(v11:对标 calibre 的自定义列) | 让「加字段」从"改代码 + 发版"变成"在页面上加" —— 见[数据模型](#数据模型)的取舍说明 |
 | 2026-10-15 | **A 组剩余数据模型完成**(v12:系列 / 标识符 / uuid / 排序键) | 补齐对标 calibre 的最后四项。**A4 出版社实体表 / A6 语言表经评估不做**(投入产出比低) |
+| 2026-10-16 | **按 ISBN 添加上线**(扫码 / 精确回填 / 批量导入,对标 calibre *Add from ISBN*) | ISBN 比书名精确;扫码是网页端新增路径(calibre 无此功能);批量补录几十本时逐条结果 + 查重,不产生重复条目 |
 
 ### 安全设计
 
@@ -418,6 +460,9 @@ my-books/
 │   │   ├── identifiers.js            # 标识符规则:类型归一、外链构造、展示列表
 │   │   ├── query.js                  # 高级搜索语法解析(字段/布尔/否定/#自定义字段)
 │   │   ├── douban.js                 # 豆瓣解析(纯函数)+ 字段映射
+│   │   ├── openlibrary.js            # Open Library 解析(edition/work/author → 字段映射)
+│   │   ├── isbn.js                   # ISBN 校验/归一化(校验位、ISBN-10→13、查重键 isbnKey)
+│   │   ├── isbn_import.js            # 「按 ISBN 批量添加」编排(校验→查重→抓取→建档,逐条状态)
 │   │   ├── ebook.js                  # 电子书格式 / 大小 / 存储名规则
 │   │   ├── stats.js                  # computeStats 统计聚合
 │   │   ├── fs-utils.js               # 原子写 + 受边界约束的删除
@@ -429,7 +474,7 @@ my-books/
 │   │   ├── search.js                 # 独立全文检索层(FTS5 trigram + BM25)+ 结构化检索
 │   │   ├── categories.js             # 标签 / 作者归一化(重命名 / 合并 / 删除)
 │   │   ├── custom_fields.js          # 自定义字段注册表 CRUD + 取值读写
-│   │   ├── identifiers.js            # 标识符读写(isbn/douban 双写 + 任意类型)
+│   │   ├── identifiers.js            # 标识符读写(isbn/douban 双写 + 任意类型 + 查重索引 listIsbnIndex)
 │   │   ├── book_files.js             # 一本书多格式文件登记
 │   │   ├── saved_searches.js         # 保存的搜索
 │   │   ├── settings.js / stats.js    # 设置读写 / 统计查询入口
@@ -441,16 +486,21 @@ my-books/
 │   │   ├── routes.savedSearches.js   # 保存的搜索
 │   │   ├── routes.files.js           # 电子书上传 / 列表 / 删除
 │   │   ├── routes.metadata.js        # 豆瓣元数据检索
+│   │   ├── metadata-sources.js       # 元数据源网络层:豆瓣按 ISBN 直查/搜索 + Open Library 兜底(组合入口 lookupIsbn)
+│   │   ├── routes.isbn.js            # ISBN 校验查重 / 按 ISBN 查元数据 / 批量添加
 │   │   ├── routes.misc.js            # 设置 / 封面上传 / 统计
 │   │   ├── routes.proxy.js           # notes / img-proxy 出站代理(缓存 + SSRF 防护)
 │   │   └── lru.js                    # 有上限的内存缓存
-├── test/                             # node:test 用例(npm test,18 个文件 233 条)
+├── test/                             # node:test 用例(npm test,23 个文件 264 条)
 │   ├── custom-fields.test.js         # 自定义字段:规则 / 落库 / 检索 / 软删除 / 事务
 │   ├── a-group-v12.test.js           # 系列 / 标识符 / uuid / 排序键(A3/A5/A7/A8)
+│   ├── isbn.test.js / openlibrary.test.js     # ISBN 校验归一 / Open Library 字段映射
+│   ├── isbn-import.test.js / isbn-lookup.test.js  # 批量添加编排 / 豆瓣+OL 查询链
 │   ├── book.test.js / stats.test.js / auth.test.js
 │   ├── search.test.js / search-robust.test.js / query.test.js / advanced-search.test.js
 │   ├── categories.test.js / migrations.test.js / saved-searches.test.js
-│   └── ebook.test.js / delete-assets.test.js / douban.test.js / fs-utils.test.js / lru.test.js
+│   └── ebook.test.js / delete-assets.test.js / douban.test.js / fs-utils.test.js /
+│       lru.test.js / metadata-cache.test.js / seed-data.test.js
 ├── deploy/
 │   ├── ecosystem.config.js           # PM2 进程配置(主方案:3002 / 127.0.0.1 / fork)
 │   ├── my-books.service              # systemd 单元(备选,与 PM2 二选一)
@@ -464,9 +514,11 @@ my-books/
 │   ├── logo.png / logo-mark.png / add-icon.png
 │   ├── css/style.css                 # Apple 风格响应式样式(单文件)
 │   ├── sw.js                         # Service Worker(离线壳缓存,清单需与页面引用同步)
+│   ├── vendor/html5-qrcode.min.js    # 扫码解码库(静态入库,首次扫码才懒加载)
 │   └── js/
 │       ├── chrome.js                 # 全站外壳注入(顶栏/弹窗/菜单/页脚)+ 旧 hash 兼容
-│       ├── common.js                 # 共享逻辑:api/弹窗/表单/自定义字段/搜索/滑动返回/共享统计
+│       ├── common.js                 # 共享逻辑:api/弹窗/表单/自定义字段/ISBN 输入与批量/搜索/滑动返回
+│       ├── scanner.js                # 扫码浮层(打开摄像头 → 解 EAN-13 → 回填 ISBN)
 │       ├── page-home.js / page-shelf.js / page-rank.js / page-stats.js / page-tags.js / page-notes.js
 │       └── endless-gallery.js        # 首页复刻 apple.com 的双排无限轮播
 ├── data/                             # 运行时自动创建;.gitignore 忽略 *.db
@@ -509,11 +561,15 @@ my-books/
 | GET | `/api/img-proxy?url=` | 外链封面图片代理:同源化供 Canvas 取色(SSRF 防护,缓存 1 小时,失败重试一次) |
 | GET | `/api/stats` | 统计数据 `{ total, byStatus, byYear, topTags }`(topTags 至多 12 个) |
 | GET | `/api/metadata/search?q=` | 豆瓣元数据检索(书名或 ISBN),返回最多 5 个候选 |
+| GET | `/api/isbn/check?isbn=` | ISBN 校验 + 归一化 + 查重:`{ input, valid, normalized, duplicate }`(`duplicate` 为已存在书的 `{id,title}` 或 null);**不落库** |
+| GET | `/api/isbn/lookup?isbn=` | 按 ISBN 查元数据(豆瓣直查 → Open Library 兜底),返回 `{ status, book, source }`;**不建档**,扫码回填与批量添加共用同一条链路 |
+| POST | `/api/books/from-isbn` | 按 ISBN 批量添加(体 `{ isbns, tags?, check_existing?, convert_to_13? }`,单次 ≤50 条);逐条返回 created / duplicate / invalid / not_found / blocked / error 与汇总;**需写口令** |
 
 > 所有端点同时挂在 `/api/v1/*`(多端契约)。**检索语法错误**(未知的 `#自定义字段`、数值字段给非数字)
 > 一律返回 `400 + code=VALIDATION`,不落进兜底 500 —— 让"筛选没生效"这类问题立刻可见。
 
-另有两个静态 vendor 端点:`GET /vendor/marked.umd.js`、`GET /vendor/purify.min.js`(供前端渲染 Markdown 用)。
+vendor 静态资源:`GET /vendor/marked.umd.js`、`GET /vendor/purify.min.js`(供前端渲染 Markdown 用),
+以及 `GET /vendor/html5-qrcode.min.js`(入库在 `public/vendor/`,扫码解码库,前端首次扫码才加载)。
 
 > **线上鉴权(双层)**:写操作(`POST / PUT / DELETE` 与 `/api/upload`)受两层保护 ——
 > ① Nginx Basic 口令(浏览器弹账号密码框,`curl -u admin:密码`);

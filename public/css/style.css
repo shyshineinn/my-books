@@ -3017,6 +3017,11 @@ main.page-home {
     padding: 20px 16px 22px;
   }
 
+  /* 语法弹窗用同一上限(84dvh,上下各留 8dvh 背景,卡片不遮顶部导航栏)。
+     全局 .syntax-box 的 ~100dvh 封顶在竖屏会让卡片顶到/盖住导航栏,
+     且其源序在本块之后 —— 双类名提高优先级压住它 */
+  .modal-box.syntax-box { max-height: 84vh; max-height: 84dvh; }
+
   .modal-head { margin-bottom: 14px; padding-bottom: 12px; }
   .modal-head h2 { font-size: 19px; }
   .modal-head .icon-btn { width: 30px; height: 30px; }
@@ -3442,10 +3447,11 @@ body.menu-open { overflow: hidden; }
 .chip-save:hover, .chip-manage:hover { color: var(--accent); border-color: var(--accent); }
 .chip-save[hidden], .chip-manage[hidden] { display: none; }
 
-/* 语法说明弹窗 —— 内容多(9 行表格 + 列表)易撑得很高。
-   .modal-box 基类在桌面端没有 max-height,所以这里给 .syntax-box 单独封顶:
-   锁定到视口高(vh 在前作旧内核回退,后者 dvh 现代内核生效),头尾固定,
-   只让 .syntax-body 内部滚动;同时收紧字号/间距,常态下无需滚动。 */
+/* 语法说明弹窗 —— 内容多(13 行表格 + 列表)易撑得很高。
+   通用封顶:锁定到视口高(vh 在前作旧内核回退,后者 dvh 现代内核生效),头尾固定,
+   只让 .syntax-body 内部滚动;收紧字号/间距,常态下无需滚动。
+   竖屏例外:见 @media (orientation: portrait) 里的 .modal-box.syntax-box(84dvh)——
+   这里 ~100dvh 的封顶在竖屏会把卡片顶进顶部导航栏。 */
 .syntax-box {
   max-width: 560px;
   max-height: calc(100vh - 48px);
@@ -3486,4 +3492,83 @@ body.menu-open { overflow: hidden; }
   .saved-bar { margin-top: -6px; }
   .saved-actions { margin-left: 0; }
 }
+
+/* ============ ISBN:输入行 / 扫码浮层 / 按 ISBN 批量添加 ============ */
+
+/* 表单里的 ISBN 输入 + 扫码按钮(扫码入口)→ scanner.js */
+.isbn-input-row { display: flex; gap: 8px; }
+.isbn-input-row input[type="text"] { flex: 1; min-width: 0; }
+.isbn-input-row .btn { flex: 0 0 auto; padding: 10px 16px; white-space: nowrap; }
+
+/* 批量弹窗:选项勾选行 + 逐条结果清单 */
+.isbn-batch-box { max-width: 620px; }
+.check-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px; font-weight: 400; letter-spacing: 0;
+  color: var(--ink-2); min-height: 30px; cursor: pointer;
+}
+.check-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.isbn-batch-results {
+  margin-top: 14px; padding: 10px 12px;
+  border: 1px solid var(--hairline); border-radius: 12px;
+  background: var(--paper-2);
+  max-height: 40vh; max-height: 40dvh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px;
+  scrollbar-width: none;
+}
+.isbn-batch-results::-webkit-scrollbar { display: none; }
+.isbn-batch-summary { margin: 0 0 6px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+.isbn-result-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0; font-size: 13px; color: var(--ink);
+  border-top: 1px solid var(--hairline-soft);
+}
+.isbn-result-row:first-of-type { border-top: 0; }
+.isbn-result-chip { flex: 0 0 auto; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.06); color: var(--ink-2); }
+.isbn-result-ok .isbn-result-chip { background: rgba(0, 102, 204, 0.1); color: var(--accent); }
+.isbn-result-err .isbn-result-chip { background: rgba(227, 0, 0, 0.08); color: #e30000; }
+.isbn-result-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.isbn-result-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--ink-2); margin-right: 6px; }
+.isbn-manual-btn { flex: 0 0 auto; padding: 4px 12px; min-height: 30px; font-size: 12.5px; }
+.isbn-view-btn { flex: 0 0 auto; border: 0; background: none; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 2px; }
+.isbn-view-btn:hover { text-decoration: underline; }
+
+/* 扫码浮层(scanner.js 自建 DOM,非 .modal;层叠序高于普通弹窗 100) */
+.scan-overlay {
+  position: fixed; inset: 0; z-index: 120;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  animation: modal-fade 0.25s var(--ease-out);
+}
+.scan-box {
+  background: var(--card); width: 100%; max-width: 460px; max-height: 100%;
+  overflow-y: auto; border-radius: var(--radius-lg); box-shadow: var(--shadow-pop);
+  padding: 20px 18px 22px;
+  display: flex; flex-direction: column;
+  scrollbar-width: none;
+}
+.scan-box::-webkit-scrollbar { display: none; }
+.scan-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline-soft);
+}
+.scan-head h2 { font-family: var(--serif); font-size: 19px; font-weight: 700; letter-spacing: 0.05em; margin: 0; }
+.scan-reader { position: relative; width: 100%; border-radius: 14px; overflow: hidden; background: #000; }
+.scan-reader:empty { display: none; }   /* 摄像头未启动/不可用时不留黑块 */
+.scan-reader video { width: 100%; display: block; }
+.scan-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-3); text-align: center; line-height: 1.5; }
+.scan-status { margin: 8px 0 0; min-height: 18px; font-size: 13px; color: var(--ink-3); text-align: center; word-break: break-all; line-height: 1.5; }
+.scan-status-ok { color: var(--accent); }
+.scan-status-err { color: #e30000; }
+.scan-manual { display: flex; gap: 8px; margin-top: 14px; }
+.scan-manual input {
+  flex: 1; min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 12px;
+  padding: 10px 14px; min-height: 44px;
+  font-size: 17px; color: var(--ink); background: #ffffff;
+}
+.scan-manual input:focus { outline: none; border-color: #0066cc; box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.18); }
+.scan-manual .btn { flex: 0 0 auto; padding: 10px 18px; }
 
