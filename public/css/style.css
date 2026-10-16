@@ -3017,11 +3017,6 @@ main.page-home {
     padding: 20px 16px 22px;
   }
 
-  /* 语法弹窗用同一上限(84dvh,上下各留 8dvh 背景,卡片不遮顶部导航栏)。
-     全局 .syntax-box 的 ~100dvh 封顶在竖屏会让卡片顶到/盖住导航栏,
-     且其源序在本块之后 —— 双类名提高优先级压住它 */
-  .modal-box.syntax-box { max-height: 84vh; max-height: 84dvh; }
-
   .modal-head { margin-bottom: 14px; padding-bottom: 12px; }
   .modal-head h2 { font-size: 19px; }
   .modal-head .icon-btn { width: 30px; height: 30px; }
@@ -3447,23 +3442,14 @@ body.menu-open { overflow: hidden; }
 .chip-save:hover, .chip-manage:hover { color: var(--accent); border-color: var(--accent); }
 .chip-save[hidden], .chip-manage[hidden] { display: none; }
 
-/* 语法说明弹窗 —— 内容多(13 行表格 + 列表)易撑得很高。
-   通用封顶:锁定到视口高(vh 在前作旧内核回退,后者 dvh 现代内核生效),头尾固定,
-   只让 .syntax-body 内部滚动;收紧字号/间距,常态下无需滚动。
-   竖屏例外:见 @media (orientation: portrait) 里的 .modal-box.syntax-box(84dvh)——
-   这里 ~100dvh 的封顶在竖屏会把卡片顶进顶部导航栏。 */
-.syntax-box {
-  max-width: 560px;
-  max-height: calc(100vh - 48px);
-  max-height: calc(100dvh - 48px);
-}
-.syntax-box .modal-head { margin-bottom: 14px; padding-bottom: 12px; }
-.syntax-box .modal-head h2 { font-size: 20px; }
+/* 语法说明弹窗 —— 宽高/内边距/标题/底栏全走 .modal-box 家族规则(宽度 620,
+   各朝向的高度封顶),不单独覆写;唯一特殊点:内容多(13 行表格 + 列表),
+   头尾固定不动,只让 .syntax-body 内部滚动。 */
 .syntax-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 24px 8px;
+  padding: 0 0 8px;
   font-size: 13px;
   color: var(--ink-2);
   line-height: 1.55;
@@ -3486,7 +3472,6 @@ body.menu-open { overflow: hidden; }
 .syntax-body ul { margin: 4px 0; padding-left: 18px; }
 .syntax-body li { margin: 3px 0; }
 .syntax-example { color: var(--ink); }
-.syntax-box .form-foot { margin-top: 14px; padding-top: 12px; }
 
 @media (max-width: 560px) {
   .saved-bar { margin-top: -6px; }
