@@ -293,7 +293,7 @@ function overlaysHtml() {
   <div id="toast" class="toast hidden"></div>
 
   <footer>
-    <p class="footer-tagline"><span class="orn">❖</span>My books<span class="orn">❖</span>记录每一本读过的书</p>
+    <p class="footer-tagline"><span class="orn">❖</span>My books<span class="orn">❖</span></p>
     <p class="footer-legal">
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">豫ICP备2026045565号</a>
       <a class="beian-ps" href="https://beian.mps.gov.cn/#/query/webSearch?code=41090002411179" target="_blank" rel="noreferrer">

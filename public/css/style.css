@@ -638,17 +638,8 @@ main {
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.1;
-  margin: 0 0 8px;
+  margin: 0 0 28px;
 }
-
-.page-sub {
-  font-size: 17px;
-  color: var(--ink-2);
-  margin: 0 0 30px;
-  letter-spacing: 0;
-}
-
-.page-sub::before { content: '—— '; color: var(--accent); }
 
 /* 工具栏 */
 .toolbar {
@@ -1217,8 +1208,7 @@ main {
   transition: background 0.18s var(--ease), color 0.18s var(--ease);
 }
 
-.collapse-toggle:hover { background: var(--paper-2); color: var(--ink); }
-.collapse-toggle:active { transform: scale(0.94); }
+/* 三角只表达展开/折叠(旋转),点按后不保留高亮或"选中"底色 */
 .collapse-toggle svg { transition: transform 0.22s var(--ease); }
 .is-collapsed .collapse-toggle svg { transform: rotate(-90deg); }
 
@@ -3094,8 +3084,10 @@ main.page-home {
   .modal { align-items: center; padding: 28px; }
   /* 固定高度(2026-10-16 统一所有弹窗):每张卡片都是「视口高 - 56px」,内容少留白、
      内容多内部滚动(底栏贴底见 .form-grid / .detail-info 的 flex)。
-     vh 在前作旧内核(微信 X5 等不支持 dvh)回退:否则本条 dvh 被整行丢弃 → 高度规则失效 */
-  .modal-box { border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); height: calc(100vh - 56px); height: calc(100dvh - 56px); }
+     必须用 svh 而非 dvh:浏览器底栏/地址栏隐藏时 dvh 会变大,弹窗随之跳高;
+     svh 以浏览器控件可见时的最小视口为基准,底栏显隐时高度保持一致。
+     vh 在前作旧内核(微信 X5 等不支持 svh)回退:否则本条 svh 被整行丢弃 → 高度规则失效 */
+  .modal-box { border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); height: calc(100vh - 56px); height: calc(100svh - 56px); }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .detail-body { flex-direction: row; }
   .detail-cover { width: 200px; align-self: flex-start; }
@@ -3107,7 +3099,8 @@ main.page-home {
 
    2026-10-15 收紧:此前竖屏沿用桌面级的 26px/24px 内边距、24px 标题、16px 间距,
    表单弹窗实测占到 95% 高(390×844),像整页而非弹窗。现在:
-     · 固定高 84dvh(2026-10-16 起所有弹窗同高:内容少留白、内容多内部滚动、底栏贴底)
+     · 固定高 84svh(2026-10-16 起所有弹窗同高:内容少留白、内容多内部滚动、底栏贴底;
+       svh 使浏览器底栏隐藏时高度不跳变)
      · 内边距/标题/间距/文本域/封面预览整体下调一档
      · 输入框字号保持 17px、高度保持 44px(iOS 聚焦不放大 + 触控目标不缩水) */
 @media (orientation: portrait) {
@@ -3119,8 +3112,8 @@ main.page-home {
   .modal-box {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
-    height: 84vh;      /* 回退:不支持 dvh 的旧内核 */
-    height: 84dvh;
+    height: 84vh;      /* 回退:不支持 svh 的旧内核 */
+    height: 84svh;
     padding: 20px 16px 22px;
   }
 
@@ -3160,8 +3153,8 @@ main.page-home {
     padding: 0;
   }
   .modal-box {
-    height: 92vh;      /* 回退:不支持 dvh 的旧内核 */
-    height: 92dvh;
+    height: 92vh;      /* 回退:不支持 svh 的旧内核 */
+    height: 92svh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     box-shadow: var(--shadow-pop);
     padding: 18px 16px max(22px, env(safe-area-inset-bottom));
