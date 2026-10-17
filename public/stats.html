@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=44">
+  <link rel="stylesheet" href="/css/style.css?v=50">
 </head>
 <body data-page="stats">
   <main>
@@ -19,20 +19,28 @@
     <p class="page-sub">看看这段时间,你和书的缘分。</p>
     <div id="statsHero" class="stats-hero"></div>
     <div class="stats-panels">
-      <div class="panel panel-wide">
+      <div class="panel panel-wide is-collapsed">
         <h3>每年读完</h3>
         <div id="yearChart" class="chart"></div>
       </div>
-      <div class="panel">
+      <div class="panel panel-wide is-collapsed">
         <h3>标签分布</h3>
         <div id="tagCloud" class="tag-cloud"></div>
+      </div>
+      <div class="panel is-collapsed">
+        <h3>作者<span id="authorTotal" class="panel-sub"></span></h3>
+        <div id="authorRank" class="stat-rank-list"></div>
+      </div>
+      <div class="panel is-collapsed">
+        <h3>出版社<span id="publisherTotal" class="panel-sub"></span></h3>
+        <div id="publisherRank" class="stat-rank-list"></div>
       </div>
     </div>
   </main>
 
   <script defer src="/js/chrome.js?v=5"></script>
-  <script defer src="/js/common.js?v=6"></script>
+  <script defer src="/js/common.js?v=8"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-stats.js?v=1"></script>
+  <script defer src="/js/page-stats.js?v=4"></script>
 </body>
 </html>

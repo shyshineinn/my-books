@@ -362,5 +362,6 @@ $('#fieldsDeletedList').addEventListener('click', (e) => {
 });
 
 /* ---------- 启动 ---------- */
+initCollapsibleSections('.cat-col', '.cat-head');
 load();
 loadFields();

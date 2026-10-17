@@ -346,6 +346,39 @@ function syncCustomSelect(select) {
   if (hit) hit.sync();
 }
 
+/* ============ 可折叠板块(统计 / 分类页) ============
+ * 默认折叠态由 HTML 上的 is-collapsed 承载(脚本执行前内容就不会闪现),
+ * 这里补开关按钮、无障碍状态与点击标题行展开/收起。
+ * 标题内的按钮/链接保持原行为(如分类页的「新建字段」),不触发折叠。 */
+function initCollapsibleSections(secs, headSel) {
+  $$(secs).forEach((sec) => {
+    const head = sec.querySelector(':scope > ' + headSel);
+    if (!head || head.querySelector('.collapse-toggle')) return;
+    head.classList.add('collapse-head');
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'collapse-toggle';
+    btn.setAttribute('aria-expanded', String(!sec.classList.contains('is-collapsed')));
+    btn.setAttribute('aria-label', sec.classList.contains('is-collapsed') ? '展开' : '折叠');
+    // 与自定义下拉一致的实心三角;折叠时 CSS 旋转 90° 指向右侧
+    btn.innerHTML = '<svg width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">'
+      + '<path fill="currentColor" d="M5 6 0 0h10z"></path></svg>';
+    head.appendChild(btn);
+
+    const toggle = () => {
+      const collapsed = sec.classList.toggle('is-collapsed');
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.setAttribute('aria-label', collapsed ? '展开' : '折叠');
+    };
+    btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+    head.addEventListener('click', (e) => {
+      if (e.target.closest('button, a, input, select, textarea, label')) return;
+      toggle();
+    });
+  });
+}
+
 /* ============ 弹窗通用 ============ */
 function openModal(sel) {
   $(sel).classList.remove('hidden');
@@ -636,7 +669,11 @@ async function openBookModal(book) {
   // 自定义字段:定义已在启动时拉好,这里只按当前书回填值
   renderCustomFieldInputs(book);
   openModal('#bookModal');
-  setTimeout(() => $('#fTitle').focus(), 60);
+  // 触屏设备不自动聚焦书名:竖屏打开表单时虚拟键盘会立刻弹出、遮住大半表单;
+  // 桌面(精确指针)保留「打开即可输入」。不能用宽度/朝向判断 —— 键盘只跟触屏走。
+  if (!window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+    setTimeout(() => $('#fTitle').focus(), 60);
+  }
 }
 
 function setCoverPreview(url) {

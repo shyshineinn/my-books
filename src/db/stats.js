@@ -7,7 +7,7 @@ const { db } = require('./index');
 const { computeStats } = require('../core/stats');
 
 function getStats() {
-  return computeStats(db.prepare('SELECT status, tags, finish_date FROM books').all());
+  return computeStats(db.prepare('SELECT status, tags, finish_date, author, publisher FROM books').all());
 }
 
 module.exports = { getStats };

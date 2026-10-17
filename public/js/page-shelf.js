@@ -239,10 +239,39 @@ $('#sortSelect').addEventListener('change', syncUrl);
 
 /* ============ 高级搜索:保存的搜索(虚拟图书馆)+ 语法说明 ============
  * 保存的是原始查询串(交给后端 core/query 现解析)+ 排序键。
- * 点胶囊 → 把 query 灌回搜索框并套用排序;有查询时可"保存当前";
- * "管理"进入编辑态,逐条显示重命名 / 删除。写操作经 requireAdmin 鉴权。 */
+ * 入口收在顶栏搜索框的下拉面板:点搜索按钮/搜索框时展开(不再常驻占位),
+ * 点条目 → 把 query 灌回搜索框并套用排序;有查询时可"保存当前"。
+ * 写操作经 requireAdmin 鉴权。 */
 
 let savedItems = [];
+
+const SORT_TEXT = {
+  updated: '最近更新', finish: '读完日期', title: '书名',
+  author: '作者', series: '系列', created: '添加时间',
+};
+
+// 面板挂在 .search-box 内:竖屏收起搜索栏时随容器一起隐藏;桌面锚定在输入框右下方
+const savedPop = document.createElement('div');
+savedPop.id = 'savedPop';
+savedPop.className = 'saved-pop';
+savedPop.hidden = true;
+savedPop.setAttribute('aria-label', '保存的搜索');
+savedPop.innerHTML = `
+  <div class="saved-pop-head">
+    <span class="saved-pop-title">保存的搜索</span>
+    <button type="button" id="saveCurrentBtn" class="saved-pop-save" hidden>☆ 保存当前</button>
+  </div>
+  <div class="saved-pop-list" id="savedChips"></div>
+  <p class="saved-pop-empty" id="savedEmpty" hidden>还没有保存的搜索</p>`;
+$('#searchInput').closest('.search-box').appendChild(savedPop);
+
+function closeSavedPop() { savedPop.hidden = true; }
+
+// 没有保存项、也没有可保存的查询时不弹空面板
+function openSavedPop() {
+  if (!savedItems.length && !String(shelf.q || '').trim()) return;
+  savedPop.hidden = false;
+}
 
 async function loadSavedSearches() {
   try {
@@ -252,21 +281,25 @@ async function loadSavedSearches() {
 }
 
 function renderSaved() {
-  const bar = $('#savedBar');
   const canSave = !!String(shelf.q || '').trim();
-  bar.hidden = savedItems.length === 0 && !canSave;
   $('#saveCurrentBtn').hidden = !canSave;
-  $('#manageSavedBtn').hidden = savedItems.length === 0;
-  if (savedItems.length === 0) bar.classList.remove('managing');
-
+  $('#savedEmpty').hidden = savedItems.length > 0;
   $('#savedChips').innerHTML = savedItems.map((item) => {
     const active = String(item.query) === String(shelf.q) && (item.sort || 'updated') === shelf.sort;
-    return `<span class="chip${active ? ' active' : ''}" data-id="${item.id}">`
-      + `<button type="button" class="chip-label" data-act="apply">${esc(item.name)}</button>`
-      + '<button type="button" class="chip-act" data-act="rename" title="重命名">✎</button>'
-      + '<button type="button" class="chip-act" data-act="del" title="删除">✕</button>'
-      + '</span>';
+    const meta = [
+      item.query,
+      item.sort && item.sort !== 'updated' ? '按' + (SORT_TEXT[item.sort] || item.sort) : '',
+    ].filter(Boolean).join(' · ');
+    return `<div class="saved-row${active ? ' active' : ''}" data-id="${item.id}">`
+      + '<button type="button" class="saved-row-main" data-act="apply">'
+      + `<span class="saved-row-name">${esc(item.name)}</span>`
+      + `<span class="saved-row-query">${esc(meta)}</span>`
+      + '</button>'
+      + '<button type="button" class="saved-row-act" data-act="rename" title="重命名" aria-label="重命名">✎</button>'
+      + '<button type="button" class="saved-row-act" data-act="del" title="删除" aria-label="删除">✕</button>'
+      + '</div>';
   }).join('');
+  if (!savedItems.length && !canSave) closeSavedPop();
 }
 
 function findSaved(id) { return savedItems.find((x) => String(x.id) === String(id)); }
@@ -274,12 +307,14 @@ function findSaved(id) { return savedItems.find((x) => String(x.id) === String(i
 async function applySaved(item) {
   shelf.q = item.query || '';
   $('#searchInput').value = shelf.q;
-  if (['updated', 'finish', 'title', 'author', 'series', 'created'].includes(item.sort)) {
+  if (SORT_TEXT[item.sort]) {
     shelf.sort = item.sort;
     $('#sortSelect').value = shelf.sort;
     syncCustomSelect($('#sortSelect'));
   }
   if (shelf.q) clearShelfFilters();
+  closeSavedPop();
+  closeSearchRow();   // 竖屏收起搜索栏、让出结果区;桌面无副作用
   await fetchBooks();
   syncUrl();
 }
@@ -287,12 +322,12 @@ async function applySaved(item) {
 $('#savedChips').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
-  const item = findSaved(btn.closest('.chip').dataset.id);
+  const item = findSaved(btn.closest('.saved-row').dataset.id);
   if (!item) return;
   const act = btn.dataset.act;
   try {
     if (act === 'apply') {
-      if (!$('#savedBar').classList.contains('managing')) await applySaved(item);
+      await applySaved(item);
     } else if (act === 'rename') {
       const name = prompt('重命名该保存的搜索:', item.name);
       if (name === null || !name.trim()) return;
@@ -320,7 +355,21 @@ $('#saveCurrentBtn').addEventListener('click', async () => {
   } catch (err) { toast(err.message, true); }
 });
 
-$('#manageSavedBtn').addEventListener('click', () => $('#savedBar').classList.toggle('managing'));
+/* 面板开合:顶栏搜索按钮展开搜索栏后会聚焦输入框;桌面端直接点输入框。
+   开始输入即收起(不挡结果);点面板内部不关,点外层 / Esc / 提交关闭。 */
+$('#searchInput').addEventListener('focus', openSavedPop);
+$('#searchInput').addEventListener('click', openSavedPop);
+$('#searchInput').addEventListener('input', closeSavedPop);
+$('#searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') closeSavedPop(); });
+document.addEventListener('pointerdown', (e) => {
+  if (savedPop.hidden) return;
+  if (e.target.closest('.search-box')) return;
+  closeSavedPop();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !savedPop.hidden) closeSavedPop();
+});
+
 $('#syntaxBtn').addEventListener('click', () => openModal('#syntaxModal'));
 
 /* ============ 启动 ============ */

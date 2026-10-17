@@ -11,18 +11,18 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=44">
+  <link rel="stylesheet" href="/css/style.css?v=50">
 </head>
 <body data-page="tags">
   <main>
     <h1 class="page-title">分类管理</h1>
     <p class="page-sub">整理标签与作者。重命名会同步到所有书籍,合并用于归并同义词,删除只解除分类(书本身保留)。点名称可在书架中筛选。</p>
     <div class="cats">
-      <section class="cat-col" aria-labelledby="tagsHead">
+      <section class="cat-col is-collapsed" aria-labelledby="tagsHead">
         <header class="cat-head"><h2 id="tagsHead">标签</h2><span class="cat-count" id="tagsCount"></span></header>
         <div class="cat-list" id="tagsList"></div>
       </section>
-      <section class="cat-col" aria-labelledby="authorsHead">
+      <section class="cat-col is-collapsed" aria-labelledby="authorsHead">
         <header class="cat-head"><h2 id="authorsHead">作者</h2><span class="cat-count" id="authorsCount"></span></header>
         <div class="cat-list" id="authorsList"></div>
       </section>
@@ -31,7 +31,7 @@
     <!-- 自定义字段管理(对标 calibre 的自定义列 / FieldMetadata)
          字段是「数据」而非「代码」:增删改都在这里,不必改程序、发版。
          删除默认是软删除(可恢复),只有显式「彻底删除」才连值一起清掉。 -->
-    <section class="cat-col cat-col-wide" aria-labelledby="fieldsHead">
+    <section class="cat-col cat-col-wide is-collapsed" aria-labelledby="fieldsHead">
       <header class="cat-head">
         <h2 id="fieldsHead">自定义字段</h2>
         <span class="cat-count" id="fieldsCount"></span>
@@ -124,8 +124,8 @@
   </div>
 
   <script defer src="/js/chrome.js?v=5"></script>
-  <script defer src="/js/common.js?v=6"></script>
+  <script defer src="/js/common.js?v=8"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-tags.js?v=2"></script>
+  <script defer src="/js/page-tags.js?v=3"></script>
 </body>
 </html>

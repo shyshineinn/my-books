@@ -1,5 +1,6 @@
 /* ============================================================
  * 统计页(/stats) —— 阅读印象英雄区 + 每年读完柱状图 + 标签云
+ * + 作者 / 出版社排行
  * 逻辑自旧单页 app.js 拆出;/api/stats 全站只拉一次(sharedStats)。
  * ============================================================ */
 
@@ -17,6 +18,13 @@ function renderStats(data) {
 
   renderYearChart(data.byYear);
   renderTagCloud(data.topTags);
+
+  $('#authorTotal').textContent = data.authorTotal ? `共 ${data.authorTotal} 位` : '';
+  $('#publisherTotal').textContent = data.publisherTotal ? `共 ${data.publisherTotal} 家` : '';
+  renderRank('#authorRank', data.topAuthors,
+    (name) => '/shelf?author=' + encodeURIComponent(name), '还没有作者信息');
+  renderRank('#publisherRank', data.topPublishers,
+    (name) => '/shelf?q=' + encodeURIComponent(`publisher:"${name}"`), '还没有出版社信息');
 }
 
 function renderYearChart(byYear) {
@@ -47,11 +55,29 @@ function renderTagCloud(topTags) {
   ).join('');
 }
 
+// 作者 / 出版社排行:横向比例条 + 名称 + 数量;点击跳书架对应筛选
+function renderRank(sel, items, hrefOf, emptyText) {
+  const el = $(sel);
+  if (!items.length) {
+    el.innerHTML = `<div class="chart-empty">${emptyText}</div>`;
+    return;
+  }
+  const max = Math.max(...items.map((x) => x.count));
+  el.innerHTML = items.map(({ name, count }) => `
+    <a class="stat-rank-row" href="${hrefOf(name)}" title="${esc(name)} · ${count} 本">
+      <span class="stat-rank-bar" style="width:${Math.max((count / max) * 100, 6)}%"></span>
+      <span class="stat-rank-name">${esc(name)}</span>
+      <span class="stat-rank-count">${count}</span>
+    </a>`).join('');
+}
+
 async function loadStats() {
   const data = await sharedStats();
   if (!data) return;
   renderStats(data);
 }
+
+initCollapsibleSections('.stats-panels > .panel', 'h3');
 
 // 本页数据变更(弹窗保存/删除)后刷新:作废共享缓存再重拉
 document.addEventListener('books-changed', () => {

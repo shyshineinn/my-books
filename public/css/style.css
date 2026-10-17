@@ -1182,6 +1182,52 @@ main {
   background: var(--hairline-soft);
 }
 
+/* 标题旁的辅助计数(如「共 38 位」):与标题同排,弱化处理 */
+.panel-sub {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+/* ============ 可折叠板块(统计 / 分类页) ============
+   整个标题行可点,右侧三角指示状态;折叠时只保留标题,
+   计数等标题内信息仍然可见。 */
+.collapse-head {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.collapse-toggle {
+  order: 1;   /* h3 的 ::after 分隔线是最后一个 flex 项,把箭头排到线尾最右侧 */
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+
+.collapse-toggle:hover { background: var(--paper-2); color: var(--ink); }
+.collapse-toggle:active { transform: scale(0.94); }
+.collapse-toggle svg { transition: transform 0.22s var(--ease); }
+.is-collapsed .collapse-toggle svg { transform: rotate(-90deg); }
+
+.is-collapsed > :not(.collapse-head) { display: none; }
+.panel.is-collapsed, .cat-col.is-collapsed { align-self: start; }   /* 同排其它板块展开时不拉伸成空白卡 */
+.panel.is-collapsed { padding-bottom: 22px; }
+.panel.is-collapsed h3 { margin-bottom: 0; }
+.cat-col.is-collapsed .cat-head { border-bottom: 0; padding-bottom: 18px; }
+
 /* 每年读完柱状图 */
 .year-chart {
   display: flex;
@@ -1248,6 +1294,56 @@ main {
 }
 
 .tag-chip b { font-size: 11.5px; font-weight: 700; color: var(--glass-text); }
+
+/* 作者 / 出版社排行:整行链接,比例条垫在文字下方。
+ * 前缀 stat- 避开榜单页既有的 .rank-row / .rank-count。 */
+.stat-rank-list { display: flex; flex-direction: column; gap: 5px; }
+
+.stat-rank-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--ink);
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.stat-rank-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  transition: width 0.5s var(--ease-out);
+}
+
+.stat-rank-name {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  transition: color 0.15s var(--ease);
+}
+.stat-rank-row:hover .stat-rank-name { color: var(--accent-deep); }
+
+.stat-rank-count {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  font-family: var(--serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
 
 .chart-empty { color: var(--ink-3); font-size: 14px; text-align: center; padding: 34px 0; letter-spacing: 0.05em; }
 
@@ -3238,7 +3334,7 @@ body.menu-open { overflow: hidden; }
   overflow: hidden;
 }
 .cat-head {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; align-items: center; gap: 10px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid var(--hairline-soft);
 }
@@ -3294,7 +3390,7 @@ body.menu-open { overflow: hidden; }
    复用上面的 .cat-* 行式布局:字段列表就是"另一种分类",视觉不必另起一套。
    差别只在每行多两个说明性元素(标识码 / 类型徽标)。 */
 .cat-col-wide { margin-top: 20px; }   /* 位于 .cats 双列网格之外,单独一行 */
-.cat-head .btn-sm { margin-left: auto; }
+.cat-head .cat-count { margin-right: auto; }   /* 计数后撑开,按钮与折叠箭头靠右 */
 .btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 10px; }
 
 .cat-hint {
@@ -3376,73 +3472,45 @@ body.menu-open { overflow: hidden; }
   white-space: nowrap;
 }
 
-.saved-bar {
+/* 保存的搜索:搜索框下拉面板(浮层语言与 .sel-menu 一致:
+   白底 / 18px 圆角 / 单一投影 / 淡入,不显示滚动条) */
+.saved-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(56vh, 420px);      /* 回退:不支持 dvh 的旧内核 */
+  max-height: min(56dvh, 420px);
+  overflow-y: auto;
+  scrollbar-width: none;             /* Firefox */
+  -ms-overflow-style: none;          /* 旧 Edge */
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid var(--glass-edge);
+  border-radius: 18px;
+  box-shadow: var(--shadow-pop);
+  transform-origin: top right;
+  animation: sel-menu-in 0.18s var(--ease-out) both;
+}
+.saved-pop[hidden] { display: none; }
+.saved-pop::-webkit-scrollbar { display: none; }   /* Chromium / Safari */
+
+.saved-pop-head {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: space-between;
   gap: 10px;
-  margin: -12px 0 26px;
-  padding: 12px 14px;
-  background: var(--card);
-  border: 1px solid var(--hairline-soft);
-  border-radius: var(--radius);
+  padding: 4px 8px 8px;
 }
-.saved-bar[hidden] { display: none; }
-
-.saved-title {
+.saved-pop-title {
   font-size: 12px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--ink-3);
-  flex: 0 0 auto;
 }
-
-.saved-chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 auto; }
-
-.chip {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: var(--paper);
-  overflow: hidden;
-  transition: border-color .18s, background .18s;
-}
-.chip:hover { border-color: var(--accent); }
-.chip.active { background: var(--accent-soft); border-color: var(--accent); }
-
-.chip-label {
-  padding: 6px 13px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.chip.active .chip-label { color: var(--accent-deep); }
-.chip-label:hover { color: var(--accent); }
-
-/* 管理态才逐条显示重命名 / 删除;非管理态胶囊只做"套用" */
-.chip-act {
-  display: none;
-  align-items: center;
-  padding: 0 10px;
+.saved-pop-save {
+  padding: 4px 10px;
   font-size: 12px;
-  color: var(--ink-3);
-  background: none;
-  border: 0;
-  border-left: 1px solid var(--hairline-soft);
-  cursor: pointer;
-}
-.saved-bar.managing .chip-act { display: inline-flex; }
-.chip-act:hover { color: var(--accent); }
-.chip-act[data-act="del"]:hover { color: #e30000; }
-
-.saved-actions { display: flex; gap: 8px; margin-left: auto; flex: 0 0 auto; }
-.chip-save, .chip-manage {
-  padding: 6px 12px;
-  font-size: 12.5px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
   background: var(--card);
@@ -3450,8 +3518,73 @@ body.menu-open { overflow: hidden; }
   cursor: pointer;
   white-space: nowrap;
 }
-.chip-save:hover, .chip-manage:hover { color: var(--accent); border-color: var(--accent); }
-.chip-save[hidden], .chip-manage[hidden] { display: none; }
+.saved-pop-save:hover { color: var(--accent); border-color: var(--accent); }
+.saved-pop-save[hidden] { display: none; }
+
+.saved-pop-list { display: flex; flex-direction: column; gap: 2px; }
+
+.saved-row {
+  display: flex;
+  align-items: center;
+  border-radius: 12px;
+  transition: background 0.15s var(--ease);
+}
+.saved-row:hover { background: var(--paper); }
+.saved-row.active { background: var(--accent-soft); }
+
+.saved-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.saved-row-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.saved-row.active .saved-row-name { color: var(--accent-deep); }
+.saved-row-query {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-row-act {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 12px;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.saved-row-act:hover { color: var(--accent); background: var(--paper-2); }
+.saved-row-act[data-act="del"]:hover { color: #e30000; }
+
+.saved-pop-empty {
+  margin: 0;
+  padding: 14px 10px 16px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  text-align: center;
+}
 
 /* 语法说明弹窗 —— 宽高/内边距/标题/底栏全走 .modal-box 家族规则(宽度 620,
    各朝向的高度封顶),不单独覆写;唯一特殊点:内容多(13 行表格 + 列表),
@@ -3484,9 +3617,9 @@ body.menu-open { overflow: hidden; }
 .syntax-body li { margin: 3px 0; }
 .syntax-example { color: var(--ink); }
 
-@media (max-width: 560px) {
-  .saved-bar { margin-top: -6px; }
-  .saved-actions { margin-left: 0; }
+/* 竖屏搜索栏展开时,保存面板与整行输入框同宽 */
+@media (max-width: 819px) {
+  body.search-open .saved-pop { width: 100%; max-width: none; }
 }
 
 /* ============ ISBN:输入行 / 扫码浮层 / 按 ISBN 批量添加 ============ */
