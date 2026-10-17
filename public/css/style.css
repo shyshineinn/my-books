@@ -98,13 +98,14 @@ html {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(250, 250, 252, 0.8);
+  /* 与页面主题底色 --paper 同源,避免顶栏发白、色带断层 */
+  background: rgba(245, 245, 247, 0.8);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .topbar { background: rgba(250, 250, 252, 0.97); }
+  .topbar { background: rgba(245, 245, 247, 0.97); }
 }
 
 .topbar-inner {
@@ -3093,9 +3094,13 @@ main.page-home {
   .detail-cover { width: 200px; align-self: flex-start; }
 }
 
-/* 竖屏:所有弹窗垂直居中(浮层卡片,四角圆角)——
+/* 竖屏:所有弹窗顶部锚定(浮层卡片,四角圆角)——
    不再贴底成抽屉、也不再拉满全高;刘海与底部横条用安全区留白避开。
    放在 820px 块之后:竖屏大平板(≥820px)原本已居中,这里统一收进同一规则。
+
+   2026-10-17 位置固定:此前后台 overlay 用动态视口高度做垂直居中,
+   浏览器底栏隐藏时 dvh 变大,弹窗会往下漂。改为顶部锚定,上留白取
+   (100svh - 84svh)/2 = 8svh —— 底栏显示时与原居中位置一致,显隐时不动。
 
    2026-10-15 收紧:此前竖屏沿用桌面级的 26px/24px 内边距、24px 标题、16px 间距,
    表单弹窗实测占到 95% 高(390×844),像整页而非弹窗。现在:
@@ -3105,9 +3110,13 @@ main.page-home {
      · 输入框字号保持 17px、高度保持 44px(iOS 聚焦不放大 + 触控目标不缩水) */
 @media (orientation: portrait) {
   .modal {
-    align-items: center;
-    padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-             max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    align-items: flex-start;
+    /* 回退:不支持 svh 的旧内核 */
+    padding-top: max(8vh, env(safe-area-inset-top) + 14px);
+    padding-top: max(8svh, env(safe-area-inset-top) + 14px);
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left));
   }
   .modal-box {
     border-radius: var(--radius-lg);

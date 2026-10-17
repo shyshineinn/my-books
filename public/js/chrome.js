@@ -95,7 +95,7 @@ function overlaysHtml() {
         <input type="hidden" id="fRating">
         <input type="hidden" id="fDoubanId">
         <div class="douban-fetch-row">
-          <button type="button" id="doubanFetchBtn" class="btn btn-ghost douban-btn">✨ 从豆瓣填充元数据</button>
+          <button type="button" id="doubanFetchBtn" class="btn btn-ghost douban-btn">从豆瓣填充元数据</button>
           <button type="button" id="isbnBatchBtn" class="btn btn-ghost">按 ISBN 批量添加</button>
           <span id="doubanStatus" class="douban-status"></span>
         </div>
@@ -137,7 +137,7 @@ function overlaysHtml() {
               <input type="text" id="fIsbn" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="如 9787536692930">
               <button type="button" id="isbnScanBtn" class="btn btn-ghost" title="用摄像头扫描书籍条形码">扫码</button>
             </div>
-            <p class="field-hint">填好 ISBN 后点「✨ 从豆瓣填充元数据」会按 ISBN 精确匹配,比书名更准</p>
+            <p class="field-hint">填好 ISBN 后点「从豆瓣填充元数据」会按 ISBN 精确匹配,比书名更准</p>
           </div>
           <div class="field field-full">
             <label>阅读记录 <span class="label-sub">每次读的起止时间,开始/读完日期与读过次数据此自动生成</span></label>
