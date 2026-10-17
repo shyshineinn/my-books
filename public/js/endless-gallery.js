@@ -4,20 +4,21 @@
  * 与 apple.com 线上实现对齐的要点:
  *   · 卡片绝对定位,用 translate3d 做位移,容器不滚动(apple 用同一套变换模型)
  *   · 位置用模运算取"最短路径",相邻卡片始终在左右各露一条边,循环时无跳变
- *   · 定时 dotnav:当前圆点展开为 32px 进度条,充满后自动翻页(apple 为 4.16s)
- *   · 播放 / 暂停圆钮、拖拽、方向键、离屏自动暂停、prefers-reduced-motion
+ *   · 定时 dotnav:当前圆点展开为 32px 进度条,840ms 后起跑,4.16s 充满整周期 5s
+ *   · 播放 / 暂停圆钮、拖拽、方向键、离屏冻结后原地续播、prefers-reduced-motion
  * ========================================================================== */
 (function (global) {
   'use strict';
 
-  var ITEM_MS = 4160;        // apple.com: 每张总周期 data-ac-gallery-item-duration = 4.16s
-  var FILL_DELAY_MS = 160;   // apple.com: AutoPlay.transitionOffset = 0.16,进度条晚 160ms 起跑
+  var CYCLE_MS = 5000;       // apple.com: 每项 5s = 1s 滑动 + 4s 停留(fill 840ms 起跑 + 4160ms)
   var SLIDE_MS = 1000;       // apple.com: model.Slide.duration = 1s(cubic-bezier(0.645,0.045,0.355,1))
   var SLIDE_EASE = 'cubic-bezier(0.645, 0.045, 0.355, 1)';   // apple animateToItem 默认缓动
   var FLICK_SPEED = 0.35;    // px/ms,超过即判定为"甩动"翻页
   var AXIS_LOCK = 5;         // 判定拖拽方向的位移阈值(px)
-  var MAX_DOTS = 7;          // apple.com: 圆点超过 7 个才启用变距截断
-  var TRUNC_MS = 420;        // 变距迁移动画的清理延时(320ms 过渡 + 余量)
+  var SMALL_DOTS_MAX = 5;    // apple.com: 视口 ≤480px 时最多同时可见 5 个圆点
+  var LARGE_DOTS_MAX = 7;    // apple.com: 更宽时最多同时可见 7 个圆点
+  var SMALL_DOTS_WIDTH = 480;
+  var TRUNC_MS = 1080;       // 变距迁移的清理延时(variable duration 1s + 余量)
 
   var reduceMotion = global.matchMedia
     ? global.matchMedia('(prefers-reduced-motion: reduce)')
@@ -25,6 +26,7 @@
 
   function mod(v, m) { return ((v % m) + m) % m; }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function nowMs() { return global.performance ? global.performance.now() : Date.now(); }
 
   function EndlessGallery(root) {
     this.root = root;
@@ -36,12 +38,14 @@
       if (!wrap) return;
       var el = wrap.querySelector('.media-gallery-item-container');
       var items = Array.prototype.slice.call(wrap.querySelectorAll('.media-gallery-item'));
-      if (el && items.length) self.rails.push({ el: el, items: items, count: items.length });
+      if (el && items.length) self.rails.push({ el: el, items: items, count: items.length, wrap: wrap });
     });
     this.dotnav = root.querySelector('.media-gallery-dotnav');
+    this.dotnavItems = root.querySelector('.dotnav-items');
     this.dots = Array.prototype.slice.call(root.querySelectorAll('.dotnav-item'));
     this.pauseBtn = root.querySelector('.media-gallery-dotnav-iconcontrol');
     this.n = this.rails.length ? this.rails[0].count : 0;
+    this.maxDots = global.innerWidth <= SMALL_DOTS_WIDTH ? SMALL_DOTS_MAX : LARGE_DOTS_MAX;
 
     this.index = 0;
     this.pos = 0;
@@ -50,30 +54,42 @@
     this._lastTruncIndex = 0;
     this._truncTimer = 0;
     this.playing = false;
-    this.visible = true;
+    this.started = false;
+    this.visible = false;
     this.sliding = false;      // CSS transition 滑动进行中
     this.slideTimer = 0;
     this._slideFrom = 0;       // 本次滑动的起点位置(供打断时反推当前位置)
     this._probeIndex = 0;      // 主排中未环回的卡,用于读插值矩阵
     this.holdId = 0;
+    this.resumeId = 0;
     this.drag = null;
     this.suppressClick = false;
+    this._hasClickedOnce = false;
     this.destroyed = false;
     this.resizeId = 0;
+    this._scrollRaf = 0;
+    this._wheelAcc = 0;
+    this._wheelTimer = 0;
+    this._wheelLock = 0;
     this._listeners = [];
+
+    // apple 的自动播放是一条 5s 时间线:翻页即起算;暂停 / 离屏 / 切后台时原地冻结,恢复后接着走
+    this.cycleStart = nowMs();
+    this.cyclePaused = 0;
+    this.cyclePauseStart = 0;
+    this._frozen = false;
 
     this._onResize = this._onResize.bind(this);
     this._onVisibility = this._onVisibility.bind(this);
+    this._onScroll = this._onScroll.bind(this);
+    this._onWheel = this._onWheel.bind(this);
 
     this._bind();
-    this._observe();
     this.render();
     this._syncDots();
-    this._updateTruncation(0);   // 初始窗口:圆点多于 7 个时只亮起当前点附近
-
-    // 减少动效只影响滑动时长(见 _animateTo),不再整体停摆,否则圆点与轮播会完全静止
-    if (this.n > 1) this.play();
-    else this.pause();
+    this._setFrozen(true);
+    this._updateTruncation(0, false);   // 初始窗口:圆点多于 maxDots 个时只亮起窗口内的点
+    this._checkInView();   // apple: startPaused = true,等画廊盖住视口中线才首播
   }
 
   /* ---------- 渲染 ---------- */
@@ -115,6 +131,7 @@
       li.classList.toggle('dotnav-previous-current', i === self.prevIndex);
       var b = li.querySelector('.dotnav-link');
       if (b) {
+        b.tabIndex = i === self.index ? 0 : -1;   // apple:只有当前点进入 Tab 顺序
         if (i === self.index) b.setAttribute('aria-current', 'true');
         else b.removeAttribute('aria-current');
       }
@@ -130,30 +147,108 @@
 
   EndlessGallery.prototype.play = function () {
     if (this.n < 2 || this.destroyed) return;
+    if (!this.started) {
+      this.started = true;
+      this._beginCycle();
+    }
     this.playing = true;
-    this._clearHold();
-    if (this.dotnav) this.dotnav.classList.remove('dotnav-timed-paused');
-    // 重启动画:先摘掉再挂上,强制 reflow,否则同一张卡片恢复播放时进度条不会重新走
-    this.dots.forEach(function (li) { li.classList.remove('dotnav-focused'); });
-    if (this.dots[this.index]) void this.dots[this.index].offsetWidth;
-    this._syncDots();
-    this._schedule();
+    this._syncPauseLabel();
+    if (!this.visible || document.hidden) { this._setFrozen(true); return; }
+    this._resume();
   };
 
   EndlessGallery.prototype.pause = function () {
     this.playing = false;
-    this._clearHold();
-    if (this.dotnav) this.dotnav.classList.add('dotnav-timed-paused');
-    this._syncDots();
+    this._freeze();
+    this._syncPauseLabel();
   };
 
   EndlessGallery.prototype.toggle = function () {
     if (this.playing) this.pause();
-    else this.play();
+    else {
+      this._hasClickedOnce = false;
+      this.play();
+    }
+  };
+
+  // apple:手动选点"武装"过暂停后,下一次外部暂停(滚出中线 / 切后台 / 失焦)
+  // 会升级为用户暂停,回来也不再自动续播;未武装时只冻结,回到视口继续
+  EndlessGallery.prototype._externalPause = function () {
+    if (!this.playing) { this._clearHold(); return; }
+    if (this._hasClickedOnce) this.pause();
+    else this._freeze();
+  };
+
+  EndlessGallery.prototype._syncPauseLabel = function () {
+    if (!this.pauseBtn) return;
+    this.pauseBtn.setAttribute('aria-label', this.playing ? '暂停自动播放' : '开始自动播放');
+  };
+
+  // 周期被重置但当前圆点没换(拖拽回弹 / 点当前点)时,让进度条从 0 重播
+  EndlessGallery.prototype._restartFill = function () {
+    if (!this.dotnav) return;
+    this.dotnav.classList.add('dotnav-restart-fill');
+    void this.dotnav.offsetWidth;
+    this.dotnav.classList.remove('dotnav-restart-fill');
   };
 
   EndlessGallery.prototype._clearHold = function () {
     if (this.holdId) { clearTimeout(this.holdId); this.holdId = 0; }
+  };
+
+  EndlessGallery.prototype._clearResume = function () {
+    if (this.resumeId) { clearTimeout(this.resumeId); this.resumeId = 0; }
+  };
+
+  /* ---------- 5s 时间线:冻结 / 续播 ---------- */
+
+  EndlessGallery.prototype._beginCycle = function () {
+    this.cycleStart = nowMs();
+    this.cyclePaused = 0;
+    this.cyclePauseStart = this._frozen ? this.cycleStart : 0;
+  };
+
+  EndlessGallery.prototype._cycleRemaining = function () {
+    var now = nowMs();
+    var paused = this.cyclePaused + (this.cyclePauseStart ? now - this.cyclePauseStart : 0);
+    return Math.max(0, CYCLE_MS - (now - this.cycleStart - paused));
+  };
+
+  // apple 的 AutoPlay 暂停时停在原位:进度条、圆点形态、倒计时三者一起冻结
+  EndlessGallery.prototype._setFrozen = function (frozen) {
+    if (this.dotnav) this.dotnav.classList.toggle('dotnav-timed-paused', frozen);
+    if (frozen === this._frozen) return;
+    var now = nowMs();
+    if (frozen) {
+      this.cyclePauseStart = now;
+    } else if (this.cyclePauseStart) {
+      this.cyclePaused += now - this.cyclePauseStart;
+      this.cyclePauseStart = 0;
+    }
+    this._frozen = frozen;
+  };
+
+  EndlessGallery.prototype._freeze = function () {
+    this._clearHold();
+    this._setFrozen(true);
+  };
+
+  EndlessGallery.prototype._resume = function () {
+    if (this.destroyed || !this.playing || !this.started) return;
+    if (!this.visible || document.hidden) return;
+    this._setFrozen(false);
+    this._scheduleNext();
+  };
+
+  EndlessGallery.prototype._scheduleNext = function () {
+    var self = this;
+    this._clearHold();
+    if (this.destroyed || !this.playing || !this.started || this._frozen ||
+        !this.visible || document.hidden) return;
+    this.holdId = setTimeout(function () {
+      self.holdId = 0;
+      self.next();
+    }, this._cycleRemaining());
   };
 
   /* ---------- 翻页 ---------- */
@@ -170,18 +265,32 @@
       t = t + Math.round((this.pos - t) / this.n) * this.n;
     }
     this._clearHold();
-    this._previewDots(mod(Math.round(t), this.n));   // 圆点形态立即切换,与滑动同步
+    this._beginCycle();                               // 新的 5s 周期从翻页这一刻起算
+    this._previewDots(mod(Math.round(t), this.n));    // 圆点形态立即切换,与滑动同步
     this._animateTo(t);
+  };
+
+  // apple 的 dotnav 交互:第一次手动选点只"武装"暂停(当前周期继续走),
+  // 第二次起立即暂停自动播放;播放按钮重新开始时再次武装
+  EndlessGallery.prototype._userGoTo = function (target) {
+    var active = this.playing && !this._frozen && this.visible && !document.hidden;
+    this.goTo(target);
+    if (!active) return;
+    if (this._hasClickedOnce) this.pause();
+    else this._hasClickedOnce = true;
   };
 
   // 手动选点 / 自动翻页时,圆点形态不等滑动落位、立即切换(apple 行为):
   // 目标圆点 250ms 展开为进度轨道,原圆点同步收缩回圆点;
-  // 进度条与 apple 一致:换点即重置,160ms 后起跑,滑动期间照常生长
+  // 进度条 840ms 后起跑、4.16s 充满,正好在翻页后第 5s 结束。
   EndlessGallery.prototype._previewDots = function (target) {
     if (!this.dots.length) return;
-    if (this.visualIndex === target) return;
-    this._updateTruncation(target);   // 变距窗口先于形态类,同帧生效
+    if (this.visualIndex === target) { this._restartFill(); return; }
     var prev = this.visualIndex;
+    var dir = target > prev ? 'left' : 'right';
+    if (prev === this.n - 1 && target === 0) dir = 'left';
+    else if (prev === 0 && target === this.n - 1) dir = 'right';
+    this._updateTruncation(target, true, dir);   // 变距窗口先于形态类,同帧生效
     this.visualIndex = target;
     this.dots.forEach(function (li, i) {
       li.classList.toggle('current', i === target);
@@ -189,6 +298,7 @@
       li.classList.toggle('dotnav-previous-current', i === prev);
       var b = li.querySelector('.dotnav-link');
       if (b) {
+        b.tabIndex = i === target ? 0 : -1;
         if (i === target) b.setAttribute('aria-current', 'true');
         else b.removeAttribute('aria-current');
       }
@@ -196,79 +306,112 @@
   };
 
   /* ---------- 变距 dotnav(apple.com 同款) ----------
-   * 圆点 ≤ 7 个:全部等大显示,当前点为进度轨道;
-   * 圆点 > 7 个:永远显示 7 个一圈的窗口(当前点 ±3,端部收敛),
-   *   按与当前点的距离分级:轨道(1.0)、相邻(1.0)、±2(0.75)、±3(0.5),
-   *   窗外隐藏;翻页时整排按 8px×步数位移,进出窗口的圆点交错淡入/淡出。 */
-  EndlessGallery.prototype._windowOf = function (index, count) {
-    return { start: clamp(index - 3, 0, count - 7), end: clamp(index - 3, 0, count - 7) + 6 };
+   * 圆点数 ≤ maxDots(≤480px 为 5,更宽为 7):全部等大显示,当前点为进度轨道;
+   * 超出时开一条固定长度的窗口,按开头 / 中段 / 结尾三种模板分级:
+   *   开头 [1…1,2,3]、中段 [3,2,1…1,2,3]、结尾 [3,2,1…1](2=0.75,3=0.5),
+   *   窗外隐藏;窗口移动时整排按 8px×步数位移,进出的点按 40ms 级联淡入 / 淡出。 */
+  EndlessGallery.prototype._dotWindow = function (index, count, m) {
+    var edge = (m - 1) / 2;
+    var start = index <= edge ? 0
+      : index >= count - 1 - edge ? count - m
+      : index - edge;
+    start = clamp(start, 0, Math.max(0, count - m));
+    return { start: start, end: start + m - 1, m: m };
+  };
+
+  EndlessGallery.prototype._dotLevel = function (i, win, count) {
+    if (i < win.start || i > win.end) return 4;
+    var slot = i - win.start;
+    var m = win.m;
+    if (win.start === 0) return slot === m - 1 ? 3 : slot === m - 2 ? 2 : 1;
+    if (win.end === count - 1) return slot === 0 ? 3 : slot === 1 ? 2 : 1;
+    return slot === 0 || slot === m - 1 ? 3
+      : slot === 1 || slot === m - 2 ? 2 : 1;
   };
 
   EndlessGallery.prototype._setDotTrunc = function (li, level) {
     var levels = ['dotnav-trunc-1', 'dotnav-trunc-2', 'dotnav-trunc-3', 'dotnav-trunc-4'];
-    for (var i = 0; i < 4; i++) li.classList.toggle(levels[i], i === level - 1);
+    var changed = false;
+    for (var i = 0; i < 4; i++) {
+      var on = i === level - 1;
+      if (li.classList.contains(levels[i]) !== on) changed = true;
+      li.classList.toggle(levels[i], on);
+    }
+    return changed;
   };
 
-  EndlessGallery.prototype._updateTruncation = function (target) {
+  EndlessGallery.prototype._clearTruncAnim = function () {
+    if (this._truncTimer) { clearTimeout(this._truncTimer); this._truncTimer = 0; }
+    this.dots.forEach(function (li) {
+      li.classList.remove('dotnav-transitioning', 'dotnav-becoming-visible', 'dotnav-becoming-invisible',
+        'dotnav-stagger-1', 'dotnav-stagger-2', 'dotnav-stagger-3');
+      for (var s = 1; s <= 3; s++) {
+        li.classList.remove('dotnav-shift-left-' + s);
+        li.classList.remove('dotnav-shift-right-' + s);
+      }
+    });
+    if (this.dotnav) this.dotnav.classList.remove('dotnav-transitioning');
+  };
+
+  EndlessGallery.prototype._updateTruncation = function (target, animate, dir) {
     var count = this.dots.length;
     if (!count || !this.dotnav) return;
+    var m = Math.min(count, this.maxDots);
+    this.dotnav.style.setProperty('--sk-dotnav-count', String(Math.min(count, LARGE_DOTS_MAX)));
+
     var prev = this._lastTruncIndex;
     this._lastTruncIndex = target;
 
     var self = this;
-    var clearAnim = function () {
-      if (self._truncTimer) { clearTimeout(self._truncTimer); self._truncTimer = 0; }
-      self.dots.forEach(function (li) {
-        li.classList.remove('dotnav-transitioning', 'dotnav-becoming-visible', 'dotnav-becoming-invisible', 'dotnav-stagger-1', 'dotnav-stagger-2', 'dotnav-stagger-3');
-        for (var s = 1; s <= 3; s++) {
-          li.classList.remove('dotnav-shift-left-' + s);
-          li.classList.remove('dotnav-shift-right-' + s);
-        }
-      });
-      self.dotnav.classList.remove('dotnav-transitioning');
-    };
+    var dots = this.dots;
+    this._clearTruncAnim();
+    if (animate) void this.dotnav.offsetWidth;   // 同名 CSS 动画需要重排后才能再次触发
 
-    if (count <= MAX_DOTS) {
-      // 全量显示:清掉所有截断类(等大圆点)
-      clearAnim();
-      this.dots.forEach(function (li) { self._setDotTrunc(li, 1); });
+    if (count <= this.maxDots) {
+      dots.forEach(function (li) { self._setDotTrunc(li, 1); });
       return;
     }
 
-    var dir = target > prev ? 'left' : target < prev ? 'right' : null;
-    var oldWin = this._windowOf(prev, count);
-    var newWin = this._windowOf(target, count);
+    var oldWin = this._dotWindow(prev, count, m);
+    var newWin = this._dotWindow(target, count, m);
     var steps = 0;
-    if (dir === 'left') steps = Math.min(3, Math.max(0, newWin.start - oldWin.start));
-    if (dir === 'right') steps = Math.min(3, Math.max(0, oldWin.end - newWin.end));
+    if (animate && dir === 'left') steps = clamp(newWin.start - oldWin.start, 0, 2);
+    else if (animate && dir === 'right') steps = clamp(oldWin.start - newWin.start, 0, 2);
 
-    this.dots.forEach(function (li, i) {
-      var d = Math.abs(i - target);
-      var level = i < newWin.start || i > newWin.end ? 4 : (d <= 1 ? 1 : d === 2 ? 2 : 3);
-      self._setDotTrunc(li, level);
-      li.classList.add('dotnav-transitioning');   // 尺寸/透明度走 320ms 过渡,期间禁点
-
-      if (steps) {
-        li.classList.add(dir === 'left' ? 'dotnav-shift-left-' + steps : 'dotnav-shift-right-' + steps);
-        var entering = i >= newWin.start && i <= newWin.end && (i < oldWin.start || i > oldWin.end);
-        var leaving = i >= oldWin.start && i <= oldWin.end && (i < newWin.start || i > newWin.end);
-        if (entering) {
-          li.classList.add('dotnav-becoming-visible');
-          // apple 的 40ms 级联:进入点离窗口边越远,淡入越晚(100/140/180ms)
-          var enterDist = dir === 'left' ? i - newWin.start : newWin.end - i;
-          li.classList.add(enterDist < 1 ? 'dotnav-stagger-1' : enterDist < 2 ? 'dotnav-stagger-2' : 'dotnav-stagger-3');
-        } else if (leaving) {
-          li.classList.add('dotnav-becoming-invisible');
-          // 离开点淡出即起跑,离边越远越晚(0/40/80ms)
-          var leaveDist = dir === 'left' ? oldWin.end - i : i - oldWin.start;
-          li.classList.add(leaveDist < 1 ? 'dotnav-stagger-1' : leaveDist < 2 ? 'dotnav-stagger-2' : 'dotnav-stagger-3');
-        }
+    dots.forEach(function (li, i) {
+      if (self._setDotTrunc(li, self._dotLevel(i, newWin, count)) && animate) {
+        li.classList.add('dotnav-transitioning');   // apple:只有截断等级变化的点才迁移
       }
+      if (steps) li.classList.add(dir === 'left' ? 'dotnav-shift-left-' + steps : 'dotnav-shift-right-' + steps);
     });
-    if (steps) this.dotnav.classList.add('dotnav-transitioning');
+    if (animate && steps) this.dotnav.classList.add('dotnav-transitioning');
 
-    if (this._truncTimer) clearTimeout(this._truncTimer);
-    this._truncTimer = setTimeout(clearAnim, TRUNC_MS);
+    if (steps) {
+      var entering = [], leaving = [];
+      for (var i = 0; i < count; i++) {
+        var was = i >= oldWin.start && i <= oldWin.end;
+        var nowIn = i >= newWin.start && i <= newWin.end;
+        if (nowIn && !was) entering.push(i);
+        else if (was && !nowIn) leaving.push(i);
+      }
+      // 进入点自窗口内侧向外 440/480ms 级联;
+      // 离开点反向:最外侧先淡出(0ms),靠内的一点晚 40ms(apple 同款)
+      entering.sort(dir === 'left' ? function (a, b) { return a - b; } : function (a, b) { return b - a; });
+      leaving.sort(dir === 'left' ? function (a, b) { return a - b; } : function (a, b) { return b - a; });
+      entering.forEach(function (i, k) {
+        dots[i].classList.add('dotnav-becoming-visible', 'dotnav-stagger-' + Math.min(3, k + 1));
+      });
+      leaving.forEach(function (i, k) {
+        dots[i].classList.add('dotnav-becoming-invisible', 'dotnav-stagger-' + Math.min(3, k + 1));
+      });
+    }
+
+    if (animate) {
+      this._truncTimer = setTimeout(function () {
+        self._truncTimer = 0;
+        self._clearTruncAnim();
+      }, TRUNC_MS);
+    }
   };
 
   EndlessGallery.prototype._animateTo = function (target) {
@@ -360,17 +503,19 @@
     // 环回卡在屏外滑出了一整圈,此处统一吸附回规范位置(屏外瞬移,不可见)
     this.render();
     this._syncDots();
-    // 周期锚点是翻页发起那一刻(进度条在此刻 +160ms 起跑),落位时只余下剩余时长
-    this._schedule(ITEM_MS - SLIDE_MS);
+    this._focusCurrentDot();
+    // 周期锚点是翻页发起那一刻(进度条在 +840ms 起跑),落位时只余下剩余时长
+    this._scheduleNext();
   };
 
-  // 重新起算停留时间与进度条;ms 缺省为整周期(无滑动先行的场景,如 play())
-  EndlessGallery.prototype._schedule = function (ms) {
-    var self = this;
-    this._clearHold();
-    var wait = typeof ms === 'number' ? ms : ITEM_MS;
-    if (this.playing && this.visible && !document.hidden) {
-      this.holdId = setTimeout(function () { self.next(); }, wait);
+  // apple:方向键翻页后若焦点还在圆点栏里,把焦点带到新的当前点
+  EndlessGallery.prototype._focusCurrentDot = function () {
+    var active = document.activeElement;
+    if (!active || !this.dotnavItems || !this.dotnavItems.contains(active)) return;
+    var cur = this.dots[this.index];
+    var link = cur && cur.querySelector('.dotnav-link');
+    if (link && link !== active) {
+      try { link.focus({ preventScroll: true }); } catch (_) { link.focus(); }
     }
   };
 
@@ -387,7 +532,7 @@
       this.render();
     }
     this._syncDots();
-    this._updateTruncation(this.index);
+    this._updateTruncation(mod(this.index, this.n), false);
     // 注意:此处不要停表,否则轻点卡片(未构成拖拽)会把自动播放掐断
     this.drag = {
       id: e.pointerId,
@@ -446,9 +591,10 @@
     if (Math.abs(d.v) > FLICK_SPEED) target = base + (d.v < 0 ? 1 : -1);
     else target = clamp(Math.round(this.pos), base - 1, base + 1);
     if (this.n < 3) target = clamp(target, 0, this.n - 1);
+    this._beginCycle();
+    this._previewDots(mod(Math.round(target), this.n));
     this._animateTo(target);
     if (d.moved) this.suppressClick = true;
-    if (!this.playing) this.pause();
   };
 
   EndlessGallery.prototype._onClick = function (e) {
@@ -467,7 +613,11 @@
       if (k >= 0) { local = k; count = this.rails[r].count; }
     }
     if (local < 0) return;
-    if (local === mod(this.index, count)) return;   // 已是本排当前卡,交给委托开详情
+    if (local === mod(this.index, count)) {
+      // apple:点当前卡(打开详情)即让画廊停下,关掉弹窗后也保持暂停,由播放钮重启
+      if (this.playing && e.target.closest && e.target.closest('.media-gallery-wrapper-link')) this.pause();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     this.goTo(local);   // 点侧边卡片同样不打断自动播放
@@ -475,10 +625,14 @@
 
   EndlessGallery.prototype._onKeydown = function (e) {
     if (this.n < 2) return;
-    if (e.key === 'ArrowRight') { this.goTo(this.index + 1); e.preventDefault(); }
-    else if (e.key === 'ArrowLeft') { this.goTo(this.index - 1); e.preventDefault(); }
-    else if (e.key === 'Home') { this.goTo(0); e.preventDefault(); }
-    else if (e.key === 'End') { this.goTo(this.n - 1); e.preventDefault(); }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('.media-gallery-wrapper-link')) {
+      if (this.playing) this.pause();   // 键盘开详情与点击同款:暂停,交给委托打开
+      return;
+    }
+    if (e.key === 'ArrowRight') { this._userGoTo(this.index + 1); e.preventDefault(); }
+    else if (e.key === 'ArrowLeft') { this._userGoTo(this.index - 1); e.preventDefault(); }
+    else if (e.key === 'Home') { this._userGoTo(0); e.preventDefault(); }
+    else if (e.key === 'End') { this._userGoTo(this.n - 1); e.preventDefault(); }
   };
 
   /* ---------- 生命周期 ---------- */
@@ -498,6 +652,7 @@
       add(rail.el, 'pointerup', function (e) { self._endDrag(e); });
       add(rail.el, 'pointercancel', function (e) { self._endDrag(e); });
       add(rail.el, 'dragstart', function (e) { e.preventDefault(); });
+      add(rail.wrap, 'wheel', self._onWheel, { passive: false });   // apple:触控板横滑翻页
     });
     add(this.root, 'click', function (e) { self._onClick(e); });
     add(this.root, 'keydown', function (e) { self._onKeydown(e); });
@@ -513,47 +668,118 @@
       if (!link) return;
       add(link, 'click', function (e) {
         e.preventDefault();
-        // 与 apple 一致:手动选点不打断自动播放,goTo 会重启 hold 与进度条
-        self.goTo(i);
+        self._userGoTo(i);
       });
     });
 
     add(global, 'resize', this._onResize);
+    add(global, 'scroll', this._onScroll, { passive: true });
     add(document, 'visibilitychange', this._onVisibility);
+    // apple: 窗口失焦暂停,回焦后等 100ms 再续播
+    add(global, 'blur', function () { self._externalPause(); });
+    add(global, 'focus', function () { self._onVisibility(); });
   };
 
-  EndlessGallery.prototype._observe = function () {
-    if (!('IntersectionObserver' in global)) return;
+  // apple 的 ScrollGroup:画廊盖住视口中线时在播,离开中线即暂停(实测阈值)
+  EndlessGallery.prototype._onScroll = function () {
     var self = this;
-    this.io = new IntersectionObserver(function (entries) {
-      self.visible = entries[0].isIntersecting;
-      if (self.visible) {
-        if (self.playing) { self.play(); }   // 重新进入视口:续上计时与进度条
-      } else {
-        self._clearHold();
-      }
-    }, { threshold: 0.35 });
-    this.io.observe(this.root);
+    if (this._scrollRaf) return;
+    this._scrollRaf = global.requestAnimationFrame(function () {
+      self._scrollRaf = 0;
+      self._checkInView();
+    });
+  };
+
+  EndlessGallery.prototype._checkInView = function () {
+    if (this.destroyed || !this.root) return;
+    var rect = this.root.getBoundingClientRect();
+    var mid = (global.innerHeight || document.documentElement.clientHeight) / 2;
+    var visible = rect.top <= mid && rect.bottom >= mid;
+    if (visible !== this.visible) this._setVisible(visible);
+  };
+
+  // apple 的触控板横滑:横向占优累计 40px,100ms 内继续累加;翻一页后锁定 440ms
+  EndlessGallery.prototype._onWheel = function (e) {
+    if (this.destroyed || this.n < 2) return;
+    var ax = Math.abs(e.deltaX);
+    var ay = Math.abs(e.deltaY);
+    if (ax > ay && ax > 0 && e.cancelable) e.preventDefault();
+    var now = nowMs();
+    if (now < this._wheelLock) return;
+    if (!(ax > ay * 1.2 && ax > 5)) return;
+
+    var self = this;
+    this._wheelAcc += e.deltaX;
+    clearTimeout(this._wheelTimer);
+    this._wheelTimer = setTimeout(function () { self._wheelAcc = 0; }, 100);
+    if (Math.abs(this._wheelAcc) < 40) return;
+
+    var dir = this._wheelAcc > 0 ? 1 : -1;
+    this._wheelAcc = 0;
+    clearTimeout(this._wheelTimer);
+    this._wheelTimer = 0;
+    this._wheelLock = now + 440;
+    this.goTo(mod(this.index + dir, this.n));
+    this.pause();   // apple:横滑属于用户接管,翻页后保持暂停
+  };
+
+  EndlessGallery.prototype._setVisible = function (visible) {
+    if (this.destroyed) return;
+    this.visible = visible;
+    if (!visible) {
+      this._externalPause();
+      return;
+    }
+    if (document.hidden) return;
+    if (!this.started) {
+      // apple: startPaused = true,进入视口才首播;prefers-reduced-motion 下保持静默
+      if (!reduceMotion.matches) this.play();
+    } else if (this.playing) {
+      this._resume();
+    }
   };
 
   EndlessGallery.prototype._onResize = function () {
     var self = this;
+    var m = global.innerWidth <= SMALL_DOTS_WIDTH ? SMALL_DOTS_MAX : LARGE_DOTS_MAX;
+    if (m !== this.maxDots && this.dots.length) {
+      this.maxDots = m;
+      this._updateTruncation(this.visualIndex, false);
+    }
+    this._checkInView();
     if (this.resizeId) clearTimeout(this.resizeId);
     this.resizeId = setTimeout(function () { self.render(); }, 120);
   };
 
   EndlessGallery.prototype._onVisibility = function () {
-    if (document.hidden) this._clearHold();
-    else if (this.playing) this.play();
+    if (this.destroyed) return;
+    this._clearResume();
+    if (document.hidden) {
+      this._externalPause();
+      return;
+    }
+    var self = this;
+    // apple: 回到前台 / 回焦后先等 100ms 再续播
+    this.resumeId = setTimeout(function () {
+      self.resumeId = 0;
+      if (!self.visible) return;
+      if (!self.started) {
+        if (!reduceMotion.matches) self.play();
+      } else if (self.playing) {
+        self._resume();
+      }
+    }, 100);
   };
 
   EndlessGallery.prototype.destroy = function () {
     this.destroyed = true;
     this._clearHold();
-    if (this._truncTimer) clearTimeout(this._truncTimer);
+    this._clearResume();
+    this._clearTruncAnim();
     if (this.slideTimer) { clearTimeout(this.slideTimer); this.slideTimer = 0; }
     if (this.resizeId) clearTimeout(this.resizeId);
-    if (this.io) this.io.disconnect();
+    if (this._scrollRaf) { global.cancelAnimationFrame(this._scrollRaf); this._scrollRaf = 0; }
+    if (this._wheelTimer) { clearTimeout(this._wheelTimer); this._wheelTimer = 0; }
     this._listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2], l[3]); });
     this._listeners = [];
   };

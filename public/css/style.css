@@ -2388,7 +2388,7 @@ main.page-home {
   --media-gallery-tile-gap: 13px;
   --media-gallery-dotnav-gap: 12px;
   --media-gallery-section-padding-bottom: var(--media-gallery-dotnav-gap);
-  --media-gallery-slide-duration: 800ms;
+  --media-gallery-slide-duration: 1000ms;
   --media-gallery-tile-width: 688px;
   --media-gallery-tile-height: calc(var(--media-gallery-tile-width) * 0.5334);
   --media-gallery-headline-margin-bottom: 17px;
@@ -2402,20 +2402,27 @@ main.page-home {
   --sk-dotnav-margin-block: 8px;
   --sk-dotnav-margin-inline: 8px;
   --sk-dotnav-height: calc(var(--sk-dotnav-margin-block) * 2 + var(--sk-dotnav-size));
-  --sk-dotnav-background: rgba(0, 0, 0, 0.42);
-  --sk-dotnav-background-hover: rgba(0, 0, 0, 0.54);
-  --sk-dotnav-background-current: rgba(0, 0, 0, 0.8);
+  --sk-dotnav-scrim-height: 56px;
+  --sk-dotnav-items-padding-inline: calc((var(--sk-dotnav-scrim-height) - var(--sk-dotnav-size) - var(--sk-dotnav-margin-inline) * 2) / 2);
+  --sk-dotnav-background: rgba(0, 0, 0, 0.48);
+  --sk-dotnav-background-hover: rgba(0, 0, 0, 0.72);
+  --sk-dotnav-background-current: rgb(0, 0, 0);
   --sk-dotnav-timed-track-width: 32px;
-  --sk-dotnav-timed-duration: 4000ms;   /* apple: item 4.16s − transitionOffset 0.16s */
+  --sk-dotnav-timed-duration: 4160ms;   /* apple: item 5s − 840ms 起跑延迟 */
   --sk-dotnav-timed-track-color: rgb(0, 0, 0);
   --sk-dotnav-timed-track-background-color: rgba(0, 0, 0, 0.48);
   --sk-dotnav-iconcontrol-icon-size: 24px;
   --sk-dotnav-iconcontrol-content-color: rgba(0, 0, 0, 0.48);
   --sk-dotnav-iconcontrol-content-color-hover: rgba(0, 0, 0, 0.72);
-  --sk-dotnav-scrim-solid-iconcontrol-scrim-color: rgb(232, 232, 237);
-  --sk-dotnav-scrim-solid-iconcontrol-scrim-color-hover: rgb(236, 236, 240);
-  --sk-dotnav-scrim-solid-iconcontrol-scrim-color-active: rgb(223, 223, 228);
+  --sk-dotnav-scrim-solid-iconcontrol-scrim-color: rgba(210, 210, 215, 0.64);
+  --sk-dotnav-scrim-solid-iconcontrol-scrim-color-hover: rgba(223, 223, 227, 0.6976);
+  --sk-dotnav-scrim-solid-iconcontrol-scrim-color-active: rgb(222.72, 222.72, 227.52);
   --sk-dotnav-hover-animation-duration: 120ms;
+  /* apple: 变距 / 位移的公共时长;淡入淡出为其一半 −20ms,级联 40ms */
+  --sk-dotnav-variable-duration: var(--media-gallery-slide-duration);
+  --sk-dotnav-fade-duration: calc(var(--sk-dotnav-variable-duration) / 2 - 20ms);
+  --sk-dotnav-fade-in-delay: calc(var(--sk-dotnav-variable-duration) - var(--sk-dotnav-fade-duration));
+  --sk-dotnav-fade-stagger: 40ms;
 
   --ent-display: "SF Pro Display", "SF Pro SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --ent-text: "SF Pro Text", "SF Pro SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -2740,27 +2747,41 @@ main.page-home {
   order: 4;
 }
 
+.dotnav-scrim-solid { --sk-dotnav-height: var(--sk-dotnav-scrim-height); }
+
 .dotnav-items {
   margin: 0;
-  padding: 0;
+  padding-block: 0;
+  padding-inline: var(--sk-dotnav-items-padding-inline);
+  box-sizing: content-box;   /* apple: width 只算内容,56px 药丸靠 padding 撑开 */
   list-style: none;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   height: var(--sk-dotnav-height);
-  width: auto;
+  /* 固定宽度:按圆点总数(上限 7)预留 + 当前轨道多出的 24px,
+     圆点展开/收起、窗口移动时整排不重新居中(apple 的 :has 规则同款) */
+  width: calc((var(--sk-dotnav-size) + var(--sk-dotnav-margin-inline) * 2) * var(--sk-dotnav-count, 7)
+             + var(--sk-dotnav-timed-track-width) - var(--sk-dotnav-size));
   max-width: calc(100% - 2 * (var(--sk-dotnav-iconcontrol-icon-size) + 12px));
-  overflow: hidden;   /* 位移/隐藏的圆点在列表边缘裁掉(apple 同款) */
+  overflow-x: hidden;   /* 位移/隐藏的圆点在列表边缘裁掉(apple 同款) */
 }
 
 .dotnav-item { display: block; min-width: 0; }
 
-/* —— 变距 dotnav(apple.com 同款):圆点 > 7 个时按距离分级缩放 ——
-   当前=轨道(1.0),距离 1=0.75,距离 2=0.5,更远/窗外=隐藏(scale .5 + 尺寸 0 + 淡出);
-   截断类由 JS 按当前点实时分配,形态迁移走 320ms 过渡 */
+/* —— 变距 dotnav(apple.com 同款):窗口内的点按模板分级缩放 ——
+   轨道 / 相邻=1.0,2=0.75,3=0.5,窗外=隐藏(scale .5 + 尺寸 0 + 淡出);
+   截断类由 JS 按当前点实时分配,形态迁移走 1s 过渡 */
 .dotnav-item.dotnav-trunc-2 { --sk-dotnav-scale: 0.75; }
 .dotnav-item.dotnav-trunc-3 { --sk-dotnav-scale: 0.5; }
+/* 截断点悬停时按缩放反向补偿,视觉上长回 8px / 6px(apple 同款) */
+.dotnav-item.dotnav-trunc-2 .dotnav-link:hover::before {
+  --sk-dotnav-size: calc((1 / var(--sk-dotnav-scale)) * 8px);
+}
+.dotnav-item.dotnav-trunc-3 .dotnav-link:hover::before {
+  --sk-dotnav-size: calc((1 / var(--sk-dotnav-scale)) * 6px);
+}
 .dotnav-item.dotnav-trunc-4 {
   --sk-dotnav-scale: 0.5;
   --sk-dotnav-opacity: 0;
@@ -2768,7 +2789,10 @@ main.page-home {
   --sk-dotnav-margin-inline: 0;
   --sk-dotnav-size: 0;
 }
-.dotnav-item.dotnav-trunc-4 .dotnav-link {
+/* 隐藏点只在迁移结束后脱离文档流;1s 迁移期间靠尺寸过渡挤出/让位 */
+.dotnav-item.dotnav-trunc-4:not(.dotnav-transitioning) { position: absolute; top: 0; left: 0; }
+.dotnav-item.dotnav-trunc-4:not(.dotnav-transitioning) .dotnav-link {
+  position: absolute;
   clip: rect(1px, 1px, 1px, 1px);
   clip-path: inset(0 0 99.9% 99.9%);
   overflow: hidden;
@@ -2777,21 +2801,40 @@ main.page-home {
   padding: 0;
   border: 0;
 }
-.dotnav-transitioning .dotnav-link { pointer-events: none; }
-.dotnav-item.dotnav-transitioning .dotnav-link {
-  transition: width 320ms ease-in-out, height 320ms ease-in-out,
-              padding-block 320ms ease-in-out, padding-inline 320ms ease-in-out;
+.dotnav-item.dotnav-trunc-4 .dotnav-link {
+  transition: width var(--sk-dotnav-variable-duration) ease-in-out,
+              height var(--sk-dotnav-variable-duration) ease-in-out,
+              padding-block var(--sk-dotnav-variable-duration) ease-in-out,
+              padding-inline var(--sk-dotnav-variable-duration) ease-in-out;
 }
+.dotnav-item.dotnav-trunc-4 .dotnav-link::before {
+  transition: width var(--sk-dotnav-variable-duration) ease-in-out,
+              height var(--sk-dotnav-variable-duration) ease-in-out,
+              left var(--sk-dotnav-variable-duration) ease-in-out,
+              opacity var(--sk-dotnav-variable-duration) ease-in-out,
+              background-color var(--sk-dotnav-variable-duration) ease-in-out,
+              scale var(--sk-dotnav-variable-duration) ease-in-out,
+              transform var(--sk-dotnav-variable-duration) ease-in-out;
+}
+.dotnav-transitioning .dotnav-link { pointer-events: none; }
 .dotnav-transitioning .dotnav-link::before {
-  transition: background-color var(--sk-dotnav-hover-animation-duration) linear,
-              scale 320ms ease-in-out,
-              opacity 320ms ease-in-out;
+  transition: transform var(--sk-dotnav-variable-duration) ease-in-out,
+              scale var(--sk-dotnav-variable-duration) ease-in-out;
+  pointer-events: none;
 }
 /* 旧当前点:轨道收起后再缩尺寸(apple 的 200ms 延迟细节) */
 .dotnav-timed .dotnav-previous-current .dotnav-link::before {
-  transition: scale 120ms ease-in-out 200ms,
-              opacity 320ms ease-in-out,
+  transition: scale calc(var(--sk-dotnav-variable-duration) - 200ms) ease-in-out 200ms,
+              opacity var(--sk-dotnav-variable-duration) ease-in-out,
               background-color var(--sk-dotnav-hover-animation-duration) linear;
+}
+/* 旧当前点悬停时按普通点的 120ms 节奏长回,不被上面的收缩过渡拖慢 */
+.dotnav-timed .dotnav-previous-current .dotnav-link:hover::before {
+  transition: top var(--sk-dotnav-hover-animation-duration) linear,
+              left var(--sk-dotnav-hover-animation-duration) linear,
+              height var(--sk-dotnav-hover-animation-duration) linear,
+              width var(--sk-dotnav-hover-animation-duration) linear,
+              scale var(--sk-dotnav-hover-animation-duration) linear;
 }
 /* 整排位移:窗口滑动时行内容按 8px×步数回弹(apple 的 shift keyframes) */
 @keyframes dotnav-row-shift-left-1 { 0% { translate: 8px 0; } 100% { translate: 0 0; } }
@@ -2800,25 +2843,36 @@ main.page-home {
 @keyframes dotnav-row-shift-right-1 { 0% { translate: -8px 0; } 100% { translate: 0 0; } }
 @keyframes dotnav-row-shift-right-2 { 0% { translate: -16px 0; } 100% { translate: 0 0; } }
 @keyframes dotnav-row-shift-right-3 { 0% { translate: -24px 0; } 100% { translate: 0 0; } }
-.dotnav-item.dotnav-shift-left-1 { animation: dotnav-row-shift-left-1 320ms ease-in-out both; }
-.dotnav-item.dotnav-shift-left-2 { animation: dotnav-row-shift-left-2 320ms ease-in-out both; }
-.dotnav-item.dotnav-shift-left-3 { animation: dotnav-row-shift-left-3 320ms ease-in-out both; }
-.dotnav-item.dotnav-shift-right-1 { animation: dotnav-row-shift-right-1 320ms ease-in-out both; }
-.dotnav-item.dotnav-shift-right-2 { animation: dotnav-row-shift-right-2 320ms ease-in-out both; }
-.dotnav-item.dotnav-shift-right-3 { animation: dotnav-row-shift-right-3 320ms ease-in-out both; }
-/* 窗口边缘圆点的交错淡入/淡出(apple 的 40ms 级联) */
+.dotnav-item.dotnav-shift-left-1 { animation: dotnav-row-shift-left-1 var(--sk-dotnav-variable-duration) ease-in-out both; }
+.dotnav-item.dotnav-shift-left-2 { animation: dotnav-row-shift-left-2 var(--sk-dotnav-variable-duration) ease-in-out both; }
+.dotnav-item.dotnav-shift-left-3 { animation: dotnav-row-shift-left-3 var(--sk-dotnav-variable-duration) ease-in-out both; }
+.dotnav-item.dotnav-shift-right-1 { animation: dotnav-row-shift-right-1 var(--sk-dotnav-variable-duration) ease-in-out both; }
+.dotnav-item.dotnav-shift-right-2 { animation: dotnav-row-shift-right-2 var(--sk-dotnav-variable-duration) ease-in-out both; }
+.dotnav-item.dotnav-shift-right-3 { animation: dotnav-row-shift-right-3 var(--sk-dotnav-variable-duration) ease-in-out both; }
+/* 窗口边缘圆点的交错淡入/淡出(apple 的 40ms 级联,480ms 时长) */
 @keyframes dotnav-become-visible { 0% { opacity: 0; scale: 0; } 100% { opacity: 1; scale: 1; } }
 @keyframes dotnav-become-invisible { 0% { opacity: 1; } 100% { opacity: 0; } }
-/* apple 的级联节奏:fade-in-delay=180ms,进入点按距边 0/1/2 依次 100/140/180ms 淡入 */
-.dotnav-item.dotnav-becoming-visible .dotnav-link::before { animation: dotnav-become-visible 140ms ease-in-out both; }
-.dotnav-item.dotnav-becoming-visible.dotnav-stagger-1 .dotnav-link::before { animation-delay: 100ms; }
-.dotnav-item.dotnav-becoming-visible.dotnav-stagger-2 .dotnav-link::before { animation-delay: 140ms; }
-.dotnav-item.dotnav-becoming-visible.dotnav-stagger-3 .dotnav-link::before { animation-delay: 180ms; }
-/* 离开点淡出即起跑,按距边 0/1/2 依次 0/40/80ms */
-.dotnav-item.dotnav-becoming-invisible .dotnav-link::before { animation: dotnav-become-invisible 140ms ease-in-out both; }
-.dotnav-item.dotnav-becoming-invisible.dotnav-stagger-1 .dotnav-link::before { animation-delay: 0ms; }
-.dotnav-item.dotnav-becoming-invisible.dotnav-stagger-2 .dotnav-link::before { animation-delay: 40ms; }
-.dotnav-item.dotnav-becoming-invisible.dotnav-stagger-3 .dotnav-link::before { animation-delay: 80ms; }
+/* 进入点:从 440ms 起按 40ms 递增,最深的一点 520ms 才开始淡入
+   apple:动画作用在 .dotnav-link(按钮)上,内部圆点保留自己的截断缩放,结束时不会跳变 */
+.dotnav-item.dotnav-becoming-visible .dotnav-link {
+  animation: dotnav-become-visible var(--sk-dotnav-fade-duration) ease-in-out both;
+}
+.dotnav-item.dotnav-becoming-visible.dotnav-stagger-1 .dotnav-link {
+  animation-delay: calc(var(--sk-dotnav-fade-in-delay) - var(--sk-dotnav-fade-stagger) * 2);
+}
+.dotnav-item.dotnav-becoming-visible.dotnav-stagger-2 .dotnav-link {
+  animation-delay: calc(var(--sk-dotnav-fade-in-delay) - var(--sk-dotnav-fade-stagger));
+}
+.dotnav-item.dotnav-becoming-visible.dotnav-stagger-3 .dotnav-link {
+  animation-delay: var(--sk-dotnav-fade-in-delay);
+}
+/* 离开点淡出即起跑,按 0/40/80ms 级联 */
+.dotnav-item.dotnav-becoming-invisible .dotnav-link {
+  animation: dotnav-become-invisible var(--sk-dotnav-fade-duration) ease-in-out both;
+}
+.dotnav-item.dotnav-becoming-invisible.dotnav-stagger-1 .dotnav-link { animation-delay: 0ms; }
+.dotnav-item.dotnav-becoming-invisible.dotnav-stagger-2 .dotnav-link { animation-delay: var(--sk-dotnav-fade-stagger); }
+.dotnav-item.dotnav-becoming-invisible.dotnav-stagger-3 .dotnav-link { animation-delay: calc(var(--sk-dotnav-fade-stagger) * 2); }
 
 .dotnav-link {
   outline: none;
@@ -2853,13 +2907,27 @@ main.page-home {
   opacity: var(--sk-dotnav-opacity, 1);
   background: var(--sk-dotnav-background);
   transition: background-color var(--sk-dotnav-hover-animation-duration) linear,
-              scale 320ms ease-in-out,
-              opacity 320ms ease-in-out;
+              scale var(--sk-dotnav-hover-animation-duration) ease-in-out,
+              opacity var(--sk-dotnav-hover-animation-duration) ease-in-out;
 }
 
-.dotnav-link:hover::before { background: var(--sk-dotnav-background-hover); }
-.current .dotnav-link { cursor: default; }
+.dotnav-link:hover::before {
+  background: var(--sk-dotnav-background-hover);
+  transition: top var(--sk-dotnav-hover-animation-duration) linear,
+              left var(--sk-dotnav-hover-animation-duration) linear,
+              height var(--sk-dotnav-hover-animation-duration) linear,
+              width var(--sk-dotnav-hover-animation-duration) linear,
+              scale var(--sk-dotnav-hover-animation-duration) linear;
+}
+/* 当前点的轨道展开交给 250ms animation,不再叠加过渡(apple 同款) */
+.dotnav-item.dotnav-focused .dotnav-link::before { transition: none; }
+.current .dotnav-link { cursor: default; pointer-events: none; }
 .current .dotnav-link::before { background: var(--sk-dotnav-background-current); }
+/* 键盘焦点落在点时,给当前轨道加 apple 同款焦点环 */
+.dotnav-items:has(:focus-visible) .dotnav-item.dotnav-focused .dotnav-link::before {
+  outline: 2px solid #0071e3;
+  outline-offset: 3px;
+}
 
 .dotnav-timed .dotnav-link { transition: width 250ms linear; }
 
@@ -2892,13 +2960,15 @@ main.page-home {
   background: var(--sk-dotnav-background-current);
   animation-name: dotnav-timed-animation;
   animation-play-state: running;
-  animation-delay: 160ms;                       /* apple AutoPlay.transitionOffset: 进度条晚 160ms 起跑 */
+  animation-delay: calc(var(--sk-dotnav-variable-duration) - 160ms);   /* apple: 1s − 160ms = 840ms */
   opacity: 1;
-  transition: opacity 80ms ease-in 240ms;       /* 展开起步后 240ms,80ms 淡入 */
+  transition: opacity 80ms ease-in calc(var(--sk-dotnav-variable-duration) - 80ms);   /* 920ms 起 80ms 淡入 */
 }
 .dotnav-timed-paused .current .dotnav-link::after { animation-play-state: paused; }
 /* 暂停态要压过运行态:暂停时手动选点,新轨道展开但进度保持冻结 */
 .dotnav-timed.dotnav-timed-paused .current.dotnav-focused .dotnav-link::after { animation-play-state: paused; }
+/* 在同一张卡上重置周期时强制 ::after 从头起跑(不动轨道展开) */
+.dotnav-restart-fill .current.dotnav-focused .dotnav-link::after { animation: none !important; opacity: 0; }
 
 @keyframes dotnav-timed-animation {
   0% { width: var(--sk-dotnav-size); }
@@ -2937,6 +3007,10 @@ main.page-home {
 }
 .media-gallery-dotnav-iconcontrol:active {
   background: var(--sk-dotnav-scrim-solid-iconcontrol-scrim-color-active);
+}
+.media-gallery-dotnav-iconcontrol:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: 3px;
 }
 .media-gallery-dotnav-iconcontrol-icon {
   display: flex;
@@ -3007,9 +3081,9 @@ main.page-home {
     --media-gallery-bottom-content-padding-bottom: 30px;
     --fam-tile-width: 188px;
     --fam-tile-height: 254px;
-    /* 16 个圆点在 375px 宽仍要与播放钮留出余量 */
-    --sk-dotnav-margin-inline: 4px;
   }
+  /* apple 移动端播放钮距右边缘 10px */
+  .media-gallery-dotnav-iconcontrol { right: calc(10px + env(safe-area-inset-right)); }
 
   /* 大卡在窄屏转竖排:封面上、文案下 */
   .ent-scene {

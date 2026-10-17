@@ -349,19 +349,19 @@ function renderHome(books) {
           <h2 class="media-gallery-headline">Endless entertainment.</h2>
         </div>
 
-        <!-- 第一排:大卡(前 6 本) / 第二排:小卡(其余) —— 共用索引,一起轮播 -->
+        <!-- 第一排:大卡 / 第二排:小卡 —— 共用索引,一起轮播;dotnav 在两排之后(apple 顺序) -->
         <div class="media-gallery tv-media-gallery" role="group" aria-label="正在读与最近读完">
           <ul class="media-gallery-item-container" role="list" tabindex="0" aria-label="精选书,用左右方向键切换">
             ${entPrimary.map(entItemHtml).join('')}
           </ul>
         </div>
-        ${entDotnavHtml(entPrimary.length)}
         ${entSecondary.length >= ENT_FAM_MIN ? `
         <div class="media-gallery fam-media-gallery" role="group" aria-label="书架上的其他书" aria-hidden="true">
           <ul class="media-gallery-item-container" role="list">
             ${entSecondary.map(entSmallHtml).join('')}
           </ul>
         </div>` : ''}
+        ${entDotnavHtml(entPrimary.length)}
       </div>
     </section>` : ''}
   `;
