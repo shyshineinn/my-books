@@ -53,6 +53,7 @@
     this.visualIndex = 0;
     this._lastTruncIndex = 0;
     this._truncTimer = 0;
+    this._fadeAnims = [];
     this.playing = false;
     this.started = false;
     this.visible = false;
@@ -290,6 +291,9 @@
     var dir = target > prev ? 'left' : 'right';
     if (prev === this.n - 1 && target === 0) dir = 'left';
     else if (prev === 0 && target === this.n - 1) dir = 'right';
+    // 落位前的 _syncDots 会用 prevIndex 重刷 previous-current;
+    // 滑动被打断时它必须指向本次预览的旧当前点,否则会误闪收缩动画
+    this.prevIndex = prev;
     this._updateTruncation(target, true, dir);   // 变距窗口先于形态类,同帧生效
     this.visualIndex = target;
     this.dots.forEach(function (li, i) {
@@ -309,7 +313,8 @@
    * 圆点数 ≤ maxDots(≤480px 为 5,更宽为 7):全部等大显示,当前点为进度轨道;
    * 超出时开一条固定长度的窗口,按开头 / 中段 / 结尾三种模板分级:
    *   开头 [1…1,2,3]、中段 [3,2,1…1,2,3]、结尾 [3,2,1…1](2=0.75,3=0.5),
-   *   窗外隐藏;窗口移动时整排按 8px×步数位移,进出的点按 40ms 级联淡入 / 淡出。 */
+   *   窗外隐藏;窗口移动时先量出重排位移并用行内 translate 抵消,再滑回原位,
+   *   进出的点按 40ms 级联淡入 / 淡出。 */
   EndlessGallery.prototype._dotWindow = function (index, count, m) {
     var edge = (m - 1) / 2;
     var start = index <= edge ? 0
@@ -342,15 +347,87 @@
 
   EndlessGallery.prototype._clearTruncAnim = function () {
     if (this._truncTimer) { clearTimeout(this._truncTimer); this._truncTimer = 0; }
+    if (this._fadeAnims.length) {
+      this._fadeAnims.forEach(function (a) { a.anim.cancel(); });
+      this._fadeAnims = [];
+    }
+    if (this.dotnav) this.dotnav.classList.remove('dotnav-transitioning');
     this.dots.forEach(function (li) {
       li.classList.remove('dotnav-transitioning', 'dotnav-becoming-visible', 'dotnav-becoming-invisible',
         'dotnav-stagger-1', 'dotnav-stagger-2', 'dotnav-stagger-3');
-      for (var s = 1; s <= 3; s++) {
-        li.classList.remove('dotnav-shift-left-' + s);
-        li.classList.remove('dotnav-shift-right-' + s);
-      }
+      li.style.transition = '';
+      li.style.translate = '';
     });
-    if (this.dotnav) this.dotnav.classList.remove('dotnav-transitioning');
+  };
+
+  // 变距动画进行中又换窗(连续滑动/反向滑动):记下在飞圆点当前的 link 透明度与缩放,
+  // 清掉动画类后用 WAAPI 从这里续走到新状态 —— 否则新动画会从 0%/100% 重新起跳,
+  // 视觉上表现为圆点瞬间闪一下(apple 的换窗锁只挡点击,挡不住继续滑动)
+  EndlessGallery.prototype._captureFadeState = function () {
+    var actives = this._fadeAnims;
+    var snap = null;
+    this.dots.forEach(function (li, i) {
+      var fading = li.classList.contains('dotnav-becoming-visible') ||
+        li.classList.contains('dotnav-becoming-invisible');
+      if (!fading) {
+        for (var k = 0; k < actives.length; k++) {
+          if (actives[k].index === i) { fading = true; break; }
+        }
+      }
+      if (!fading) return;
+      var link = li.querySelector('.dotnav-link');
+      if (!link) return;
+      var cs = global.getComputedStyle(link);
+      if (!snap) snap = {};
+      snap[i] = {
+        opacity: parseFloat(cs.opacity) || 0,
+        scale: cs.scale === 'none' ? 1 : (parseFloat(cs.scale) || 0)
+      };
+    });
+    return snap;
+  };
+
+  // 取当前视觉位置稳定的一个点做参照(隐藏点被绝对定位/裁切,量不到真实行内位置)
+  EndlessGallery.prototype._pickRowRef = function (preferred, fallback) {
+    var count = this.dots.length;
+    if (!count) return -1;
+    var order = [preferred, fallback];
+    for (var i = 0; i < count; i++) order.push(i);
+    for (var k = 0; k < order.length; k++) {
+      var idx = mod(order[k], count);
+      var li = this.dots[idx];
+      if (!li || li.classList.contains('dotnav-trunc-4')) continue;
+      if (li.querySelector('.dotnav-link')) return idx;
+    }
+    return -1;
+  };
+
+  EndlessGallery.prototype._dotRowX = function (index) {
+    var li = this.dots[index];
+    var link = li && li.querySelector('.dotnav-link');
+    if (!link) return null;
+    var r = link.getBoundingClientRect();
+    return r.left + r.width / 2;
+  };
+
+  // 换窗那一下布局会瞬时重排(进出点让位、整行重新居中)。这里先量出视觉位移,
+  // 用行内 translate 把整排钉在原位,再用 1s 滑到新位置 —— apple 的 shift 效果
+  EndlessGallery.prototype._compensateRowShift = function (refIndex, refX) {
+    if (refIndex < 0 || refX == null) return;
+    var afterX = this._dotRowX(refIndex);
+    if (afterX == null) return;
+    var dx = refX - afterX;
+    if (Math.abs(dx) < 0.5) return;
+    var dots = this.dots;
+    dots.forEach(function (li) {
+      li.style.transition = 'none';
+      li.style.translate = dx.toFixed(2) + 'px 0';
+    });
+    void this.dotnav.offsetWidth;
+    dots.forEach(function (li) {
+      li.style.transition = 'translate var(--sk-dotnav-variable-duration) ease-in-out';
+      li.style.translate = '0px 0px';
+    });
   };
 
   EndlessGallery.prototype._updateTruncation = function (target, animate, dir) {
@@ -364,29 +441,30 @@
 
     var self = this;
     var dots = this.dots;
+    // 重排前先记下参照点的视觉位置;落类后再量一次,差值即需要抵消的位移
+    var refIndex = animate ? this._pickRowRef(target, prev) : -1;
+    var refX = refIndex >= 0 ? this._dotRowX(refIndex) : null;
+    var fadeSnap = animate ? this._captureFadeState() : null;
     this._clearTruncAnim();
     if (animate) void this.dotnav.offsetWidth;   // 同名 CSS 动画需要重排后才能再次触发
 
     if (count <= this.maxDots) {
       dots.forEach(function (li) { self._setDotTrunc(li, 1); });
+      this._compensateRowShift(refIndex, refX);
+      this._finishTruncAnim(animate);
       return;
     }
 
     var oldWin = this._dotWindow(prev, count, m);
     var newWin = this._dotWindow(target, count, m);
-    var steps = 0;
-    if (animate && dir === 'left') steps = clamp(newWin.start - oldWin.start, 0, 2);
-    else if (animate && dir === 'right') steps = clamp(oldWin.start - newWin.start, 0, 2);
 
     dots.forEach(function (li, i) {
       if (self._setDotTrunc(li, self._dotLevel(i, newWin, count)) && animate) {
         li.classList.add('dotnav-transitioning');   // apple:只有截断等级变化的点才迁移
       }
-      if (steps) li.classList.add(dir === 'left' ? 'dotnav-shift-left-' + steps : 'dotnav-shift-right-' + steps);
     });
-    if (animate && steps) this.dotnav.classList.add('dotnav-transitioning');
 
-    if (steps) {
+    if (animate) {
       var entering = [], leaving = [];
       for (var i = 0; i < count; i++) {
         var was = i >= oldWin.start && i <= oldWin.end;
@@ -398,20 +476,45 @@
       // 离开点反向:最外侧先淡出(0ms),靠内的一点晚 40ms(apple 同款)
       entering.sort(dir === 'left' ? function (a, b) { return a - b; } : function (a, b) { return b - a; });
       leaving.sort(dir === 'left' ? function (a, b) { return a - b; } : function (a, b) { return b - a; });
+      // apple:换窗期间整排锁住点击,避免在淡入/淡出中途再次翻转动画
+      if (entering.length || leaving.length) this.dotnav.classList.add('dotnav-transitioning');
       entering.forEach(function (i, k) {
+        if (fadeSnap && fadeSnap[i]) return;
         dots[i].classList.add('dotnav-becoming-visible', 'dotnav-stagger-' + Math.min(3, k + 1));
       });
       leaving.forEach(function (i, k) {
+        if (fadeSnap && fadeSnap[i]) return;
         dots[i].classList.add('dotnav-becoming-invisible', 'dotnav-stagger-' + Math.min(3, k + 1));
       });
+      if (fadeSnap) {
+        Object.keys(fadeSnap).forEach(function (key) {
+          var i = +key;
+          var link = dots[i].querySelector('.dotnav-link');
+          if (!link) return;
+          // 窗外点淡出后本就不可见;link 保持满尺寸,缩回交给 trunc-4 的尺寸过渡
+          var targetOpacity = self._dotLevel(i, newWin, count) === 4 ? 0 : 1;
+          try {
+            var anim = link.animate([
+              { opacity: fadeSnap[key].opacity, scale: fadeSnap[key].scale },
+              { opacity: targetOpacity, scale: 1 }
+            ], { duration: 480, easing: 'ease-in-out', fill: 'both' });
+            self._fadeAnims.push({ index: i, anim: anim });
+          } catch (_) {}
+        });
+      }
     }
 
-    if (animate) {
-      this._truncTimer = setTimeout(function () {
-        self._truncTimer = 0;
-        self._clearTruncAnim();
-      }, TRUNC_MS);
-    }
+    this._compensateRowShift(refIndex, refX);
+    this._finishTruncAnim(animate);
+  };
+
+  EndlessGallery.prototype._finishTruncAnim = function (animate) {
+    if (!animate) return;
+    var self = this;
+    this._truncTimer = setTimeout(function () {
+      self._truncTimer = 0;
+      self._clearTruncAnim();
+    }, TRUNC_MS);
   };
 
   EndlessGallery.prototype._animateTo = function (target) {
@@ -466,8 +569,9 @@
     }, dur + 60);
   };
 
-  // 冻结进行中的滑动:清掉 transition,让卡片停在当前渲染位置
+  // 冻结进行中的滑动:清掉 transition 与落位定时器,让卡片停在当前渲染位置
   EndlessGallery.prototype._slideStop = function () {
+    if (this.slideTimer) { clearTimeout(this.slideTimer); this.slideTimer = 0; }
     this.sliding = false;
     this.rails.forEach(function (rail) {
       rail.items.forEach(function (it) { it.style.transition = ''; });
@@ -525,14 +629,13 @@
     if (this.destroyed || this.n < 2) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.suppressClick = false;
-    // 打断进行中的滑动:冻结在当前渲染位置,圆点预览态回滚到原当前项,再开始拖拽
+    // 打断进行中的滑动:冻结在当前渲染位置,保留圆点的预览态(不回退),
+    // 否则中途抓住轮播图时整个圆点栏会先跳回旧位置再跳回来
     if (this.sliding) {
       this.pos = this._currentPos();
       this._slideStop();
       this.render();
     }
-    this._syncDots();
-    this._updateTruncation(mod(this.index, this.n), false);
     // 注意:此处不要停表,否则轻点卡片(未构成拖拽)会把自动播放掐断
     this.drag = {
       id: e.pointerId,

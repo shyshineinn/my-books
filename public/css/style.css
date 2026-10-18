@@ -2836,22 +2836,12 @@ main.page-home {
               width var(--sk-dotnav-hover-animation-duration) linear,
               scale var(--sk-dotnav-hover-animation-duration) linear;
 }
-/* 整排位移:窗口滑动时行内容按 8px×步数回弹(apple 的 shift keyframes) */
-@keyframes dotnav-row-shift-left-1 { 0% { translate: 8px 0; } 100% { translate: 0 0; } }
-@keyframes dotnav-row-shift-left-2 { 0% { translate: 16px 0; } 100% { translate: 0 0; } }
-@keyframes dotnav-row-shift-left-3 { 0% { translate: 24px 0; } 100% { translate: 0 0; } }
-@keyframes dotnav-row-shift-right-1 { 0% { translate: -8px 0; } 100% { translate: 0 0; } }
-@keyframes dotnav-row-shift-right-2 { 0% { translate: -16px 0; } 100% { translate: 0 0; } }
-@keyframes dotnav-row-shift-right-3 { 0% { translate: -24px 0; } 100% { translate: 0 0; } }
-.dotnav-item.dotnav-shift-left-1 { animation: dotnav-row-shift-left-1 var(--sk-dotnav-variable-duration) ease-in-out both; }
-.dotnav-item.dotnav-shift-left-2 { animation: dotnav-row-shift-left-2 var(--sk-dotnav-variable-duration) ease-in-out both; }
-.dotnav-item.dotnav-shift-left-3 { animation: dotnav-row-shift-left-3 var(--sk-dotnav-variable-duration) ease-in-out both; }
-.dotnav-item.dotnav-shift-right-1 { animation: dotnav-row-shift-right-1 var(--sk-dotnav-variable-duration) ease-in-out both; }
-.dotnav-item.dotnav-shift-right-2 { animation: dotnav-row-shift-right-2 var(--sk-dotnav-variable-duration) ease-in-out both; }
-.dotnav-item.dotnav-shift-right-3 { animation: dotnav-row-shift-right-3 var(--sk-dotnav-variable-duration) ease-in-out both; }
 /* 窗口边缘圆点的交错淡入/淡出(apple 的 40ms 级联,480ms 时长) */
 @keyframes dotnav-become-visible { 0% { opacity: 0; scale: 0; } 100% { opacity: 1; scale: 1; } }
 @keyframes dotnav-become-invisible { 0% { opacity: 1; } 100% { opacity: 0; } }
+/* 离场的整颗淡出交给 link 上的 480ms 动画;::before 离场期间保持可见,
+   避免截断透明度提前收缩把旧当前点的淡出压成一瞬 */
+.dotnav-item.dotnav-becoming-invisible .dotnav-link::before { opacity: 1; }
 /* 进入点:从 440ms 起按 40ms 递增,最深的一点 520ms 才开始淡入
    apple:动画作用在 .dotnav-link(按钮)上,内部圆点保留自己的截断缩放,结束时不会跳变 */
 .dotnav-item.dotnav-becoming-visible .dotnav-link {
@@ -2919,8 +2909,12 @@ main.page-home {
               width var(--sk-dotnav-hover-animation-duration) linear,
               scale var(--sk-dotnav-hover-animation-duration) linear;
 }
-/* 当前点的轨道展开交给 250ms animation,不再叠加过渡(apple 同款) */
-.dotnav-item.dotnav-focused .dotnav-link::before { transition: none; }
+/* 当前点的轨道展开交给 250ms animation,不再叠加过渡(apple 同款);
+   scale / opacity 保留过渡:交接给 previous-current 时不会瞬间跳一档或直接消失 */
+.dotnav-item.dotnav-focused .dotnav-link::before {
+  transition: scale 250ms ease-out,
+              opacity var(--sk-dotnav-hover-animation-duration) linear;
+}
 .current .dotnav-link { cursor: default; pointer-events: none; }
 .current .dotnav-link::before { background: var(--sk-dotnav-background-current); }
 /* 键盘焦点落在点时,给当前轨道加 apple 同款焦点环 */
