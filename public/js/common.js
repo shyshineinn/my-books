@@ -1640,7 +1640,10 @@ function openSearchOverlay() {
   } else {
     searchFlyout.style.height = '';
   }
-  setTimeout(() => { if (isSearchOpen()) searchInput.focus({ preventScroll: true }); }, 30);
+  // 桌面自动聚焦输入框;竖屏不聚焦,避免一开搜索就弹软键盘
+  setTimeout(() => {
+    if (isSearchOpen() && searchMq.matches) searchInput.focus({ preventScroll: true });
+  }, 30);
 }
 
 function closeSearchOverlay(restoreFocus) {
