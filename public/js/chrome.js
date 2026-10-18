@@ -200,7 +200,9 @@ function overlaysHtml() {
   ${navFlyoutHtml()}
 
   <!-- 全局搜索浮层(apple.com search 同款):桌面自 44px 导航下方展开,
-       竖屏自 48px 长到满屏;Quick Links 位置换成「保存的搜索」。 -->
+       竖屏自 48px 长到满屏;Quick Links 位置换成「保存的搜索」。
+       竖屏没有独立 ✕ —— 顶栏汉堡按钮(#menuBtn)压在面板之上,
+       展开时由两条横杠变形成 ✕,再点一下收起搜索(apple.com 同款)。 -->
   <div id="searchCurtain" class="search-curtain" aria-hidden="true"></div>
   <div id="searchFlyout" class="search-flyout" role="search" aria-hidden="true">
     <div class="search-flyout-scroll">
@@ -231,11 +233,6 @@ function overlaysHtml() {
         </section>
       </div>
     </div>
-    <button type="button" id="searchCloseBtn" class="search-close" aria-label="关闭搜索">
-      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-        <path d="M2 2l14 14M16 2 2 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
-      </svg>
-    </button>
   </div>
 
   <!-- 添加 / 编辑书籍弹窗 -->

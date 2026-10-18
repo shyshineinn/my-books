@@ -586,14 +586,22 @@ const menuBtn = $('#menuBtn');
 let menuClosingTimer = 0;
 
 /* apple.com 同款触发器:两条 18×18 折线先在中线会合、再交叉成 ✕。
-   不支持 SMIL 的内核没有 beginElement,静默跳过 —— 菜单本身照常开合。 */
+   搜索展开时它同时充当搜索的 ✕(apple.com 也是同一个 menu trigger)。
+   不支持 SMIL 的内核没有 beginElement,静默跳过 —— 面板本身照常开合。 */
+function syncMenuTrigger() {
+  const searching = isSearchOpen();
+  const open = searching || mobileMenu.classList.contains('open');
+  menuBtn.setAttribute('aria-expanded', String(open));
+  menuBtn.setAttribute('aria-controls', searching ? 'searchFlyout' : 'mobileMenu');
+  menuBtn.setAttribute('aria-label', open ? (searching ? '关闭搜索' : '关闭菜单') : '打开菜单');
+}
+
 function playMenuTrigger(open) {
   (open ? ['mmAnimTopOpen', 'mmAnimBottomOpen'] : ['mmAnimTopClose', 'mmAnimBottomClose']).forEach((id) => {
     const anim = document.getElementById(id);
     if (anim && anim.beginElement) anim.beginElement();
   });
-  menuBtn.setAttribute('aria-expanded', String(open));
-  menuBtn.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
+  syncMenuTrigger();
 }
 
 function closeMobileMenu() {
@@ -622,6 +630,8 @@ function openMobileMenu() {
 }
 
 $('#menuBtn').addEventListener('click', () => {
+  // 搜索展开时这颗按钮是搜索的 ✕(apple.com 同款)
+  if (isSearchOpen()) { closeSearchOverlay(true); return; }
   if (mobileMenu.classList.contains('open')) closeMobileMenu();
   else openMobileMenu();
 });
@@ -1536,12 +1546,13 @@ $('#bookForm').addEventListener('submit', async (e) => {
 /* ============ 全局搜索浮层(跨页,apple.com search 同款) ============
  * 桌面:点顶栏放大镜,#fafafc 面板自 44px 导航下方展开(240ms),
  *       输入框自动聚焦,页面蒙 20px 毛玻璃幕布。
- * 竖屏:同一面板自 48px 长到满屏(422ms),右上角 ✕ 关闭并锁定页面滚动。
+ * 竖屏:同一面板自 48px 长到满屏(422ms),顶栏汉堡变形成 ✕ 关闭,
+ *       页面滚动锁定,幕布 320ms(+80ms 延迟)淡出。
  * Quick Links 的位置换成「保存的搜索」(原始查询串 + 排序):
  *   · 点行 → 书架页直接套用并刷新;其它页跳到 /shelf?q=…&sort=…
  *   · 标题右侧「保存当前」把输入框里的查询存成一条;
  *     「编辑」进入管理态,行尾出现 ✎ / ✕。
- * 书架页输入仍实时过滤;回车在书架页派发 shelf-search,其它页跳书架。 */
+ * 回车在书架页派发 shelf-search,其它页跳书架。 */
 const SEARCH_SORT_TEXT = {
   updated: '最近更新', finish: '读完日期', title: '书名',
   author: '作者', series: '系列', created: '添加时间',
@@ -1556,7 +1567,6 @@ const searchForm = $('#searchForm');
 const searchInput = $('#searchInput');
 const searchBtn = $('#searchBtn');
 const searchResetBtn = $('#searchResetBtn');
-const searchCloseBtn = $('#searchCloseBtn');
 const searchSavedList = $('#searchSavedList');
 const searchEmpty = $('#searchEmpty');
 const searchSaveBtn = $('#searchSaveBtn');
@@ -1595,12 +1605,12 @@ function syncSearchTools() {
 }
 
 function renderSaved() {
-  searchSavedList.innerHTML = savedItems.map((item) => {
+  searchSavedList.innerHTML = savedItems.map((item, i) => {
     const sortText = item.sort && item.sort !== 'updated'
       ? '按' + (SEARCH_SORT_TEXT[item.sort] || item.sort)
       : '';
     const meta = [item.query || '', sortText].filter(Boolean).join(' · ');
-    return `<li class="search-results-item"><div class="search-result-row" data-id="${item.id}">`
+    return `<li class="search-results-item" style="--i:${Math.min(i, 8)}"><div class="search-result-row" data-id="${item.id}">`
       + `<button type="button" class="search-result-link" data-act="apply" title="${esc(meta)}">`
       + `<span class="search-result-icon" aria-hidden="true">${SEARCH_ARROW_SVG}</span>`
       + `<span class="search-result-name">${esc(item.name)}</span>`
@@ -1629,6 +1639,8 @@ function openSearchOverlay() {
   renderSaved();
   searchFlyout.classList.add('open');
   document.body.classList.add('search-open');
+  // 顶栏汉堡 → ✕;它压在搜索面板之上,点击即收起(apple.com 同款)
+  playMenuTrigger(true);
   searchFlyout.setAttribute('aria-hidden', 'false');
   searchBtn.setAttribute('aria-expanded', 'true');
   if (searchMq.matches) {
@@ -1650,6 +1662,8 @@ function closeSearchOverlay(restoreFocus) {
   if (!isSearchOpen()) return;
   searchFlyout.classList.remove('open');
   document.body.classList.remove('search-open');
+  // ✕ 变回两条横杠(240ms);面板约 100ms 后先消失,幕布继续淡出
+  playMenuTrigger(false);
   searchFlyout.setAttribute('aria-hidden', 'true');
   searchBtn.setAttribute('aria-expanded', 'false');
   searchFlyout.style.height = '';
@@ -1692,7 +1706,6 @@ searchBtn.addEventListener('click', () => {
   if (isSearchOpen()) closeSearchOverlay(true);
   else openSearchOverlay();
 });
-searchCloseBtn.addEventListener('click', () => closeSearchOverlay(true));
 searchCurtain.addEventListener('click', () => closeSearchOverlay(false));
 searchForm.addEventListener('submit', (e) => { e.preventDefault(); submitSearch(); });
 searchInput.addEventListener('input', syncSearchTools);
@@ -1771,7 +1784,8 @@ searchSaveBtn.addEventListener('click', async () => {
 
 document.addEventListener('pointerdown', (e) => {
   if (!isSearchOpen()) return;
-  if (e.target.closest('#searchFlyout') || e.target.closest('#searchBtn')) return;
+  // #menuBtn 在搜索展开时就是 ✕,由它的 click 负责关闭,不能当成"面板外点击"
+  if (e.target.closest('#searchFlyout') || e.target.closest('#searchBtn') || e.target.closest('#menuBtn')) return;
   closeSearchOverlay(false);
 });
 

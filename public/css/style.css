@@ -386,6 +386,10 @@ body.menu-open .menu-curtain {
 
 /* 竖屏/窄屏:logo 与品牌居左(apple.com 移动端同款),右侧仅功能按钮 */
 @media (max-width: 819px) {
+  /* 搜索面板 z60 长满屏时,顶栏仍压在它上面 —— 汉堡 ✕ 必须一直可点,
+     关闭时 X → 两条横杠的变形也不会被面板盖住(apple.com 同款层级) */
+  .topbar { z-index: 61; }
+
   .topbar-inner {
     padding: 0 16px;
     flex-wrap: nowrap;
@@ -397,8 +401,8 @@ body.menu-open .menu-curtain {
   .mobile-menu-btn { display: inline-flex; }
   .topbar-actions { flex: 0 0 auto; margin-left: auto; }
 
-  /* —— 菜单展开态:顶栏退成透明,品牌与图标淡出(apple.com 同款),
-     只保留右缘 ✕;关闭时带 80ms 延迟淡回 —— */
+  /* —— 菜单 / 搜索展开态:顶栏退成透明,品牌与图标淡出(apple.com 同款),
+     只保留右缘触发器 ✕;关闭时带 80ms 延迟淡回 —— */
   .topbar .brand,
   .topbar .topbar-actions {
     transition:
@@ -407,19 +411,24 @@ body.menu-open .menu-curtain {
       visibility 0.24s step-start 0.08s;
   }
 
-  body.menu-open .topbar {
+  body.menu-open .topbar,
+  body.search-open .topbar {
     background: transparent;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 
   body.menu-open .topbar .brand,
-  body.menu-open .topbar .topbar-actions {
+  body.menu-open .topbar .topbar-actions,
+  body.search-open .topbar .brand,
+  body.search-open .topbar .topbar-actions {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition: opacity 0.24s cubic-bezier(0.4, 0, 0.6, 1), visibility 0.24s step-end;
   }
+
+  body.search-open .mobile-menu-btn { opacity: 1; }
 }
 
 /* ============================================================
@@ -560,12 +569,38 @@ body.menu-open .menu-curtain {
    全局搜索浮层(apple.com search 1:1)
    —— 桌面:44px 导航下方 #fafafc 面板,高度 240ms 展开,内容 1024 栅格;
       输入 24px/600,Quick Links 行 12px/600 + 9px 箭头,悬停 #f5f5f7。
-   —— 竖屏:面板自 48px 长到满屏(422ms),输入 28px/600,行 17px/600,
-      右上角 ✕;输入框无边框,聚焦不画描边。
+   —— 竖屏:面板自 48px 长到满屏(422ms),输入 28px/600,行 17px/600。
+      没有独立 ✕:顶栏汉堡按钮压在面板之上,展开时两条横杠变形成 ✕,
+      点它收起搜索(apple.com 的 X 就是 menu trigger)。
+      内容按 apple.com 实测节奏进出:输入延迟 200ms,行再每项 +20ms;
+      关闭时内容先淡出上移,面板约 100ms 后消失,毛玻璃幕布继续淡出。
    Quick Links 位置换成「保存的搜索」:行点击即套用查询串 + 排序,
    标题右侧的「保存当前 / 编辑」承担管理功能(编辑态行尾出现 ✎ / ✕)。
    ============================================================ */
-.search-curtain { display: none; }
+.search-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  background: rgba(232, 232, 237, 0.4);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* apple.com 实测:展开/收起都是 320ms 淡变 + 80ms 延迟 */
+  transition:
+    opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    visibility 0s linear 0.4s;
+}
+
+body.search-open .search-curtain {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    visibility 0s linear 0.08s;
+}
 
 .search-flyout {
   position: fixed;
@@ -578,8 +613,12 @@ body.menu-open .menu-curtain {
   visibility: hidden;
   pointer-events: none;
   background: #fafafc;
-  /* 竖屏关闭是瞬时的(apple.com 实测),只有展开带动画 */
-  transition: none;
+  /* apple.com 实测的 X 关闭:面板保持满屏约 100ms 让内容淡出,
+     然后直接消失(高度与 visibility 同时切),幕布再单独淡出;
+     没有整块面板上缩的动画。 */
+  transition:
+    height 0s linear 0.1s,
+    visibility 0s linear 0.1s;
 }
 
 .search-flyout.open {
@@ -601,6 +640,54 @@ body.menu-open .menu-curtain {
 .search-flyout-scroll::-webkit-scrollbar { display: none; }
 
 .search-flyout-inner { padding: 54px 36px 40px; }
+
+/* 内容进出节奏(apple.com 实测):
+   展开 —— 输入 240ms(延迟 200ms),标题 320ms(延迟 200ms),
+          保存行 320ms(延迟 220ms 起,每行 +20ms);
+   关闭 —— 输入 240ms,标题 160ms,行 140/120/100/80/60ms,全部立即开始。
+   起始/结束位置都在 -8px,与 apple.com 的 fade-and-slide 一致。 */
+.search-field,
+.search-results-head,
+.search-results-empty,
+.search-results-item {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition:
+    opacity 0.16s linear,
+    transform 0.16s linear;
+}
+
+.search-field { transition-duration: 0.24s; }
+.search-results-item { transition-duration: 0.06s; }
+.search-results-item:nth-child(1) { transition-duration: 0.14s; }
+.search-results-item:nth-child(2) { transition-duration: 0.12s; }
+.search-results-item:nth-child(3) { transition-duration: 0.1s; }
+.search-results-item:nth-child(4) { transition-duration: 0.08s; }
+
+.search-flyout.open .search-field {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.24s linear 0.2s,
+    transform 0.24s linear 0.2s;
+}
+
+.search-flyout.open .search-results-head,
+.search-flyout.open .search-results-empty {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.32s linear 0.2s,
+    transform 0.32s linear 0.2s;
+}
+
+.search-flyout.open .search-results-item {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.32s linear calc(0.22s + var(--i, 0) * 20ms),
+    transform 0.32s linear calc(0.22s + var(--i, 0) * 20ms);
+}
 
 .search-field { position: relative; margin: 0 4px; }
 
@@ -653,26 +740,6 @@ body.menu-open .menu-curtain {
   cursor: pointer;
 }
 .search-field-reset[hidden] { display: none; }
-
-.search-close {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 2;
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #000;
-  opacity: 0.8;
-  cursor: pointer;
-}
-.search-close:hover { opacity: 1; }
-.search-close:focus-visible { outline-offset: -7px; }
 
 .search-results { margin-top: 49px; }
 
@@ -792,30 +859,7 @@ body.menu-open .menu-curtain {
 }
 
 @media (min-width: 820px) {
-  .search-curtain {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 48;
-    background: rgba(232, 232, 237, 0.4);
-    -webkit-backdrop-filter: blur(20px);
-    backdrop-filter: blur(20px);
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
-      visibility 0s linear 0.4s;
-  }
-
-  body.search-open .search-curtain {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transition:
-      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
-      visibility 0s linear 0.08s;
-  }
+  .search-curtain { z-index: 48; }
 
   body.search-open .topbar { background: #fafafc; }
 
@@ -879,13 +923,19 @@ body.menu-open .menu-curtain {
   .search-result-act { width: 26px; height: 24px; font-size: 12px; }
 
   .search-results-empty { padding: 4px 8px; font-size: 12px; line-height: 16px; }
-
-  .search-close { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .search-flyout,
   .search-flyout.open,
+  .search-field,
+  .search-results-head,
+  .search-results-empty,
+  .search-results-item,
+  .search-flyout.open .search-field,
+  .search-flyout.open .search-results-head,
+  .search-flyout.open .search-results-empty,
+  .search-flyout.open .search-results-item,
   .search-curtain,
   body.search-open .search-curtain { transition: none; }
 }
