@@ -377,6 +377,35 @@ function initCollapsibleSections(secs, headSel) {
       toggle();
     });
   });
+  bindHashReveal();
+}
+
+/* 顶栏下拉里的深链(如 /stats#authorPanel、/tags#fieldsHead):
+   目标所在板块默认折叠,直接跳只会停在标题上 —— 先展开再滚动到目标。 */
+function revealSectionFromHash() {
+  const raw = location.hash.slice(1);
+  if (!raw) return;
+  let target;
+  try { target = document.getElementById(decodeURIComponent(raw)); } catch { return; }
+  if (!target) return;
+  const sec = target.closest('.is-collapsed');
+  if (sec) {
+    sec.classList.remove('is-collapsed');
+    const btn = sec.querySelector('.collapse-head > .collapse-toggle');
+    if (btn) {
+      btn.setAttribute('aria-expanded', 'true');
+      btn.setAttribute('aria-label', '折叠');
+    }
+  }
+  requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
+}
+
+function bindHashReveal() {
+  if (bindHashReveal.bound) return;
+  bindHashReveal.bound = true;
+  window.addEventListener('hashchange', () => requestAnimationFrame(revealSectionFromHash));
+  window.addEventListener('load', () => setTimeout(revealSectionFromHash, 0), { once: true });
+  setTimeout(revealSectionFromHash, 0);
 }
 
 /* ============ 弹窗通用 ============ */
@@ -403,7 +432,6 @@ document.addEventListener('keydown', (e) => {
     if (window.BookScanner && BookScanner.isOpen()) return;
     closeModals();
     closeMobileMenu();
-    closeSearchRow();
   }
 });
 
@@ -554,21 +582,48 @@ $('#settingsSave').addEventListener('click', async () => {
 
 /* ============ 移动端全屏菜单 ============ */
 const mobileMenu = $('#mobileMenu');
+const menuBtn = $('#menuBtn');
+let menuClosingTimer = 0;
 
-function closeMobileMenu() {
-  mobileMenu.classList.remove('open');
-  document.body.classList.remove('menu-open', 'modal-open');
+/* apple.com 同款触发器:两条 18×18 折线先在中线会合、再交叉成 ✕。
+   不支持 SMIL 的内核没有 beginElement,静默跳过 —— 菜单本身照常开合。 */
+function playMenuTrigger(open) {
+  (open ? ['mmAnimTopOpen', 'mmAnimBottomOpen'] : ['mmAnimTopClose', 'mmAnimBottomClose']).forEach((id) => {
+    const anim = document.getElementById(id);
+    if (anim && anim.beginElement) anim.beginElement();
+  });
+  menuBtn.setAttribute('aria-expanded', String(open));
+  menuBtn.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
 }
 
-$('#menuBtn').addEventListener('click', () => {
-  const opening = !mobileMenu.classList.contains('open');
-  mobileMenu.classList.toggle('open', opening);
-  document.body.classList.toggle('menu-open', opening);
-  document.body.classList.toggle('modal-open', opening);
+function closeMobileMenu() {
+  if (!mobileMenu.classList.contains('open')) return;
+  mobileMenu.classList.remove('open');
+  // 关闭时条目保持可见,由面板收起把它们带出屏幕(apple.com 同款);
+  // 收起动画(0.422s + 0.12s 延迟)结束后再让它们回到隐藏态
+  mobileMenu.classList.add('closing');
+  clearTimeout(menuClosingTimer);
+  menuClosingTimer = setTimeout(() => mobileMenu.classList.remove('closing'), 600);
+  document.body.classList.remove('menu-open', 'modal-open');
+  playMenuTrigger(false);
+}
+
+function openMobileMenu() {
+  closeSearchOverlay(false);
+  clearTimeout(menuClosingTimer);
+  mobileMenu.classList.remove('closing');
+  mobileMenu.classList.add('open');
+  document.body.classList.add('menu-open', 'modal-open');
+  playMenuTrigger(true);
   // 展开时把焦点移进对话框本身(原来是落在搜索框上;搜索已独立到顶栏)。
   // 焦点给容器而非第一个导航项:Tab 一下即进入「首页」,且容器不画聚焦描边,
   // 不依赖 :focus-visible 的输入模态启发式 —— 避免每次开菜单都闪一圈蓝框
-  if (opening) setTimeout(() => mobileMenu.focus(), 300);
+  setTimeout(() => mobileMenu.focus(), 300);
+}
+
+$('#menuBtn').addEventListener('click', () => {
+  if (mobileMenu.classList.contains('open')) closeMobileMenu();
+  else openMobileMenu();
 });
 
 // 菜单里的导航项是真实链接(跨页跳转),只需点按时收起菜单
@@ -1478,45 +1533,261 @@ $('#bookForm').addEventListener('submit', async (e) => {
   }
 });
 
-/* ============ 顶栏搜索(跨页) ============
- * 书架页:输入实时过滤(派发 shelf-search 给 page-shelf.js)。
- * 其它页:回车跳转 /shelf?q=…(与旧单页"回车进书架看结果"一致)。 */
-const IS_SHELF_PAGE = document.body.dataset.page === 'shelf';
+/* ============ 全局搜索浮层(跨页,apple.com search 同款) ============
+ * 桌面:点顶栏放大镜,#fafafc 面板自 44px 导航下方展开(240ms),
+ *       输入框自动聚焦,页面蒙 20px 毛玻璃幕布。
+ * 竖屏:同一面板自 48px 长到满屏(422ms),右上角 ✕ 关闭并锁定页面滚动。
+ * Quick Links 的位置换成「保存的搜索」(原始查询串 + 排序):
+ *   · 点行 → 书架页直接套用并刷新;其它页跳到 /shelf?q=…&sort=…
+ *   · 标题右侧「保存当前」把输入框里的查询存成一条;
+ *     「编辑」进入管理态,行尾出现 ✎ / ✕。
+ * 书架页输入仍实时过滤;回车在书架页派发 shelf-search,其它页跳书架。 */
+const SEARCH_SORT_TEXT = {
+  updated: '最近更新', finish: '读完日期', title: '书名',
+  author: '作者', series: '系列', created: '添加时间',
+};
 
-function openSearchRow() {
-  document.body.classList.add('search-open');
-  const si = $('#searchInput');
-  if (si) setTimeout(() => si.focus(), 30);
+// apple.com Quick Links 行首的细箭头(9×16)
+const SEARCH_ARROW_SVG = '<svg width="9" height="16" viewBox="0 0 9 16" aria-hidden="true"><path d="m8.6124 8.1035-2.99 2.99a.5.5 0 0 1-.7071-.7071l2.1366-2.1364h-6.316a.5.5 0 0 1 0-1h6.316l-2.1368-2.1367a.5.5 0 0 1 .7071-.7071l2.99 2.99a.5.5 0 0 1 .0002.7073z" fill="currentColor"></path></svg>';
+
+const searchFlyout = $('#searchFlyout');
+const searchCurtain = $('#searchCurtain');
+const searchForm = $('#searchForm');
+const searchInput = $('#searchInput');
+const searchBtn = $('#searchBtn');
+const searchResetBtn = $('#searchResetBtn');
+const searchCloseBtn = $('#searchCloseBtn');
+const searchSavedList = $('#searchSavedList');
+const searchEmpty = $('#searchEmpty');
+const searchSaveBtn = $('#searchSaveBtn');
+const searchEditBtn = $('#searchEditBtn');
+const searchMq = window.matchMedia('(min-width: 820px)');
+
+let savedItems = [];
+let savedEditMode = false;
+
+const isSearchOpen = () => searchFlyout.classList.contains('open');
+const searchQuery = () => searchInput.value.trim();
+const findSaved = (id) => savedItems.find((x) => String(x.id) === String(id));
+
+function searchPanelHeight() {
+  const scroll = searchFlyout.querySelector('.search-flyout-scroll');
+  return Math.min(scroll.scrollHeight, window.innerHeight - 44);
 }
 
-function closeSearchRow() {
-  if (!document.body.classList.contains('search-open')) return;
-  document.body.classList.remove('search-open');
-  const si = $('#searchInput');
-  if (si) si.blur();
+function syncSearchHeight() {
+  if (!isSearchOpen() || !searchMq.matches) return;
+  searchFlyout.style.height = searchPanelHeight() + 'px';
 }
 
-$('#searchBtn').addEventListener('click', openSearchRow);
-$('#searchCancel').addEventListener('click', closeSearchRow);
+// 保存 / 编辑按钮与空态文案随输入变化,不整表重绘
+function syncSearchTools() {
+  const q = searchQuery();
+  searchResetBtn.hidden = !searchInput.value;
+  searchSaveBtn.hidden = !q;
+  if (savedEditMode && !savedItems.length) savedEditMode = false;
+  searchEditBtn.hidden = !savedItems.length;
+  searchEditBtn.textContent = savedEditMode ? '完成' : '编辑';
+  searchEmpty.hidden = savedItems.length > 0;
+  if (!savedItems.length) {
+    searchEmpty.textContent = q ? '还没有保存的搜索,可把当前查询保存下来' : '还没有保存的搜索';
+  }
+}
 
-document.addEventListener('pointerdown', (e) => {
-  if (!document.body.classList.contains('search-open')) return;
-  if (e.target.closest('.topbar')) return;   // 顶栏内的操作不关闭
-  closeSearchRow();
-});
+function renderSaved() {
+  searchSavedList.innerHTML = savedItems.map((item) => {
+    const sortText = item.sort && item.sort !== 'updated'
+      ? '按' + (SEARCH_SORT_TEXT[item.sort] || item.sort)
+      : '';
+    const meta = [item.query || '', sortText].filter(Boolean).join(' · ');
+    return `<li class="search-results-item"><div class="search-result-row" data-id="${item.id}">`
+      + `<button type="button" class="search-result-link" data-act="apply" title="${esc(meta)}">`
+      + `<span class="search-result-icon" aria-hidden="true">${SEARCH_ARROW_SVG}</span>`
+      + `<span class="search-result-name">${esc(item.name)}</span>`
+      + '</button>'
+      + `<span class="search-result-actions"${savedEditMode ? '' : ' hidden'}>`
+      + `<button type="button" class="search-result-act" data-act="rename" title="重命名" aria-label="重命名「${esc(item.name)}」">✎</button>`
+      + `<button type="button" class="search-result-act is-danger" data-act="del" title="删除" aria-label="删除「${esc(item.name)}」">✕</button>`
+      + '</span></div></li>';
+  }).join('');
+  syncSearchTools();
+  syncSearchHeight();
+}
 
-$('#searchInput').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  const q = $('#searchInput').value.trim();
-  closeSearchRow();
+async function loadSavedSearches() {
+  try {
+    const list = await api('/api/saved-searches');
+    savedItems = Array.isArray(list) ? list : [];
+  } catch { savedItems = []; } // 拉取失败静默:不影响普通检索
+  renderSaved();
+}
+
+function openSearchOverlay() {
+  if (isSearchOpen()) return;
   closeMobileMenu();
-  if (IS_SHELF_PAGE) {
+  document.dispatchEvent(new Event('nav-flyout-close'));
+  renderSaved();
+  searchFlyout.classList.add('open');
+  document.body.classList.add('search-open');
+  searchFlyout.setAttribute('aria-hidden', 'false');
+  searchBtn.setAttribute('aria-expanded', 'true');
+  if (searchMq.matches) {
+    // 从 0 量到内容高度,由 CSS 的 240ms 过渡揭开
+    searchFlyout.style.height = '0px';
+    requestAnimationFrame(() => {
+      if (isSearchOpen() && searchMq.matches) searchFlyout.style.height = searchPanelHeight() + 'px';
+    });
+  } else {
+    searchFlyout.style.height = '';
+  }
+  setTimeout(() => { if (isSearchOpen()) searchInput.focus({ preventScroll: true }); }, 30);
+}
+
+function closeSearchOverlay(restoreFocus) {
+  if (!isSearchOpen()) return;
+  searchFlyout.classList.remove('open');
+  document.body.classList.remove('search-open');
+  searchFlyout.setAttribute('aria-hidden', 'true');
+  searchBtn.setAttribute('aria-expanded', 'false');
+  searchFlyout.style.height = '';
+  if (savedEditMode) {
+    savedEditMode = false;
+    renderSaved();
+  }
+  if (restoreFocus) searchBtn.focus();
+}
+
+function submitSearch() {
+  const q = searchQuery();
+  const onShelf = document.body.dataset.page === 'shelf';
+  closeSearchOverlay(false);
+  closeMobileMenu();
+  if (onShelf) {
     document.dispatchEvent(new CustomEvent('shelf-search', { detail: { q } }));
   } else if (q) {
     location.href = '/shelf?q=' + encodeURIComponent(q);
   }
+}
+
+function applySavedSearch(item) {
+  const q = item.query || '';
+  const sort = item.sort || 'updated';
+  searchInput.value = q;
+  syncSearchTools();
+  closeSearchOverlay(false);
+  if (document.body.dataset.page === 'shelf') {
+    document.dispatchEvent(new CustomEvent('saved-search-apply', { detail: { q, sort } }));
+    return;
+  }
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (sort && sort !== 'updated') params.set('sort', sort);
+  location.href = '/shelf' + (params.toString() ? '?' + params.toString() : '');
+}
+
+searchBtn.addEventListener('click', () => {
+  if (isSearchOpen()) closeSearchOverlay(true);
+  else openSearchOverlay();
 });
+searchCloseBtn.addEventListener('click', () => closeSearchOverlay(true));
+searchCurtain.addEventListener('click', () => closeSearchOverlay(false));
+searchForm.addEventListener('submit', (e) => { e.preventDefault(); submitSearch(); });
+searchInput.addEventListener('input', syncSearchTools);
+searchInput.addEventListener('keydown', (e) => {
+  // 显式提交:type=search 的原生隐式提交在部分输入法/虚拟键盘下不触发
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    submitSearch();
+    return;
+  }
+  if (e.key !== 'ArrowDown' || !savedItems.length) return;
+  e.preventDefault();
+  const first = searchSavedList.querySelector('button[data-act="apply"]');
+  if (first) first.focus();
+});
+searchResetBtn.addEventListener('click', () => {
+  searchInput.value = '';
+  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  searchInput.focus();
+});
+
+searchSavedList.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const row = btn.closest('.search-result-row');
+  const item = row && findSaved(row.dataset.id);
+  if (!item) return;
+  if (btn.dataset.act === 'apply') {
+    applySavedSearch(item);
+    return;
+  }
+  try {
+    if (btn.dataset.act === 'rename') {
+      const name = prompt('重命名该保存的搜索:', item.name);
+      if (name === null || !name.trim()) return;
+      const res = await api('/api/saved-searches/' + item.id, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) });
+      savedItems = Array.isArray(res.items) ? res.items : savedItems;
+      renderSaved();
+      toast('已重命名');
+    } else if (btn.dataset.act === 'del') {
+      if (!confirm(`删除保存的搜索「${item.name}」?`)) return;
+      const res = await api('/api/saved-searches/' + item.id, { method: 'DELETE' });
+      savedItems = Array.isArray(res.items) ? res.items : savedItems;
+      renderSaved();
+      toast('已删除');
+    }
+  } catch (err) { toast(err.message, true); }
+});
+
+searchEditBtn.addEventListener('click', () => {
+  savedEditMode = !savedEditMode;
+  renderSaved();
+  if (savedEditMode) {
+    const firstAct = searchSavedList.querySelector('.search-result-act');
+    if (firstAct) firstAct.focus();
+  }
+});
+
+searchSaveBtn.addEventListener('click', async () => {
+  const q = searchQuery();
+  if (!q) return;
+  const name = prompt('为当前搜索命名(保存后可一键套用):', q.slice(0, 20));
+  if (name === null || !name.trim()) return;
+  const sortSel = $('#sortSelect');
+  const sort = sortSel && sortSel.value ? sortSel.value : 'updated';
+  try {
+    const res = await api('/api/saved-searches', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim(), query: q, sort }),
+    });
+    savedItems = Array.isArray(res.items) ? res.items : savedItems;
+    renderSaved();
+    toast('已保存该搜索');
+  } catch (err) { toast(err.message, true); }
+});
+
+document.addEventListener('pointerdown', (e) => {
+  if (!isSearchOpen()) return;
+  if (e.target.closest('#searchFlyout') || e.target.closest('#searchBtn')) return;
+  closeSearchOverlay(false);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isSearchOpen()) {
+    e.preventDefault();
+    closeSearchOverlay(true);
+  }
+});
+
+document.addEventListener('nav-flyout-open', () => closeSearchOverlay(false));
+
+window.addEventListener('resize', () => {
+  if (!isSearchOpen()) return;
+  if (searchMq.matches) syncSearchHeight();
+  else searchFlyout.style.height = '';
+});
+
+loadSavedSearches();
 
 $('#addBtn').addEventListener('click', () => openBookModal(null));
 
@@ -1532,8 +1803,8 @@ function goBack() {
   if ($$('.modal').some((m) => !m.classList.contains('hidden'))) { closeModals(); return true; }
   // 2. 移动端全屏菜单
   if (mobileMenu.classList.contains('open')) { closeMobileMenu(); return true; }
-  // 3. 顶栏展开的搜索栏
-  if (document.body.classList.contains('search-open')) { closeSearchRow(); return true; }
+  // 3. 全局搜索浮层
+  if (isSearchOpen()) { closeSearchOverlay(true); return true; }
   // 4. 展开中的自定义下拉
   const openSel = customSelects.filter((r) => r.wrap.classList.contains('open'));
   if (openSel.length) { openSel.forEach((r) => r.close()); return true; }

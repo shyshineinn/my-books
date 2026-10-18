@@ -115,7 +115,8 @@
     // 第一排:当前卡片可聚焦、可达;其余排只同步 current-item 视觉态
     this.rails.forEach(function (rail, r) {
       var primary = r === 0;
-      var localCur = mod(self.index, rail.count);
+      // 各排按自身落位取模:第二排数量与主排不同,用主排索引取模会标错当前卡
+      var localCur = mod(self.pos, rail.count);
       rail.items.forEach(function (el, i) {
         var on = i === localCur;
         el.classList.toggle('current-item', on);
@@ -601,8 +602,11 @@
   };
 
   EndlessGallery.prototype._finish = function (target) {
-    this.pos = mod(Math.round(target), this.n);
-    this.index = this.pos;
+    // 保留滑动的虚拟位置(可能为 -1 / n 等),只把圆点索引归一化:
+    // 两排数量不同,第二排按 pos 取模才能停在动画终点;若把 pos 折回 0..n-1,
+    // 环回落位时会按主排周期重算,第二排的卡片会在滑动停止瞬间换掉
+    this.pos = Math.round(target);
+    this.index = mod(this.pos, this.n);
     this.root.classList.remove('media-gallery-is-sliding');
     // 环回卡在屏外滑出了一整圈,此处统一吸附回规范位置(屏外瞬移,不可见)
     this.render();
@@ -716,7 +720,7 @@
       if (k >= 0) { local = k; count = this.rails[r].count; }
     }
     if (local < 0) return;
-    if (local === mod(this.index, count)) {
+    if (local === mod(this.pos, count)) {
       // apple:点当前卡(打开详情)即让画廊停下,关掉弹窗后也保持暂停,由播放钮重启
       if (this.playing && e.target.closest && e.target.closest('.media-gallery-wrapper-link')) this.pause();
       return;

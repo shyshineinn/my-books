@@ -38,11 +38,120 @@ const NAV_ITEMS = [
   { id: 'tags', label: '分类', href: '/tags' },
 ];
 
+/* 桌面端下拉菜单:apple.com 的 globalnav flyout。
+ * 结构 = 一个「主列」(24px/600 大链接)+ 若干「次列」(12px/600 小链接),
+ * 列内按内容宽度排布,主列右侧留 88px、次列留 44px。 */
+const NAV_MENUS = {
+  shelf: [
+    { heading: '浏览书架', elevated: true, links: [
+      { label: '全部书籍', href: '/shelf' },
+      { label: '想读', href: '/shelf?status=wish' },
+      { label: '在读', href: '/shelf?status=reading' },
+      { label: '已读', href: '/shelf?status=done' },
+    ] },
+    { heading: '排序', links: [
+      { label: '最近更新', href: '/shelf?sort=updated' },
+      { label: '最近读完', href: '/shelf?status=done&amp;sort=finish' },
+      { label: '最近添加', href: '/shelf?sort=created' },
+    ] },
+    { heading: '更多', links: [
+      { label: '分类管理', href: '/tags' },
+      { label: '阅读心得', href: '/notes' },
+    ] },
+  ],
+  rank: [
+    { heading: '榜单', elevated: true, links: [
+      { label: '重读榜', href: '/rank' },
+      { label: '最近读完', href: '/shelf?status=done&amp;sort=finish' },
+      { label: '最近添加', href: '/shelf?sort=created' },
+    ] },
+    { heading: '书架', links: [
+      { label: '全部书籍', href: '/shelf' },
+      { label: '在读', href: '/shelf?status=reading' },
+      { label: '想读', href: '/shelf?status=wish' },
+    ] },
+    { heading: '记录', links: [
+      { label: '已读', href: '/shelf?status=done' },
+      { label: '阅读心得', href: '/notes' },
+    ] },
+  ],
+  stats: [
+    { heading: '阅读统计', elevated: true, links: [
+      { label: '阅读总览', href: '/stats' },
+      { label: '每年读完', href: '/stats#yearPanel' },
+      { label: '作者排行', href: '/stats#authorPanel' },
+      { label: '出版社排行', href: '/stats#publisherPanel' },
+    ] },
+    { heading: '分布', links: [
+      { label: '标签分布', href: '/stats#tagPanel' },
+      { label: '分类管理', href: '/tags' },
+    ] },
+    { heading: '更多', links: [
+      { label: '书架', href: '/shelf' },
+      { label: '阅读心得', href: '/notes' },
+    ] },
+  ],
+  tags: [
+    { heading: '分类', elevated: true, links: [
+      { label: '标签', href: '/tags#tagsHead' },
+      { label: '作者', href: '/tags#authorsHead' },
+      { label: '自定义字段', href: '/tags#fieldsHead' },
+    ] },
+    { heading: '书目', links: [
+      { label: '全部书籍', href: '/shelf' },
+      { label: '已读', href: '/shelf?status=done' },
+      { label: '想读', href: '/shelf?status=wish' },
+    ] },
+    { heading: '统计', links: [
+      { label: '标签分布', href: '/stats#tagPanel' },
+      { label: '作者排行', href: '/stats#authorPanel' },
+    ] },
+  ],
+};
+
 function navHtml(current) {
   return NAV_ITEMS.map((n) => {
     const on = n.id === current;
-    return `<a href="${n.href}"${on ? ' class="active" aria-current="page"' : ''}>${n.label}</a>`;
+    const menu = n.id in NAV_MENUS;
+    const attrs = [
+      on ? 'class="active"' : '',
+      on ? 'aria-current="page"' : '',
+      menu ? `data-flyout="${n.id}"` : '',
+      menu ? 'aria-expanded="false"' : '',
+      menu ? `aria-controls="navFlyout-${n.id}"` : '',
+    ].filter(Boolean).join(' ');
+    return `<div class="nav-item"><a href="${n.href}"${attrs ? ' ' + attrs : ''}>${n.label}</a></div>`;
   }).join('');
+}
+
+function mobileNavHtml(current) {
+  return NAV_ITEMS.map((n, i) => {
+    const on = n.id === current;
+    return `<a href="${n.href}"${on ? ' class="active" aria-current="page"' : ''} style="--mm-i:${i}">${n.label}</a>`;
+  }).join('');
+}
+
+function navFlyoutPanelHtml(n) {
+  const groups = NAV_MENUS[n.id];
+  if (!groups) return '';
+  return `
+    <div class="nav-flyout-panel" id="navFlyout-${n.id}" data-panel="${n.id}">
+      <div class="nav-flyout-inner">
+        ${groups.map((g) => `
+          <div class="nav-flyout-group${g.elevated ? ' is-elevated' : ''}">
+            <h2 class="nav-flyout-heading">${g.heading}</h2>
+            <ul class="nav-flyout-list${g.elevated ? ' is-large' : ''}">
+              ${g.links.map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
+            </ul>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function navFlyoutHtml() {
+  return `<div id="navFlyout" class="nav-flyout" aria-hidden="true">
+    ${NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(navFlyoutPanelHtml).join('')}
+  </div>`;
 }
 
 function headerHtml(current) {
@@ -58,10 +167,6 @@ function headerHtml(current) {
             <path d="M16.3 16.3 22 22"></path>
           </svg>
         </button>
-        <div class="search-box">
-          <input type="search" id="searchInput" placeholder="搜索书名 / 作者" autocomplete="off">
-          <button type="button" id="searchCancel" class="search-cancel">取消</button>
-        </div>
         <button type="button" id="settingsBtn" class="icon-btn" title="设置心得仓库" aria-label="设置">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0 1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
@@ -72,8 +177,17 @@ function headerHtml(current) {
           </svg>
         </button>
       </div>
-      <button type="button" id="menuBtn" class="mobile-menu-btn" aria-label="打开菜单">
-        <span></span><span></span>
+      <button type="button" id="menuBtn" class="mobile-menu-btn" aria-label="打开菜单" aria-expanded="false" aria-controls="mobileMenu">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <polyline fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" points="2 12, 16 12">
+            <animate id="mmAnimBottomOpen" attributeName="points" keyTimes="0;0.5;1" dur="0.24s" begin="indefinite" fill="freeze" calcMode="spline" keySplines="0.42, 0, 1, 1;0, 0, 0.58, 1" values=" 2 12, 16 12; 2 9, 16 9; 3.5 15, 15 3.5"></animate>
+            <animate id="mmAnimBottomClose" attributeName="points" keyTimes="0;0.5;1" dur="0.24s" begin="indefinite" fill="freeze" calcMode="spline" keySplines="0.42, 0, 1, 1;0, 0, 0.58, 1" values=" 3.5 15, 15 3.5; 2 9, 16 9; 2 12, 16 12"></animate>
+          </polyline>
+          <polyline fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" points="2 5, 16 5">
+            <animate id="mmAnimTopOpen" attributeName="points" keyTimes="0;0.5;1" dur="0.24s" begin="indefinite" fill="freeze" calcMode="spline" keySplines="0.42, 0, 1, 1;0, 0, 0.58, 1" values=" 2 5, 16 5; 2 9, 16 9; 3.5 3.5, 15 15"></animate>
+            <animate id="mmAnimTopClose" attributeName="points" keyTimes="0;0.5;1" dur="0.24s" begin="indefinite" fill="freeze" calcMode="spline" keySplines="0.42, 0, 1, 1;0, 0, 0.58, 1" values=" 3.5 3.5, 15 15; 2 9, 16 9; 2 5, 16 5"></animate>
+          </polyline>
+        </svg>
       </button>
     </div>
   </header>`;
@@ -81,6 +195,49 @@ function headerHtml(current) {
 
 function overlaysHtml() {
   return `
+  <!-- 桌面端导航下拉(apple.com globalnav flyout 同款):整幅纸白面板 + 页面毛玻璃幕布 -->
+  <div id="navFlyoutCurtain" class="nav-flyout-curtain" aria-hidden="true"></div>
+  ${navFlyoutHtml()}
+
+  <!-- 全局搜索浮层(apple.com search 同款):桌面自 44px 导航下方展开,
+       竖屏自 48px 长到满屏;Quick Links 位置换成「保存的搜索」。 -->
+  <div id="searchCurtain" class="search-curtain" aria-hidden="true"></div>
+  <div id="searchFlyout" class="search-flyout" role="search" aria-hidden="true">
+    <div class="search-flyout-scroll">
+      <div class="search-flyout-inner">
+        <form id="searchForm" class="search-field" action="/shelf" method="get">
+          <svg class="search-field-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <circle cx="10.3" cy="10.3" r="8.4"></circle>
+            <path d="M16.3 16.3 22 22"></path>
+          </svg>
+          <input id="searchInput" name="q" type="search" placeholder="搜索书名 / 作者" aria-label="搜索书名或作者" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+          <button type="button" id="searchResetBtn" class="search-field-reset" aria-label="清空搜索" hidden>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="7" fill="currentColor"></circle>
+              <path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" fill="none" stroke="#fafafc" stroke-width="1.3" stroke-linecap="round"></path>
+            </svg>
+          </button>
+        </form>
+        <section class="search-results" aria-labelledby="searchResultsTitle">
+          <div class="search-results-head">
+            <h2 id="searchResultsTitle" class="search-results-title">保存的搜索</h2>
+            <div class="search-results-tools">
+              <button type="button" id="searchSaveBtn" class="search-results-tool" hidden>保存当前</button>
+              <button type="button" id="searchEditBtn" class="search-results-tool" hidden>编辑</button>
+            </div>
+          </div>
+          <ul id="searchSavedList" class="search-results-list"></ul>
+          <p id="searchEmpty" class="search-results-empty" hidden>还没有保存的搜索</p>
+        </section>
+      </div>
+    </div>
+    <button type="button" id="searchCloseBtn" class="search-close" aria-label="关闭搜索">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path d="M2 2l14 14M16 2 2 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>
+      </svg>
+    </button>
+  </div>
+
   <!-- 添加 / 编辑书籍弹窗 -->
   <div id="bookModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-box">
@@ -283,8 +440,9 @@ function overlaysHtml() {
   </div>
 
   <!-- 移动端全屏菜单(apple.com 风)——只承载导航;搜索已独立为顶栏一级入口 -->
+  <div id="menuCurtain" class="menu-curtain"></div>
   <div id="mobileMenu" class="mobile-menu" role="dialog" aria-modal="true" tabindex="-1">
-    <nav class="mm-links" aria-label="主导航">${navHtml(currentPage)}</nav>
+    <nav class="mm-links" aria-label="主导航">${mobileNavHtml(currentPage)}</nav>
     <div class="mm-foot">
       <button type="button" id="mmSettings">⚙ 设置心得仓库</button>
     </div>
@@ -307,6 +465,162 @@ const currentPage = document.body.dataset.page || 'home';
 
 document.body.insertAdjacentHTML('afterbegin', headerHtml(currentPage));
 document.body.insertAdjacentHTML('beforeend', overlaysHtml());
+
+/* ============ 桌面导航下拉(apple.com globalnav flyout) ============
+ * 悬停 100ms 打开(与 Apple 的 hover intent 一致);已展开时划过其它项即时切换。
+ * 面板高度 254ms 展开,内容由裁切揭示;标题再延迟 80ms 上浮淡入。
+ * 关闭时面板立即消失、幕布单独淡出 —— 与 Apple 的时序一致。
+ * 键盘:聚焦导航项即展开,↓ 进入菜单,Esc 收起并回到触发项。 */
+function initNavFlyouts() {
+  const flyout = document.getElementById('navFlyout');
+  const curtain = document.getElementById('navFlyoutCurtain');
+  if (!flyout || !curtain) return;
+  const triggers = [...document.querySelectorAll('.view-switch a[data-flyout]')];
+  if (!triggers.length) return;
+  const mq = window.matchMedia('(min-width: 820px)');
+  let activeId = null;
+  let openTimer = 0;
+  let pendingId = null;
+  let restoringFocus = false;
+
+  const triggerFor = (id) => triggers.find((t) => t.dataset.flyout === id) || null;
+  const panelFor = (id) => flyout.querySelector(`.nav-flyout-panel[data-panel="${id}"]`);
+  const currentHeight = () => {
+    const panel = flyout.querySelector('.nav-flyout-panel.is-active');
+    return panel ? panel.offsetHeight : 0;
+  };
+
+  function setActive(id) {
+    triggers.forEach((t) => {
+      const on = t.dataset.flyout === id;
+      t.setAttribute('aria-expanded', String(on));
+      t.classList.toggle('is-open', on);
+    });
+    flyout.querySelectorAll('.nav-flyout-panel.is-active').forEach((p) => p.classList.remove('is-active'));
+    panelFor(id).classList.add('is-active');
+    activeId = id;
+    flyout.setAttribute('aria-hidden', 'false');
+    curtain.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('nav-flyout-open');
+    document.dispatchEvent(new Event('nav-flyout-open'));
+  }
+
+  function open(id) {
+    if (!mq.matches || !panelFor(id)) return;
+    clearTimeout(openTimer);
+    openTimer = 0;
+    pendingId = null;
+    if (activeId === id && document.body.classList.contains('nav-flyout-open')) return;
+    const first = !activeId;
+    setActive(id);
+    if (first) {
+      flyout.style.height = '0px';
+      requestAnimationFrame(() => {
+        if (activeId === id) flyout.style.height = currentHeight() + 'px';
+      });
+    } else {
+      flyout.style.height = currentHeight() + 'px';
+    }
+  }
+
+  function close(restoreFocus) {
+    clearTimeout(openTimer);
+    openTimer = 0;
+    pendingId = null;
+    if (!activeId) return;
+    const trigger = triggerFor(activeId);
+    document.body.classList.remove('nav-flyout-open');
+    flyout.setAttribute('aria-hidden', 'true');
+    curtain.setAttribute('aria-hidden', 'true');
+    flyout.style.height = '';
+    flyout.querySelectorAll('.nav-flyout-panel.is-active').forEach((p) => p.classList.remove('is-active'));
+    triggers.forEach((t) => {
+      t.setAttribute('aria-expanded', 'false');
+      t.classList.remove('is-open');
+    });
+    activeId = null;
+    if (restoreFocus && trigger) {
+      // focus 事件同步触发,esc 回焦不能被它当成“键盘展开”而重新打开
+      restoringFocus = true;
+      trigger.focus();
+      restoringFocus = false;
+    }
+  }
+
+  function arm(id) {
+    if (activeId) { open(id); return; }
+    if (pendingId === id && openTimer) return;
+    clearTimeout(openTimer);
+    pendingId = id;
+    openTimer = setTimeout(() => {
+      openTimer = 0;
+      pendingId = null;
+      open(id);
+    }, 100);
+  }
+
+  triggers.forEach((t) => {
+    t.addEventListener('focus', () => { if (mq.matches && !restoringFocus) open(t.dataset.flyout); });
+    t.addEventListener('click', () => close(false));
+    t.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' || !mq.matches) return;
+      e.preventDefault();
+      open(t.dataset.flyout);
+      const firstLink = panelFor(t.dataset.flyout)?.querySelector('a');
+      if (firstLink) requestAnimationFrame(() => firstLink.focus());
+    });
+  });
+
+  // 用 pointermove 而非 pointerover:键盘聚焦展开时幕布会出现在静止的
+  // 指针下方,浏览器会补发一次 pointerover —— 那不是真实移动,不能据此关闭。
+  document.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' || !mq.matches) return;
+    if (e.target.closest('#navFlyout')) return;
+    const trigger = e.target.closest('.view-switch a[data-flyout]');
+    if (trigger) { arm(trigger.dataset.flyout); return; }
+    if (activeId) close(false);
+    else {
+      clearTimeout(openTimer);
+      openTimer = 0;
+      pendingId = null;
+    }
+  }, { passive: true });
+
+  flyout.addEventListener('click', (e) => {
+    if (e.target.closest('a')) close(false);
+  });
+
+  curtain.addEventListener('click', () => close(false));
+
+  // 搜索浮层打开时通过该事件收起导航下拉(两者共用同一块顶栏空间)
+  document.addEventListener('nav-flyout-close', () => close(false));
+
+  document.addEventListener('focusout', () => {
+    if (!activeId) return;
+    requestAnimationFrame(() => {
+      if (!activeId) return;
+      const el = document.activeElement;
+      if (el && (el.closest('.view-switch a[data-flyout]') || el.closest('#navFlyout'))) return;
+      close(false);
+    });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && activeId) {
+      e.preventDefault();
+      close(true);
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (!mq.matches) { close(false); return; }
+    if (activeId) flyout.style.height = currentHeight() + 'px';
+  });
+
+  window.addEventListener('scroll', () => { if (activeId) close(false); }, { passive: true });
+}
+
+initNavFlyouts();
 
 /* PWA Service Worker 注册:仅 HTTPS(或 localhost)环境;
    失败静默 —— 不支持 SW 的老浏览器只是没有离线能力,功能一切照旧。

@@ -11,34 +11,34 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=65">
+  <link rel="stylesheet" href="/css/style.css?v=73">
 </head>
 <body data-page="stats">
   <main>
     <h1 class="page-title">统计</h1>
     <div id="statsHero" class="stats-hero"></div>
     <div class="stats-panels">
-      <div class="panel panel-wide is-collapsed">
+      <div class="panel panel-wide is-collapsed" id="yearPanel">
         <h3>每年读完</h3>
         <div id="yearChart" class="chart"></div>
       </div>
-      <div class="panel panel-wide is-collapsed">
+      <div class="panel panel-wide is-collapsed" id="tagPanel">
         <h3>标签分布</h3>
         <div id="tagCloud" class="tag-cloud"></div>
       </div>
-      <div class="panel is-collapsed">
+      <div class="panel is-collapsed" id="authorPanel">
         <h3>作者<span id="authorTotal" class="panel-sub"></span></h3>
         <div id="authorRank" class="stat-rank-list"></div>
       </div>
-      <div class="panel is-collapsed">
+      <div class="panel is-collapsed" id="publisherPanel">
         <h3>出版社<span id="publisherTotal" class="panel-sub"></span></h3>
         <div id="publisherRank" class="stat-rank-list"></div>
       </div>
     </div>
   </main>
 
-  <script defer src="/js/chrome.js?v=7"></script>
-  <script defer src="/js/common.js?v=8"></script>
+  <script defer src="/js/chrome.js?v=14"></script>
+  <script defer src="/js/common.js?v=11"></script>
   <script defer src="/js/scanner.js?v=2"></script>
   <script defer src="/js/page-stats.js?v=4"></script>
 </body>

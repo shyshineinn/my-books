@@ -102,6 +102,7 @@ html {
   background: rgba(245, 245, 247, 0.8);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
+  transition: background-color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -134,11 +135,13 @@ html {
   color: rgba(29, 29, 31, 0.8);
   text-decoration: none;
   cursor: pointer;
-  transition: color 0.2s var(--ease);
+  transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
-.brand:hover { color: var(--ink); }
-.brand:active { color: var(--ink); }
+/* apple.com 顶栏悬停:仅颜色在 320ms 内插值到纯黑,无底色/下划线/位移 */
+.brand:hover { color: #000; }
+.brand:active { color: #000; }
+.brand:focus-visible { outline-offset: -7px; }
 
 .brand .logo {
   width: 18px;
@@ -178,13 +181,15 @@ html {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
-  transition: color 0.2s var(--ease);
+  transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
 .view-switch a:hover {
-  color: var(--ink);
+  color: #000;
   background: transparent;
 }
+
+.view-switch a:focus-visible { outline-offset: -7px; }
 
 /* apple.com 导航项没有选中态:仅悬停反馈 */
 
@@ -196,45 +201,8 @@ html {
   min-width: 0;
 }
 
-.search-box { position: relative; width: 170px; flex: 0 1 170px; min-width: 0; }
-
-.search-box input {
-  width: 100%;
-  padding: 4px 13px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.05);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  min-height: 28px;
-  font-size: 12px;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  transition: background 0.25s var(--ease), box-shadow 0.25s var(--ease);
-}
-
-.search-box input::placeholder { color: rgba(29, 29, 31, 0.45); }
-.search-box input:hover { background: rgba(0, 0, 0, 0.08); }
-.search-box input:focus {
-  outline: none;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.3);
-}
-
-/* 搜索:桌面端为常驻胶囊输入框;竖屏下改由顶栏搜索图标独立展开
-   (规则见下方 819px 断点)。桌面端不出现图标与「取消」。 */
-#searchBtn { display: none; }
-
-.search-cancel {
-  display: none;
-  flex: 0 0 auto;
-  border: 0;
-  background: transparent;
-  padding: 0 2px;
-  font-size: 14px;
-  color: var(--accent);
-  cursor: pointer;
-}
+/* 搜索:顶栏只留放大镜图标,输入与 Quick Links 都在全局搜索浮层里
+   (见下方「全局搜索浮层」;竖屏同款全屏 sheet)。 */
 
 /* 顶栏功能图标(搜索 / 设置 / 添加书籍):盒模型与配色统一走下方 `.topbar .icon-btn`
    —— 30×30 裸按钮 + currentColor(常态 rgba(29,29,31,.8)、悬停纯黑),
@@ -249,6 +217,7 @@ html {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   color: rgba(29, 29, 31, 0.8);
+  transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
 .topbar .icon-btn::before { display: none; }
@@ -260,63 +229,93 @@ html {
   color: #000;
 }
 
-/* 汉堡按钮(仅竖屏显示) */
+.topbar .icon-btn:focus-visible { outline-offset: -7px; }
+
+/* 汉堡按钮(仅竖屏显示)——apple.com 同款 18×18 双折线,48×48 命中区。
+   负外边距让图标中心距屏幕右缘 24px,与 apple.com 的 ✕ 位对齐 */
 .mobile-menu-btn {
   display: none;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 5px;
-  width: 34px;
-  height: 34px;
+  width: 48px;
+  height: 48px;
+  margin-inline-end: -16px;
+  padding: 0;
   border: 0;
-  background: transparent;
-  padding: 6px;
   border-radius: 8px;
+  background: transparent;
+  color: #000;
+  opacity: 0.8;
+  transition:
+    opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1),
+    color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
-.mobile-menu-btn span {
-  display: block;
-  height: 1.5px;
-  border-radius: 2px;
-  background: rgba(29, 29, 31, 0.8);
-  transition: transform 0.33s var(--ease), background 0.2s var(--ease);
+.mobile-menu-btn svg { display: block; overflow: visible; }
+.mobile-menu-btn:hover { background: transparent; opacity: 1; }
+.mobile-menu-btn:focus-visible { outline-offset: -7px; }
+body.menu-open .mobile-menu-btn { color: #000; opacity: 1; }
+
+/* 展开时整页蒙一层极淡暖灰(apple.com 的 curtain):
+   面板长满屏之前页面先退后,关闭时随面板收起同步淡出 */
+.menu-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  background: rgba(232, 232, 237, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    visibility 0s linear 0.4s;
 }
 
-/* 点开后:两条线交叉成 ✕(apple.com 同款变形) */
-body.menu-open .mobile-menu-btn span:first-child {
-  transform: translateY(3.25px) rotate(45deg);
+body.menu-open .menu-curtain {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    visibility 0s linear 0.08s;
 }
 
-body.menu-open .mobile-menu-btn span:last-child {
-  transform: translateY(-3.25px) rotate(-45deg);
-}
-
-.mobile-menu-btn:hover { background: transparent; }
-.mobile-menu-btn:hover span { background: #000; }
-body.menu-open .mobile-menu-btn:hover span { background: #000; }
-
-/* 移动端全屏毛玻璃菜单:从导航栏下方展开揭示(apple.com 同款) */
+/* 移动端全屏菜单:apple.com 同款展开 —— 面板从 48px 高度长到满屏,
+   底色由半透明纸色过渡为不透明 #fafafc;导航项无分隔线、28px/600。
+   面板压在顶栏之下(z 45 < 50),顶栏开菜单时转为透明,只剩右侧 ✕。 */
 .mobile-menu {
   position: fixed;
-  top: 48px;
+  top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
-  z-index: 90;
-  background: rgba(250, 250, 252, 0.94);
-  -webkit-backdrop-filter: saturate(180%) blur(30px);
-  backdrop-filter: saturate(180%) blur(30px);
-  padding: 34px 30px 40px;
+  z-index: 45;
+  height: 48px;
+  padding-top: 47px;
   display: flex;
   flex-direction: column;
-  clip-path: inset(0 0 100% 0);
+  overflow: hidden;
+  visibility: hidden;
   pointer-events: none;
-  transition: clip-path 0.45s var(--ease-out);
+  background: rgba(245, 245, 247, 0.8);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  transition:
+    height 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.12s,
+    background-color 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    visibility 0s linear 0.56s;
 }
 
 .mobile-menu.open {
-  clip-path: inset(0 0 0% 0);
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  visibility: visible;
   pointer-events: auto;
+  background: #fafafc;
+  transition:
+    height 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    background-color 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    visibility 0s linear 0s;
 }
 
 /* 展开时把焦点移进对话框本身(tabindex="-1"),键盘用户 Tab 一下即进入第一个导航项。
@@ -326,49 +325,53 @@ body.menu-open .mobile-menu-btn:hover span { background: #000; }
 .mobile-menu:focus-visible { outline: none; }
 
 /* 移动端菜单只承载导航(搜索已独立为顶栏一级入口,原 .mm-search 样式一并删除)。
-   顶部留白即菜单内边距的 34px,不再需要额外的 margin-top 为搜索框让位。 */
+   顶部留白由面板的 47px 内边距给出,首项与 apple.com 一样从 48px 栏底部起排。 */
 .mm-links { display: flex; flex-direction: column; }
 
 .mm-links a {
-  display: block;
-  text-align: left;
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 48px;
   font-family: var(--sans);
   font-size: 28px;
   font-weight: 600;
   letter-spacing: 0.007em;
-  line-height: 1.14286;
-  color: rgba(29, 29, 31, 0.8);
+  line-height: 1.15;
+  text-align: left;
+  color: #333336;
   background: none;
   border: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  padding: 11px 4px;
-  opacity: 0;
   text-decoration: none;
-  transform: translateY(14px);
-  transition: color 0.25s var(--ease);
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(-8px);
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 0.32s cubic-bezier(0.4, 0, 0.6, 1),
+    opacity 0.24s cubic-bezier(0.4, 0, 0.6, 1),
+    transform 0.24s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
-.mm-links a:hover {
-  color: rgba(29, 29, 31, 0.56);
+.mm-links a:hover,
+.mm-links a:active { color: #000; }
+.mm-links a:focus-visible { outline-offset: -7px; }
+
+/* 进项级联:基准 200ms,每项 +20ms(apple.com 同款);--mm-i 由 chrome.js 按导航顺序写入 */
+.mobile-menu.open .mm-links a {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s, calc(0.2s + var(--mm-i, 0) * 20ms), calc(0.2s + var(--mm-i, 0) * 20ms);
 }
 
-/* 进项级联:基准 80ms,每项 +70ms
-   注意:导航项增删时必须同步补/删一组 —— 漏掉的那项 animation-delay 为 0,
-   会抢在其它项之前出现(菜单有 4 项、这里只写了 3 条时,「统计」就是这个表现) */
-.mobile-menu.open .mm-links a { animation: mm-item 0.45s var(--ease-out) forwards; }
-.mobile-menu.open .mm-links a:nth-child(1) { animation-delay: 0.08s; }
-.mobile-menu.open .mm-links a:nth-child(2) { animation-delay: 0.15s; }
-.mobile-menu.open .mm-links a:nth-child(3) { animation-delay: 0.22s; }
-.mobile-menu.open .mm-links a:nth-child(4) { animation-delay: 0.29s; }
-.mobile-menu.open .mm-links a:nth-child(5) { animation-delay: 0.36s; }
-
-@keyframes mm-item {
-  to { opacity: 1; transform: none; }
+/* 关闭时条目不再淡出,保持可见由面板收起带出屏幕(apple.com 关闭实测如此) */
+.mobile-menu.closing .mm-links a {
+  opacity: 1;
+  transform: none;
+  transition: none;
 }
 
-.mm-links a:active { color: rgba(29, 29, 31, 0.56); }
-
-.mm-foot { margin-top: auto; }
+.mm-foot { margin-top: auto; padding: 12px 48px 40px; }
 
 #mmSettings {
   border: 0;
@@ -389,40 +392,503 @@ body.menu-open .mobile-menu-btn:hover span { background: #000; }
     min-height: 48px;
   }
   .view-switch,
-  .search-box,
   #settingsBtn { display: none; }
   #searchBtn { display: inline-flex; }   /* 搜索独立成一级入口,与「添加书籍」平级 */
   .mobile-menu-btn { display: inline-flex; }
   .topbar-actions { flex: 0 0 auto; margin-left: auto; }
 
-  /* —— 搜索展开态:整行让给搜索栏 ——
-     点顶栏搜索图标后,收起品牌与其它图标,输入框铺满整行;
-     取消 / Esc / 回车提交都会收起(见 common.js 的 openSearchRow / closeSearchRow)。
-     字号必须 ≥16px,否则 iOS 聚焦输入框时会把整页放大。 */
-  body.search-open .topbar .brand,
-  body.search-open .topbar #searchBtn,
-  body.search-open .topbar #addBtn,
-  body.search-open .topbar .mobile-menu-btn { display: none; }
-
-  body.search-open .topbar .topbar-actions {
-    flex: 1 1 auto;
-    margin-left: 0;
+  /* —— 菜单展开态:顶栏退成透明,品牌与图标淡出(apple.com 同款),
+     只保留右缘 ✕;关闭时带 80ms 延迟淡回 —— */
+  .topbar .brand,
+  .topbar .topbar-actions {
+    transition:
+      color 0.32s cubic-bezier(0.4, 0, 0.6, 1),
+      opacity 0.24s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+      visibility 0.24s step-start 0.08s;
   }
 
-  body.search-open .topbar .search-box {
+  body.menu-open .topbar {
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  body.menu-open .topbar .brand,
+  body.menu-open .topbar .topbar-actions {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.24s cubic-bezier(0.4, 0, 0.6, 1), visibility 0.24s step-end;
+  }
+}
+
+/* ============================================================
+   桌面导航下拉(apple.com globalnav flyout 1:1)
+   —— 整幅 #fafafc 面板自导航条下方抽出(高度 254ms),
+      页面蒙 20px 毛玻璃幕布;内容 1024px 栅格:主列 24px/600、
+      次列 12px/600,标题 12px 灰字延迟 80ms 上浮。
+      关闭时面板瞬时消失,仅幕布单独淡出。
+   ============================================================ */
+/* 移动端整体隐藏:下拉只为桌面导航服务,样式也只在 ≥820px 生效 */
+.nav-flyout,
+.nav-flyout-curtain { display: none; }
+
+@media (min-width: 820px) {
+  .nav-item { display: flex; align-items: center; }
+  .view-switch a.is-open { color: #000; }
+  body.nav-flyout-open .topbar { background: #fafafc; }
+
+  .nav-flyout-curtain {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 48;
+    background: rgba(232, 232, 237, 0.4);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+      visibility 0s linear 0.4s;
+  }
+
+  body.nav-flyout-open .nav-flyout-curtain {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+      visibility 0s linear 0.08s;
+  }
+
+  .nav-flyout {
+    display: block;
+    position: fixed;
+    top: 44px;
+    left: 0;
+    right: 0;
+    z-index: 49;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+    background: #fafafc;
+  }
+
+  body.nav-flyout-open .nav-flyout {
+    visibility: visible;
+    pointer-events: auto;
+    transition: height 0.254s cubic-bezier(0.4, 0, 0.6, 1);
+  }
+
+  .nav-flyout-panel { display: none; }
+  .nav-flyout-panel.is-active { display: block; }
+
+  .nav-flyout-inner {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 40px 20px 84px;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    flex: 1 1 auto;
+    align-items: flex-start;
   }
 
-  body.search-open .topbar .search-box input {
-    min-height: 36px;
-    font-size: 16px;
+  .nav-flyout-group { padding-right: 88px; }
+  .nav-flyout-group:not(.is-elevated) { padding-right: 44px; }
+
+  .nav-flyout-heading {
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink-2);
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+      transform 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s;
   }
 
-  body.search-open .topbar .search-cancel { display: inline-flex; }
+  .nav-flyout-group:not(.is-elevated) .nav-flyout-heading { margin-bottom: 10px; }
+
+  body.nav-flyout-open .nav-flyout-panel.is-active .nav-flyout-heading {
+    opacity: 1;
+    transform: none;
+  }
+
+  .nav-flyout-list {
+    margin: 0 0 0 -11px;
+    padding: 0;
+    list-style: none;
+  }
+
+  .nav-flyout-list li + li { margin-top: -6px; }
+
+  .nav-flyout-list a {
+    display: inline-block;
+    padding: 7px 11px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 16px;
+    letter-spacing: -0.01em;
+    color: #333336;
+    text-decoration: none;
+    transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+  }
+
+  .nav-flyout-list.is-large a {
+    padding: 9px 11px 7px;
+    font-size: 24px;
+    line-height: 28px;
+    letter-spacing: 0.009em;
+  }
+
+  .nav-flyout-list a:hover { color: #000; }
+  .nav-flyout a:focus-visible { outline-offset: -7px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.nav-flyout-open .nav-flyout { transition: none; }
+    .nav-flyout-curtain,
+    body.nav-flyout-open .nav-flyout-curtain { transition: none; }
+    .nav-flyout-heading { transition: none; opacity: 1; transform: none; }
+  }
+}
+
+/* ============================================================
+   全局搜索浮层(apple.com search 1:1)
+   —— 桌面:44px 导航下方 #fafafc 面板,高度 240ms 展开,内容 1024 栅格;
+      输入 24px/600,Quick Links 行 12px/600 + 9px 箭头,悬停 #f5f5f7。
+   —— 竖屏:面板自 48px 长到满屏(422ms),输入 28px/600,行 17px/600,
+      右上角 ✕;输入框聚焦时 2px Action Blue 描边。
+   Quick Links 位置换成「保存的搜索」:行点击即套用查询串 + 排序,
+   标题右侧的「保存当前 / 编辑」承担管理功能(编辑态行尾出现 ✎ / ✕)。
+   ============================================================ */
+.search-curtain { display: none; }
+
+.search-flyout {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  height: 48px;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  background: #fafafc;
+  /* 竖屏关闭是瞬时的(apple.com 实测),只有展开带动画 */
+  transition: none;
+}
+
+.search-flyout.open {
+  height: 100vh;
+  height: 100dvh;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    height 0.422s cubic-bezier(0.4, 0, 0.6, 1),
+    visibility 0s linear 0s;
+}
+
+.search-flyout-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.search-flyout-scroll::-webkit-scrollbar { display: none; }
+
+.search-flyout-inner { padding: 54px 36px 40px; }
+
+.search-field { position: relative; margin: 0 4px; }
+
+.search-field-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translateY(-50%);
+  color: #6e6e73;
+  pointer-events: none;
+}
+
+.search-field input {
+  width: 100%;
+  height: 40px;
+  margin: 0;
+  padding: 0 38px 0 42px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--sans);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 28px;
+  letter-spacing: 0.007em;
+  color: #333336;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.search-field input::placeholder { color: #6e6e73; opacity: 1; }
+.search-field input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.search-field:focus-within { box-shadow: inset 0 0 0 2px #0071e3; }
+
+.search-field-reset {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 38px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #86868b;
+  cursor: pointer;
+}
+.search-field-reset[hidden] { display: none; }
+
+.search-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #000;
+  opacity: 0.8;
+  cursor: pointer;
+}
+.search-close:hover { opacity: 1; }
+.search-close:focus-visible { outline-offset: -7px; }
+
+.search-results { margin-top: 49px; }
+
+.search-results-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 12px 9px;
+}
+
+.search-results-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 21px;
+  letter-spacing: -0.022em;
+  color: #6e6e73;
+}
+
+.search-results-tools { display: flex; align-items: baseline; gap: 14px; }
+
+.search-results-tool {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 21px;
+  color: #0066cc;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.search-results-tool:hover { text-decoration: underline; }
+.search-results-tool[hidden] { display: none; }
+
+.search-results-list { list-style: none; margin: 0; padding: 0; }
+.search-results-item + .search-results-item { margin-top: 6px; }
+
+.search-result-row { display: flex; align-items: center; border-radius: 6px; }
+
+.search-result-link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 4px 12px 3px;
+  border: 0;
+  background: none;
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 26px;
+  letter-spacing: -0.022em;
+  color: #333336;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result-icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: 13px;
+  margin-right: 14px;
+  color: #333336;
+}
+.search-result-icon svg { display: block; width: 9px; height: 16px; }
+
+.search-result-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+.search-result-actions[hidden] { display: none; }
+
+.search-result-act {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #86868b;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.search-result-act:hover { color: #0066cc; background: #f5f5f7; }
+.search-result-act.is-danger:hover { color: #e30000; }
+
+.search-result-link:focus-visible,
+.search-result-act:focus-visible { outline-offset: -2px; }
+
+.search-results-empty {
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 15px;
+  line-height: 21px;
+  color: #86868b;
+}
+
+@media (hover: hover) {
+  .search-result-row:hover { background: #f5f5f7; }
+}
+
+@media (max-width: 819px) {
+  body.search-open { overflow: hidden; }
+}
+
+@media (min-width: 820px) {
+  .search-curtain {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 48;
+    background: rgba(232, 232, 237, 0.4);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+      visibility 0s linear 0.4s;
+  }
+
+  body.search-open .search-curtain {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+      visibility 0s linear 0.08s;
+  }
+
+  body.search-open .topbar { background: #fafafc; }
+
+  .search-flyout {
+    top: 44px;
+    z-index: 49;
+    height: 0;
+    /* 桌面关闭也走 240ms 收起(apple.com Esc 实测),结束后再隐藏 */
+    transition:
+      height 0.24s cubic-bezier(0.4, 0, 0.6, 1),
+      visibility 0s linear 0.24s;
+  }
+
+  .search-flyout.open {
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      height 0.24s cubic-bezier(0.4, 0, 0.6, 1),
+      visibility 0s linear 0s;
+  }
+
+  .search-flyout-scroll {
+    height: auto;
+    max-height: calc(100vh - 44px);
+  }
+
+  .search-flyout-inner {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 32px 22px 80px;
+  }
+
+  .search-field { margin: 0; }
+  .search-field-icon { left: 0; width: 22px; height: 22px; }
+
+  .search-field input {
+    height: 40px;
+    padding: 1px 34px 0 28px;
+    font-size: 24px;
+    line-height: 24px;
+    letter-spacing: 0.009em;
+  }
+
+  .search-results { margin-top: 32px; }
+  .search-results-head { padding: 0 0 8px; }
+  .search-results-title { font-size: 12px; line-height: 16px; letter-spacing: -0.01em; }
+  .search-results-tool { font-size: 12px; line-height: 16px; letter-spacing: -0.01em; }
+
+  .search-results-list { margin: 0 -8px; }
+  .search-results-item + .search-results-item { margin-top: 4px; }
+
+  .search-result-link {
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: -0.01em;
+  }
+  .search-result-icon { width: 9px; height: 16px; margin-right: 11px; }
+
+  .search-result-actions { padding-right: 4px; }
+  .search-result-act { width: 26px; height: 24px; font-size: 12px; }
+
+  .search-results-empty { padding: 4px 8px; font-size: 12px; line-height: 16px; }
+
+  .search-close { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-flyout,
+  .search-flyout.open,
+  .search-curtain,
+  body.search-open .search-curtain { transition: none; }
 }
 
 /* ============================================================
@@ -1218,6 +1684,9 @@ main {
 .panel.is-collapsed { padding-bottom: 22px; }
 .panel.is-collapsed h3 { margin-bottom: 0; }
 .cat-col.is-collapsed .cat-head { border-bottom: 0; padding-bottom: 18px; }
+
+/* 顶栏下拉深链跳转:展开后目标不被吸顶导航遮住 */
+.panel, .cat-col, .cat-col [id] { scroll-margin-top: 68px; }
 
 /* 每年读完柱状图 */
 .year-chart {
@@ -3144,7 +3613,6 @@ main.page-home {
 @media (min-width: 820px) {
   .topbar-inner { padding: 0 20px; flex-wrap: nowrap; }
   .topbar-actions { flex: 0 0 auto; }
-  .search-box { width: 180px; flex: 0 1 180px; }
   main { padding: 44px 24px 90px; }
   .book-grid { grid-template-columns: repeat(4, 1fr); gap: 38px 24px; }
   .stats-hero-grid { grid-template-columns: repeat(5, 1fr); }
@@ -3533,127 +4001,13 @@ body.menu-open { overflow: hidden; }
 }
 
 /* ============================================================
-   书架:高级搜索语法按钮 + 保存的搜索(虚拟图书馆)胶囊 + 语法说明弹窗
+   书架:高级搜索语法按钮 + 语法说明弹窗
    ============================================================ */
 .syntax-btn {
   padding: 0 14px;
   min-height: 34px;
   font-size: 13.5px;
   white-space: nowrap;
-}
-
-/* 保存的搜索:搜索框下拉面板(浮层语言与 .sel-menu 一致:
-   白底 / 18px 圆角 / 单一投影 / 淡入,不显示滚动条) */
-.saved-pop {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  z-index: 60;
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(56vh, 420px);      /* 回退:不支持 dvh 的旧内核 */
-  max-height: min(56dvh, 420px);
-  overflow-y: auto;
-  scrollbar-width: none;             /* Firefox */
-  -ms-overflow-style: none;          /* 旧 Edge */
-  padding: 6px;
-  background: #ffffff;
-  border: 1px solid var(--glass-edge);
-  border-radius: 18px;
-  box-shadow: var(--shadow-pop);
-  transform-origin: top right;
-  animation: sel-menu-in 0.18s var(--ease-out) both;
-}
-.saved-pop[hidden] { display: none; }
-.saved-pop::-webkit-scrollbar { display: none; }   /* Chromium / Safari */
-
-.saved-pop-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 4px 8px 8px;
-}
-.saved-pop-title {
-  font-size: 12px;
-  letter-spacing: 0.05em;
-  color: var(--ink-3);
-}
-.saved-pop-save {
-  padding: 4px 10px;
-  font-size: 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: var(--card);
-  color: var(--ink-2);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.saved-pop-save:hover { color: var(--accent); border-color: var(--accent); }
-.saved-pop-save[hidden] { display: none; }
-
-.saved-pop-list { display: flex; flex-direction: column; gap: 2px; }
-
-.saved-row {
-  display: flex;
-  align-items: center;
-  border-radius: 12px;
-  transition: background 0.15s var(--ease);
-}
-.saved-row:hover { background: var(--paper); }
-.saved-row.active { background: var(--accent-soft); }
-
-.saved-row-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: block;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 12px;
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.saved-row-name {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.saved-row.active .saved-row-name { color: var(--accent-deep); }
-.saved-row-query {
-  display: block;
-  margin-top: 1px;
-  font-size: 12px;
-  color: var(--ink-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.saved-row-act {
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  font-size: 12px;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.saved-row-act:hover { color: var(--accent); background: var(--paper-2); }
-.saved-row-act[data-act="del"]:hover { color: #e30000; }
-
-.saved-pop-empty {
-  margin: 0;
-  padding: 14px 10px 16px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-  text-align: center;
 }
 
 /* 语法说明弹窗 —— 宽高/内边距/标题/底栏全走 .modal-box 家族规则(宽度 620,
@@ -3686,11 +4040,6 @@ body.menu-open { overflow: hidden; }
 .syntax-body ul { margin: 4px 0; padding-left: 18px; }
 .syntax-body li { margin: 3px 0; }
 .syntax-example { color: var(--ink); }
-
-/* 竖屏搜索栏展开时,保存面板与整行输入框同宽 */
-@media (max-width: 819px) {
-  body.search-open .saved-pop { width: 100%; max-width: none; }
-}
 
 /* ============ ISBN:输入行 / 扫码浮层 / 按 ISBN 批量添加 ============ */
 
