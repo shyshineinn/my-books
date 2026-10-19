@@ -439,8 +439,8 @@ document.addEventListener('keydown', (e) => {
       e.stopImmediatePropagation();
       return;
     }
-    // 二级菜单展开时 Esc 先回主菜单,再按一次才收起整层
-    if (!closeMobileSubmenu(true)) closeMobileMenu();
+    // 三级 → 二级 → 主菜单逐级退出,最后才收起整层
+    if (!closeMobileSub3(true) && !closeMobileSubmenu(true)) closeMobileMenu();
   }
 });
 
@@ -593,16 +593,22 @@ $('#settingsSave').addEventListener('click', async () => {
 const mobileMenu = $('#mobileMenu');
 const menuBtn = $('#menuBtn');
 const mmBackBtn = $('#mmBackBtn');
-const mmSubPanels = $$('.mobile-menu-sub');
+const mmSubPanels = $$('.mobile-menu-sub:not(.mm-sub-level3)');
+const mmSub3Panels = $$('.mobile-menu-sub.mm-sub-level3');
 let menuClosingTimer = 0;
 let mmSubTimer = 0;
 let mmSubId = null;
+let mmSub3Timer = 0;
+let mmSub3Id = null;
+let mmSub3ParentId = null;
+let mmSub3Trigger = null;
 
 /* apple.com 移动端二级结构:一级列表保持不动,上层再压一层全屏面板。
    面板从 0 淡入 300ms;返回时淡出,主列表一直在下面,无需重播入场。 */
 function openMobileSubmenu(id) {
   const pane = document.getElementById('mmSub-' + id);
   if (!pane || !mobileMenu.classList.contains('open')) return;
+  resetMobileSub3();
   clearTimeout(mmSubTimer);
   mmSubPanels.forEach((p) => p.classList.toggle('open', p === pane));
   mmSubId = id;
@@ -616,8 +622,65 @@ function openMobileSubmenu(id) {
   pane.focus();
 }
 
+/* 三级面板:二级里「按作者 / 按标签」点开后压一层名单,返回逐级退出。
+   二级面板在三级下面保持可见,但移出可访问树与 Tab 序。 */
+function openMobileSub3(id, trigger) {
+  const pane = document.getElementById(id);
+  if (!pane || !mmSubId) return;
+  clearTimeout(mmSub3Timer);
+  mmSub3Panels.forEach((p) => p.classList.toggle('open', p === pane));
+  const parent = document.getElementById('mmSub-' + mmSubId);
+  if (parent) {
+    parent.setAttribute('aria-hidden', 'true');
+    parent.inert = true;
+  }
+  mmSub3Id = id;
+  mmSub3ParentId = mmSubId;
+  mmSub3Trigger = trigger || null;
+  if (trigger) trigger.setAttribute('aria-expanded', 'true');
+  pane.focus();
+}
+
+function closeMobileSub3(restoreFocus = false) {
+  if (!mmSub3Id) return false;
+  const pane = document.getElementById(mmSub3Id);
+  const parent = mmSub3ParentId ? document.getElementById('mmSub-' + mmSub3ParentId) : null;
+  const trigger = mmSub3Trigger;
+  mmSub3Id = null;
+  mmSub3ParentId = null;
+  mmSub3Trigger = null;
+  clearTimeout(mmSub3Timer);
+  if (pane) pane.classList.remove('open');
+  if (parent) {
+    parent.inert = false;
+    parent.removeAttribute('aria-hidden');
+  }
+  if (trigger) {
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger.focus();
+  }
+  return true;
+}
+
+function resetMobileSub3() {
+  clearTimeout(mmSub3Timer);
+  mmSub3Panels.forEach((p) => p.classList.remove('open'));
+  if (mmSub3ParentId) {
+    const parent = document.getElementById('mmSub-' + mmSub3ParentId);
+    if (parent) {
+      parent.inert = false;
+      parent.removeAttribute('aria-hidden');
+    }
+  }
+  $$('.mm-sub3-trigger').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  mmSub3Id = null;
+  mmSub3ParentId = null;
+  mmSub3Trigger = null;
+}
+
 function closeMobileSubmenu(restoreFocus = false) {
   if (!mmSubId) return false;
+  resetMobileSub3();
   const id = mmSubId;
   mmSubId = null;
   const pane = document.getElementById('mmSub-' + id);
@@ -637,8 +700,9 @@ function closeMobileSubmenu(restoreFocus = false) {
   return true;
 }
 
-// 整层菜单关闭/重开时瞬间复位二级面板,不参与收起动画
+// 整层菜单关闭/重开时瞬间复位二级/三级面板,不参与收起动画
 function resetMobileSubmenu() {
+  resetMobileSub3();
   clearTimeout(mmSubTimer);
   mmSubId = null;
   mmSubPanels.forEach((p) => p.classList.remove('open'));
@@ -706,7 +770,12 @@ $$('#mobileMenu .mm-links button[data-sub]').forEach((btn) => {
   btn.addEventListener('click', () => openMobileSubmenu(btn.dataset.sub));
 });
 
-// 一级直链与二级面板内的链接都是真实跳转,点按后收起整层菜单
+// 二级里的「按作者 / 按标签」再展开三级名单
+$$('.mobile-menu-sub .mm-sub3-trigger').forEach((btn) => {
+  btn.addEventListener('click', () => openMobileSub3(btn.dataset.mmSub3, btn));
+});
+
+// 一级直链与二级/三级面板内的链接都是真实跳转,点按后收起整层菜单
 $$('#mobileMenu .mm-links a').forEach((a) => {
   a.addEventListener('click', closeMobileMenu);
 });
@@ -714,7 +783,10 @@ $$('.mobile-menu-sub a').forEach((a) => {
   a.addEventListener('click', closeMobileMenu);
 });
 
-mmBackBtn.addEventListener('click', () => closeMobileSubmenu(true));
+mmBackBtn.addEventListener('click', () => {
+  if (closeMobileSub3(true)) return;
+  closeMobileSubmenu(true);
+});
 
 $('#mmSettings').addEventListener('click', () => {
   closeMobileMenu();
@@ -1897,7 +1969,8 @@ function goBack() {
   if (window.BookScanner && BookScanner.isOpen()) { BookScanner.close(); return true; }
   // 1. 任何浮层弹窗
   if ($$('.modal').some((m) => !m.classList.contains('hidden'))) { closeModals(); return true; }
-  // 2. 移动端全屏菜单(二级面板先回主菜单,再退一级才收起整层)
+  // 2. 移动端全屏菜单(三级 → 二级 → 主菜单逐级退出,再退一级才收起整层)
+  if (closeMobileSub3(true)) return true;
   if (closeMobileSubmenu(true)) return true;
   if (mobileMenu.classList.contains('open')) { closeMobileMenu(); return true; }
   // 3. 全局搜索浮层

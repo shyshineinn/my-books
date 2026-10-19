@@ -132,6 +132,9 @@ initCustomSelect($('#sortSelect'));
 $('#statusTabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-status]');
   if (!btn) return;
+  // 「全部」= 回到全库:从导航作者/标签名单进来的筛选一并清掉,
+  // 否则页签亮着「全部」,列表却仍是某个作者/标签的子集
+  if (!btn.dataset.status) clearShelfFilters();
   shelf.status = btn.dataset.status;
   $$('#statusTabs button').forEach((b) => b.classList.toggle('active', b === btn));
   fetchBooks();

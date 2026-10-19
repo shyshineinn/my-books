@@ -511,12 +511,50 @@ body.menu-open .menu-curtain {
   transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
+/* 二级里通向三级名单的按钮:与次组链接同版式,行尾加一个右侧箭头表示「还有一层」 */
+.mm-sub-sec button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 11px 7px;
+  margin-left: -11px;
+  border: 0;
+  background: none;
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 25px;
+  color: #333336;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.mm-sub3-caret { flex: 0 0 auto; color: #86868b; }
+
 .mm-sub-elevated a:hover,
 .mm-sub-elevated a:active,
 .mm-sub-sec a:hover,
-.mm-sub-sec a:active { color: #000; }
+.mm-sub-sec a:active,
+.mm-sub-sec button:hover,
+.mm-sub-sec button:active { color: #000; }
 .mm-sub-elevated a:focus-visible,
-.mm-sub-sec a:focus-visible { outline-offset: 3px; }
+.mm-sub-sec a:focus-visible,
+.mm-sub-sec button:focus-visible { outline-offset: 3px; }
+
+/* 三级名单面板:压在二级之上,返回时褪回二级 */
+.mm-sub-level3 { z-index: 47; }
+
+.mm-sub-sec[data-empty]:empty::after {
+  content: attr(data-empty);
+  display: block;
+  padding: 8px 0;
+  font-size: 17px;
+  font-weight: 400;
+  color: #6e6e73;
+}
 
 /* 桌面端不参与:二级面板只服务竖屏菜单 */
 @media (min-width: 820px) {
@@ -763,19 +801,121 @@ body.menu-open .menu-curtain {
     letter-spacing: 0.009em;
   }
 
-  .nav-flyout-list a:hover { color: #000; }
-  .nav-flyout a:focus-visible { outline-offset: -7px; }
+  /* 筛选组里展开三级名单的按钮:与次列链接同版式,行尾右侧箭头 */
+  .nav-flyout-list button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 11px;
+    border: 0;
+    background: none;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 16px;
+    letter-spacing: -0.01em;
+    color: #333336;
+    cursor: pointer;
+    transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+  }
 
-  /* 作者 / 标签名单可能很长:名单列在视口内滚动,面板总高仍贴着屏幕,
-     滚动条隐藏(iOS 覆盖式滚动条同款),不至于撑破下拉面板 */
-  .nav-flyout-list[data-nav-list] {
-    max-height: calc(100dvh - 210px);
+  .nav-sub-caret {
+    flex: 0 0 auto;
+    color: var(--ink-3);
+    transition: color 0.2s var(--ease), transform 0.2s var(--ease-out);
+  }
+
+  .nav-sub-trigger[aria-expanded="true"] .nav-sub-caret {
+    color: #000;
+    transform: translateX(2px);
+  }
+
+  .nav-flyout-list a:hover,
+  .nav-flyout-list button:hover { color: #000; }
+  .nav-flyout a:focus-visible,
+  .nav-flyout button:focus-visible { outline-offset: -7px; }
+
+  /* 三级浮层:点击「按作者 / 按标签」后出现在按钮旁的白色名单卡片。
+     定位(fixed 的 top/left/max-height)由 chrome.js 按触发按钮位置写入,
+     这里只管卡片外观;名单在卡片内滚动,长名单不会撑破屏幕。 */
+  .nav-subpanel {
+    position: fixed;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    width: 248px;
+    max-height: 430px;
+    padding: 8px;
+    border: 1px solid var(--glass-edge);
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: var(--shadow-pop);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.18s var(--ease-out),
+      visibility 0s linear 0.18s;
+  }
+
+  .nav-subpanel.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 0.18s var(--ease-out),
+      visibility 0s linear 0s;
+  }
+
+  .nav-subpanel-heading {
+    margin: 0;
+    padding: 6px 12px 7px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink-2);
+  }
+
+  .nav-subpanel-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: none;
   }
 
-  .nav-flyout-list[data-nav-list]::-webkit-scrollbar { display: none; }
+  .nav-subpanel-list::-webkit-scrollbar { display: none; }
+
+  .nav-subpanel-list a {
+    display: block;
+    padding: 7px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+    letter-spacing: -0.01em;
+    color: #333336;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.15s var(--ease), color 0.15s var(--ease);
+  }
+
+  .nav-subpanel-list a:hover { background: #f5f5f7; color: #000; }
+  .nav-subpanel-list a:focus-visible { outline-offset: -2px; }
+
+  .nav-subpanel-list:empty::after {
+    content: attr(data-empty);
+    display: block;
+    padding: 7px 12px;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
 
   @media (prefers-reduced-motion: reduce) {
     body.nav-flyout-open .nav-flyout,
@@ -785,6 +925,7 @@ body.menu-open .menu-curtain {
     body.nav-flyout-open .nav-flyout-curtain { transition: none; }
     .nav-flyout-heading,
     .nav-flyout-list li { transition: none; opacity: 1; transform: none; }
+    .nav-subpanel { transition: none; }
     .nav-flyout-panel.is-entering .nav-flyout-inner,
     .nav-flyout-panel.is-leaving .nav-flyout-inner { animation: none; }
   }
