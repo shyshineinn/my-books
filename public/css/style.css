@@ -64,6 +64,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 内容页底色与顶栏一致:顶栏是 80% 白毛玻璃,在白底上呈纯白 */
+body[data-page="shelf"],
+body[data-page="rank"],
+body[data-page="stats"],
+body[data-page="tags"],
+body[data-page="notes"] { background: #ffffff; }
+
 main, .topbar, footer { position: relative; z-index: 1; }
 
 ::selection { background: rgba(0, 102, 204, 0.22); }
@@ -626,7 +633,10 @@ body.menu-open .menu-curtain {
   #settingsBtn { display: none; }
   #searchBtn { display: inline-flex; }   /* 搜索独立成一级入口,与「添加书籍」平级 */
   .mobile-menu-btn { display: inline-flex; }
-  .topbar-actions { flex: 0 0 auto; margin-left: auto; }
+  /* 搜索/添加与汉堡统一 48×48 命中区:三个图标中心等距 48px;
+     负右外边距抵消 .topbar-inner 的 18px 列间距,汉堡位置不动 */
+  .topbar-actions { flex: 0 0 auto; margin-left: auto; margin-right: -18px; gap: 0; }
+  .topbar .topbar-actions .icon-btn { width: 48px; height: 48px; }
   body.mm-sub-open .mm-back-btn { display: inline-flex; }
 
   /* —— 菜单 / 搜索展开态:顶栏退成透明,品牌与图标淡出(apple.com 同款),
@@ -3506,7 +3516,6 @@ main.page-home {
   inset: 0;
   background: var(--card-scrim, linear-gradient(150deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.32) 60%, rgba(0, 0, 0, 0.5) 100%));
 }
-.fam-card:hover { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.3); }
 .fam-card:focus-visible { outline: 2px solid #0071e3; outline-offset: 3px; }
 /* 封面取色异步写回时颜色更平滑(渐变本身不可过渡,仅过渡纯色属性) */
 .fam-card { transition: color 0.4s ease; }
@@ -4165,8 +4174,8 @@ body.menu-open { overflow: hidden; }
   padding: 80px 24px;   /* {spacing.section} */
 }
 
-/* —— 英雄区(product-tile-parchment) —— */
-.rank-hero { background: var(--paper); text-align: center; }
+/* —— 英雄区(与页面/顶栏同白,靠留白与字号分层) —— */
+.rank-hero { background: #ffffff; text-align: center; }
 .rank-eyebrow {
   margin: 0 0 14px;
   font-size: 14px; font-weight: 600; letter-spacing: -0.224px;
