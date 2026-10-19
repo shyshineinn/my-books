@@ -54,7 +54,7 @@ const NAV_MENUS = {
       { label: '最近读完', href: '/shelf?status=done&amp;sort=finish' },
       { label: '最近添加', href: '/shelf?sort=created' },
     ] },
-    // submenu = 桌面第三级浮层(按作者 / 按标签),名单与「分类」下拉共用同一份接口数据
+    // submenu = 就地展开的名单下拉(按作者 / 按标签),与「分类」下拉共用同一份接口数据
     { heading: '筛选', links: [
       { label: '按作者', submenu: 'authors' },
       { label: '按标签', submenu: 'tags' },
@@ -100,7 +100,7 @@ const NAV_MENUS = {
     { heading: '分类', elevated: true, links: [
       { label: '分类管理', href: '/tags' },
     ] },
-    // 名单不直接铺在面板里:点二级的「作者 / 标签」再看三级名单
+    // 名单不直接铺在面板里:点「作者 / 标签」就地展开
     { heading: '浏览', links: [
       { label: '作者', submenu: 'authors' },
       { label: '标签', submenu: 'tags' },
@@ -114,12 +114,23 @@ const NAV_MENUS = {
 };
 
 /* 书架筛选 / 分类浏览里的作者、标签名单来自真实书库,不能写死在 NAV_MENUS:
- * 三级浮层先渲染空名单,页面载入后各拉一次接口,桌面 flyout 与竖屏三级面板共用。
+ * 下拉按钮先渲染空名单,页面载入后各拉一次接口,桌面 flyout 与竖屏菜单共用。
  * 名单按书籍数排序(接口已排好),点名字直接去书架按该分类筛选。 */
 const NAV_LIST_SOURCES = {
   authors: { param: 'author', endpoint: '/api/authors', label: '作者' },
   tags: { param: 'tag', endpoint: '/api/tags', label: '标签' },
 };
+
+/* apple.com 页脚实测的下拉按钮箭头:朝下的 V,展开时 320ms 变形成朝上的 V
+ * (中间经过一条横线),收起时原路返回;keySplines 与 Apple 逐字一致。 */
+function dropCaretSvg(cls) {
+  return `<svg class="${cls}" width="11" height="6" viewBox="0 0 11 6" aria-hidden="true">
+    <polyline stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" points="10.075 0.675 5.5 5.323 0.925 0.675">
+      <animate data-drop-expand attributeName="points" values="10.075 0.675 5.5 5.323 0.925 0.675;10.075 3 5.5 3 0.925 3;10.075 5.325 5.5 0.676 0.925 5.325" dur="320ms" begin="indefinite" fill="freeze" keyTimes="0;0.5;1" calcMode="spline" keySplines="0.12, 0, 0.38, 0;0.2, 1, 0.68, 1"></animate>
+      <animate data-drop-collapse attributeName="points" values="10.075 5.325 5.5 0.676 0.925 5.325;10.075 3 5.5 3 0.925 3;10.075 0.675 5.5 5.323 0.925 0.675" dur="320ms" begin="indefinite" fill="freeze" keyTimes="0;0.5;1" calcMode="spline" keySplines="0.2, 0, 0.68, 0;0.2, 1, 0.68, 1"></animate>
+    </polyline>
+  </svg>`;
+}
 
 function navHtml(current) {
   return NAV_ITEMS.map((n) => {
@@ -165,7 +176,7 @@ function mobileSubmenuHtml(n) {
             <h2 class="mm-sub-heading">${g.heading}</h2>
             <ul class="mm-sub-sec">
               ${(g.links || []).map((l) => l.submenu
-                ? `<li><button type="button" class="mm-sub3-trigger" data-mm-sub3="mmSub3-${n.id}-${l.submenu}" aria-expanded="false" aria-controls="mmSub3-${n.id}-${l.submenu}">${l.label}<svg class="mm-sub3-caret" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.4 1.6 6.8 5 3.4 8.4"></path></svg></button></li>`
+                ? `<li class="mm-drop"><button type="button" class="mm-drop-trigger" aria-expanded="false" aria-controls="mmDrop-${n.id}-${l.submenu}">${l.label}${dropCaretSvg('mm-drop-caret')}</button><div class="mm-drop-body" id="mmDrop-${n.id}-${l.submenu}"><div class="mm-drop-list" data-nav-list="${l.submenu}" data-empty="暂无${(NAV_LIST_SOURCES[l.submenu] || {}).label || ''}"></div></div></li>`
                 : `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
             </ul>
           </div>`).join('')}
@@ -173,46 +184,13 @@ function mobileSubmenuHtml(n) {
     </section>`;
 }
 
-/* 竖屏三级面板:二级里「按作者 / 按标签」的名单。与桌面三级浮层、
- * 「分类」下拉共用同一份 data-nav-list 数据,点名字直接带筛选参数去书架。 */
-function mobileSubLevel3Html(n) {
-  const groups = NAV_MENUS[n.id];
-  if (!groups) return '';
-  const sources = [];
-  groups.forEach((g) => (g.links || []).forEach((l) => {
-    if (l.submenu && !sources.some((s) => s.source === l.submenu)) {
-      sources.push({ source: l.submenu, label: l.label });
-    }
-  }));
-  return sources.map(({ source, label }) => {
-    const meta = NAV_LIST_SOURCES[source];
-    if (!meta) return '';
-    return `
-    <section class="mobile-menu-sub mm-sub-level3" id="mmSub3-${n.id}-${source}" role="dialog" aria-modal="true" aria-label="${label}" tabindex="-1">
-      <div class="mm-sub-inner">
-        <div class="mm-sub-group" data-nav-group="${source}" hidden>
-          <h2 class="mm-sub-heading">${label}</h2>
-          <ul class="mm-sub-sec" data-nav-list="${source}" data-empty="暂无${meta.label}"></ul>
-        </div>
-      </div>
-    </section>`;
-  }).join('');
-}
-
 function mobileSubmenusHtml() {
-  return NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(mobileSubmenuHtml).join('')
-    + NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(mobileSubLevel3Html).join('');
+  return NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(mobileSubmenuHtml).join('');
 }
 
 function navFlyoutPanelHtml(n) {
   const groups = NAV_MENUS[n.id];
   if (!groups) return '';
-  const subSources = [];
-  groups.forEach((g) => (g.links || []).forEach((l) => {
-    if (l.submenu && !subSources.some((s) => s.source === l.submenu)) {
-      subSources.push({ source: l.submenu, label: l.label });
-    }
-  }));
   // 与 Apple 一致:标题占 item 1,链接从 2 起编号;
   // 退场时长按编号倒序递减(先入场的链接停留更久)。
   const total = Math.max(0, ...groups.map((g) => (g.links ? g.links.length : 0))) + 1;
@@ -227,7 +205,7 @@ function navFlyoutPanelHtml(n) {
             <ul class="nav-flyout-list${g.elevated ? ' is-large' : ''}">
               ${(g.links || []).map((l, i) => {
                 const body = l.submenu
-                  ? `<button type="button" class="nav-sub-trigger" data-nav-sub="${l.submenu}" aria-haspopup="true" aria-expanded="false" aria-controls="navSub-${n.id}-${l.submenu}">${l.label}<svg class="nav-sub-caret" width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 1.4 6.1 4.5 3 7.6"></path></svg></button>`
+                  ? `<button type="button" class="nav-drop-trigger" aria-expanded="false" aria-controls="navDrop-${n.id}-${l.submenu}">${l.label}${dropCaretSvg('nav-drop-caret')}</button><div class="nav-drop-body" id="navDrop-${n.id}-${l.submenu}"><div class="nav-drop-list" data-nav-list="${l.submenu}" data-empty="暂无${(NAV_LIST_SOURCES[l.submenu] || {}).label || ''}"></div></div>`
                   : `<a href="${l.href}">${l.label}</a>`;
                 return `<li style="--nav-item-i:${i + 2};--nav-exit-dur:${Math.min(160 + 20 * (total - (i + 2)), 240)}ms">${body}</li>`;
               }).join('')}
@@ -235,15 +213,6 @@ function navFlyoutPanelHtml(n) {
           </div>`;
         }).join('')}
       </div>
-      ${subSources.map(({ source, label }) => {
-        const meta = NAV_LIST_SOURCES[source];
-        if (!meta) return '';
-        return `
-      <div class="nav-subpanel" id="navSub-${n.id}-${source}" data-nav-subpanel="${source}" aria-hidden="true">
-        <h2 class="nav-subpanel-heading">${label}</h2>
-        <ul class="nav-subpanel-list" data-nav-list="${source}" data-empty="暂无${meta.label}"></ul>
-      </div>`;
-      }).join('')}
     </div>`;
 }
 
@@ -278,10 +247,9 @@ function fillNavList(source, items) {
   const html = items.map((item) => {
     const name = navEscape(item.name);
     const count = Number(item.count) || 0;
-    return `<li><a href="/shelf?${meta.param}=${encodeURIComponent(item.name)}" title="在书架中筛选「${name}」(${count} 本)">${name}</a></li>`;
+    return `<a href="/shelf?${meta.param}=${encodeURIComponent(item.name)}" title="在书架中筛选「${name}」(${count} 本)">${name}</a>`;
   }).join('');
   document.querySelectorAll(`[data-nav-list="${source}"]`).forEach((list) => { list.innerHTML = html; });
-  document.querySelectorAll(`[data-nav-group="${source}"]`).forEach((group) => { group.hidden = items.length === 0; });
   syncFlyoutItemMeta();
   if (items.length) document.dispatchEvent(new Event('nav-flyout-refresh'));
 }
@@ -680,58 +648,63 @@ function initNavFlyouts() {
 
   const triggerFor = (id) => triggers.find((t) => t.dataset.flyout === id) || null;
   const panelFor = (id) => flyout.querySelector(`.nav-flyout-panel[data-panel="${id}"]`);
-  // 同一个 source 在多个菜单里都有三级浮层(书架筛选 / 分类浏览),
-  // 必须限定在触发按钮所在的面板里查,否则会拿到别的面板里的同名卡片
-  const subpanelFor = (source, trigger) => trigger.closest('.nav-flyout-panel')?.querySelector(`.nav-subpanel[data-nav-subpanel="${source}"]`) || null;
   const currentHeight = () => {
     const panel = flyout.querySelector('.nav-flyout-panel.is-active');
     return panel ? panel.offsetHeight : 0;
   };
 
-  /* 三级浮层(按作者 / 按标签):点击二级里的按钮才展开,名单在卡片内滚动。
-   * 卡片 fixed 定位在触发按钮右侧,空间不足时翻到左侧;名单与「分类」下拉同源。 */
-  let subSource = null;
-  let subTrigger = null;
-  let subPanel = null;
+  /* 名单下拉(按作者 / 按标签):apple.com 页脚的下拉按钮 —— 点击后名单
+   * 在按钮下方就地展开(300ms ease 滑入),箭头 320ms 翻面;不再是浮层卡片。 */
+  let openDrop = null;   // { trigger, body }
+  const maxFlyoutHeight = () => window.innerHeight - flyout.getBoundingClientRect().top;
+  const bodyFor = (trigger) => document.getElementById(trigger.getAttribute('aria-controls'));
 
-  function closeSub(restoreFocus) {
-    if (!subSource) return false;
-    const trigger = subTrigger;
-    const panel = subPanel;
-    subSource = null;
-    subTrigger = null;
-    subPanel = null;
-    if (panel) {
-      panel.classList.remove('open');
-      panel.setAttribute('aria-hidden', 'true');
-    }
-    if (trigger) {
-      trigger.setAttribute('aria-expanded', 'false');
-      if (restoreFocus) trigger.focus();
-    }
-    return true;
+  function syncFlyoutHeight() {
+    if (!activeId) return;
+    const panel = panelFor(activeId);
+    if (!panel) return;
+    flyout.style.height = Math.min(panel.offsetHeight, maxFlyoutHeight()) + 'px';
   }
 
-  function openSub(source, trigger) {
-    const panel = subpanelFor(source, trigger);
-    if (!panel || !mq.matches) return;
-    if (subSource && subSource !== source) closeSub(false);
-    const rect = trigger.getBoundingClientRect();
-    const width = panel.offsetWidth || 248;
-    const gap = 10;
-    let left = rect.right + gap;
-    if (left + width > window.innerWidth - 12) left = rect.left - gap - width;
-    if (left < 12) left = 12;
-    const top = Math.max(52, rect.top - 14);
-    panel.style.left = left + 'px';
-    panel.style.top = top + 'px';
-    panel.style.maxHeight = Math.min(430, window.innerHeight - top - 16) + 'px';
-    panel.classList.add('open');
-    panel.setAttribute('aria-hidden', 'false');
-    trigger.setAttribute('aria-expanded', 'true');
-    subSource = source;
-    subTrigger = trigger;
-    subPanel = panel;
+  // 面板最终高度必须在无过渡状态下量:名单收起后另一组可能成为最高列,
+  // 只按名单高度差推算会把面板算矮,底部内容被裁掉。
+  function measurePanelHeight(panel, body, target) {
+    const startH = body.getBoundingClientRect().height;
+    body.style.transition = 'none';
+    body.style.height = target + 'px';
+    const h = panel.offsetHeight;
+    body.style.height = startH + 'px';
+    void body.offsetHeight;
+    body.style.transition = '';
+    return h;
+  }
+
+  function setDrop(trigger, on) {
+    const body = bodyFor(trigger);
+    if (!body || (on && trigger.getAttribute('aria-expanded') === 'true')) return;
+    if (on && openDrop && openDrop.trigger !== trigger) setDrop(openDrop.trigger, false);
+    const panel = body.closest('.nav-flyout-panel');
+    const target = on ? body.scrollHeight : 0;
+    trigger.setAttribute('aria-expanded', String(on));
+    trigger.classList.toggle('is-open', on);
+    body.classList.toggle('open', on);
+
+    const panelH = panel ? measurePanelHeight(panel, body, target) : 0;
+    body.style.height = target + 'px';
+
+    if (on) openDrop = { trigger, body };
+    else if (openDrop && openDrop.trigger === trigger) openDrop = null;
+    const anim = trigger.querySelector(on ? '[data-drop-expand]' : '[data-drop-collapse]');
+    if (anim && anim.beginElement) anim.beginElement();
+    if (panel) flyout.style.height = Math.min(panelH, maxFlyoutHeight()) + 'px';
+  }
+
+  function closeDrop(restoreFocus) {
+    if (!openDrop) return false;
+    const trigger = openDrop.trigger;
+    setDrop(trigger, false);
+    if (restoreFocus) trigger.focus();
+    return true;
   }
 
   function syncTriggers(id) {
@@ -778,10 +751,10 @@ function initNavFlyouts() {
     if (isOpen && activeId && activeId !== id) {
       // 已展开时切换:旧面板整体淡出、新面板整体淡入,高度 120ms 变形,
       // 新面板内容直接呈现,不重播逐项 stagger(与 Apple 一致)。
-      closeSub(false);
+      const startHeight = parseFloat(getComputedStyle(flyout).height) || 0;
+      closeDrop(false);
       const oldPanel = panelFor(activeId);
       const newPanel = panelFor(id);
-      const startHeight = parseFloat(getComputedStyle(flyout).height) || 0;
       clearSwitch();
       syncTriggers(id);
       oldPanel.classList.remove('is-active');
@@ -816,7 +789,7 @@ function initNavFlyouts() {
     clearTimeout(openTimer);
     openTimer = 0;
     pendingId = null;
-    closeSub(false);
+    closeDrop(false);
     const trigger = activeId ? triggerFor(activeId) : null;
     if (activeId && document.body.classList.contains('nav-flyout-open')) {
       syncTriggers(null);
@@ -869,18 +842,15 @@ function initNavFlyouts() {
     });
   });
 
-  flyout.querySelectorAll('.nav-sub-trigger').forEach((trigger) => {
+  flyout.querySelectorAll('.nav-drop-trigger').forEach((trigger) => {
     trigger.addEventListener('click', () => {
-      const source = trigger.dataset.navSub;
-      if (subSource === source) closeSub(false);
-      else openSub(source, trigger);
+      setDrop(trigger, trigger.getAttribute('aria-expanded') !== 'true');
     });
     trigger.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowDown') return;
       e.preventDefault();
-      const source = trigger.dataset.navSub;
-      openSub(source, trigger);
-      const first = subpanelFor(source, trigger)?.querySelector('a');
+      if (trigger.getAttribute('aria-expanded') !== 'true') setDrop(trigger, true);
+      const first = bodyFor(trigger)?.querySelector('a');
       if (first) requestAnimationFrame(() => first.focus());
     });
   });
@@ -902,7 +872,7 @@ function initNavFlyouts() {
 
   flyout.addEventListener('click', (e) => {
     if (e.target.closest('a')) { close(false); return; }
-    if (subSource && !e.target.closest('.nav-subpanel') && !e.target.closest('.nav-sub-trigger')) closeSub(false);
+    if (openDrop && !e.target.closest('.nav-drop-trigger') && !e.target.closest('.nav-drop-body')) closeDrop(false);
   });
 
   curtain.addEventListener('click', () => close(false));
@@ -913,7 +883,13 @@ function initNavFlyouts() {
   // 名单异步到达时若面板已展开,按新高度重新展开,避免内容被裁切
   document.addEventListener('nav-flyout-refresh', () => {
     if (!activeId || !document.body.classList.contains('nav-flyout-open')) return;
-    flyout.style.height = currentHeight() + 'px';
+    if (!openDrop) { syncFlyoutHeight(); return; }
+    const body = openDrop.body;
+    const panel = body.closest('.nav-flyout-panel');
+    const target = body.scrollHeight;
+    const panelH = panel ? measurePanelHeight(panel, body, target) : 0;
+    body.style.height = target + 'px';
+    if (panelH) flyout.style.height = Math.min(panelH, maxFlyoutHeight()) + 'px';
   });
 
   document.addEventListener('focusout', () => {
@@ -930,16 +906,16 @@ function initNavFlyouts() {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && (activeId || subSource)) {
+    if (e.key === 'Escape' && (activeId || openDrop)) {
       e.preventDefault();
-      // 三级浮层先收,再按一次才收起整幅下拉
-      if (closeSub(true)) return;
+      // 名单下拉先收,再按一次才收起整幅导航
+      if (closeDrop(true)) return;
       close(true);
     }
   });
 
   window.addEventListener('resize', () => {
-    closeSub(false);
+    closeDrop(false);
     if (!mq.matches) { close(false); return; }
     if (activeId) flyout.style.height = currentHeight() + 'px';
   });

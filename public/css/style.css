@@ -511,7 +511,8 @@ body.menu-open .menu-curtain {
   transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
-/* 二级里通向三级名单的按钮:与次组链接同版式,行尾加一个右侧箭头表示「还有一层」 */
+/* 二级里的「按作者 / 按标签」是下拉按钮:与次组链接同版式,
+   行尾箭头按 apple.com 页脚的 320ms SMIL 翻面(见 chrome.js dropCaretSvg)。 */
 .mm-sub-sec button {
   display: flex;
   align-items: center;
@@ -532,7 +533,13 @@ body.menu-open .menu-curtain {
   transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
-.mm-sub3-caret { flex: 0 0 auto; color: #86868b; }
+.mm-drop-caret {
+  flex: 0 0 auto;
+  color: #86868b;
+  transition: color 0.2s var(--ease);
+}
+
+.mm-drop-trigger[aria-expanded="true"] .mm-drop-caret { color: #333336; }
 
 .mm-sub-elevated a:hover,
 .mm-sub-elevated a:active,
@@ -544,15 +551,56 @@ body.menu-open .menu-curtain {
 .mm-sub-sec a:focus-visible,
 .mm-sub-sec button:focus-visible { outline-offset: 3px; }
 
-/* 三级名单面板:压在二级之上,返回时褪回二级 */
-.mm-sub-level3 { z-index: 47; }
+/* 名单就地展开(apple.com 页脚 disclosure):高度 300ms ease,
+   名单自上方滑入;收起后 visibility 延迟到动画结束,折叠内容留在 Tab 序之外。 */
+.mm-drop-body {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition:
+    height 0.3s ease,
+    visibility 0s linear 0.3s;
+}
 
-.mm-sub-sec[data-empty]:empty::after {
-  content: attr(data-empty);
+.mm-drop-body.open {
+  visibility: visible;
+  transition:
+    height 0.3s ease,
+    visibility 0s linear 0s;
+}
+
+.mm-drop-list {
+  padding-bottom: 12px;
+  transform: translateY(-100%);
+  transition: transform 0.3s ease;
+}
+
+.mm-drop-body.open .mm-drop-list { transform: none; }
+
+.mm-drop-list a {
   display: block;
-  padding: 8px 0;
+  padding: 4px 11px 5px;
+  margin-left: -11px;
   font-size: 17px;
   font-weight: 400;
+  line-height: 25px;
+  color: #6e6e73;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.2s var(--ease);
+}
+
+.mm-drop-list a:hover,
+.mm-drop-list a:active { color: #000; }
+.mm-drop-list a:focus-visible { outline-offset: 3px; }
+
+.mm-drop-list:empty::after {
+  content: attr(data-empty);
+  display: block;
+  padding: 4px 0 5px;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 25px;
   color: #6e6e73;
 }
 
@@ -661,11 +709,19 @@ body.menu-open .menu-curtain {
     right: 0;
     z-index: 49;
     height: 0;
-    overflow: hidden;
+    /* 名单展开后整体可能高过视口:整幅面板成为滚动容器,不留可见轨道 */
+    max-height: calc(100vh - 44px);
+    max-height: calc(100dvh - 44px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
     visibility: hidden;
     pointer-events: none;
     background: #fafafc;
   }
+
+  .nav-flyout::-webkit-scrollbar { display: none; }
 
   body.nav-flyout-open .nav-flyout {
     visibility: visible;
@@ -819,101 +875,70 @@ body.menu-open .menu-curtain {
     transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
   }
 
-  .nav-sub-caret {
+  .nav-drop-caret {
     flex: 0 0 auto;
     color: var(--ink-3);
-    transition: color 0.2s var(--ease), transform 0.2s var(--ease-out);
+    transition: color 0.2s var(--ease);
   }
 
-  .nav-sub-trigger[aria-expanded="true"] .nav-sub-caret {
-    color: #000;
-    transform: translateX(2px);
-  }
+  .nav-drop-trigger[aria-expanded="true"] .nav-drop-caret { color: #000; }
 
   .nav-flyout-list a:hover,
   .nav-flyout-list button:hover { color: #000; }
   .nav-flyout a:focus-visible,
   .nav-flyout button:focus-visible { outline-offset: -7px; }
 
-  /* 三级浮层:点击「按作者 / 按标签」后出现在按钮旁的白色名单卡片。
-     定位(fixed 的 top/left/max-height)由 chrome.js 按触发按钮位置写入,
-     这里只管卡片外观;名单在卡片内滚动,长名单不会撑破屏幕。 */
-  .nav-subpanel {
-    position: fixed;
-    z-index: 50;
-    display: flex;
-    flex-direction: column;
-    width: 248px;
-    max-height: 430px;
-    padding: 8px;
-    border: 1px solid var(--glass-edge);
-    border-radius: 18px;
-    background: #ffffff;
-    box-shadow: var(--shadow-pop);
-    opacity: 0;
+  /* 名单下拉(apple.com 页脚 disclosure):点击后名单在按钮下方就地展开,
+     高度 300ms ease、名单自上方滑入;箭头 320ms 翻面由 SMIL 完成。
+     收起后 visibility 延迟到动画结束,折叠名单不进入 Tab 序。 */
+  .nav-drop-body {
+    height: 0;
+    overflow: hidden;
     visibility: hidden;
-    pointer-events: none;
     transition:
-      opacity 0.18s var(--ease-out),
-      visibility 0s linear 0.18s;
+      height 0.3s ease,
+      visibility 0s linear 0.3s;
   }
 
-  .nav-subpanel.open {
-    opacity: 1;
+  .nav-drop-body.open {
     visibility: visible;
-    pointer-events: auto;
     transition:
-      opacity 0.18s var(--ease-out),
+      height 0.3s ease,
       visibility 0s linear 0s;
   }
 
-  .nav-subpanel-heading {
-    margin: 0;
-    padding: 6px 12px 7px;
+  .nav-drop-list {
+    padding-bottom: 12px;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .nav-drop-body.open .nav-drop-list { transform: none; }
+
+  .nav-drop-list a {
+    display: block;
+    padding: 5px 11px;
     font-size: 12px;
     font-weight: 400;
     line-height: 16px;
     letter-spacing: -0.01em;
-    color: var(--ink-2);
-  }
-
-  .nav-subpanel-list {
-    flex: 1 1 auto;
-    min-height: 0;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-  }
-
-  .nav-subpanel-list::-webkit-scrollbar { display: none; }
-
-  .nav-subpanel-list a {
-    display: block;
-    padding: 7px 12px;
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 18px;
-    letter-spacing: -0.01em;
-    color: #333336;
+    color: #6e6e73;
     text-decoration: none;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: background 0.15s var(--ease), color 0.15s var(--ease);
+    transition: color 0.2s var(--ease);
   }
 
-  .nav-subpanel-list a:hover { background: #f5f5f7; color: #000; }
-  .nav-subpanel-list a:focus-visible { outline-offset: -2px; }
+  .nav-drop-list a:hover { color: #000; }
+  .nav-drop-list a:focus-visible { outline-offset: -2px; }
 
-  .nav-subpanel-list:empty::after {
+  .nav-drop-list:empty::after {
     content: attr(data-empty);
     display: block;
-    padding: 7px 12px;
-    font-size: 13px;
+    padding: 5px 11px;
+    font-size: 12px;
+    line-height: 16px;
     color: var(--ink-3);
   }
 
@@ -925,7 +950,8 @@ body.menu-open .menu-curtain {
     body.nav-flyout-open .nav-flyout-curtain { transition: none; }
     .nav-flyout-heading,
     .nav-flyout-list li { transition: none; opacity: 1; transform: none; }
-    .nav-subpanel { transition: none; }
+    .nav-drop-body { transition: none; }
+    .nav-drop-list { transform: none; transition: none; }
     .nav-flyout-panel.is-entering .nav-flyout-inner,
     .nav-flyout-panel.is-leaving .nav-flyout-inner { animation: none; }
   }
