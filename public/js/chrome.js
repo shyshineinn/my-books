@@ -93,6 +93,9 @@ const NAV_MENUS = {
   ],
   tags: [
     { heading: '分类', elevated: true, links: [
+      { label: '分类管理', href: '/tags' },
+    ] },
+    { heading: '管理', links: [
       { label: '标签', href: '/tags#tagsHead' },
       { label: '作者', href: '/tags#authorsHead' },
       { label: '自定义字段', href: '/tags#fieldsHead' },
@@ -124,26 +127,64 @@ function navHtml(current) {
   }).join('');
 }
 
+/* 竖屏主导航:有下拉分组的一级项改为按钮,点开全屏二级面板(apple.com 同款,
+ * 一级列表不带箭头 —— 实测 apple.com 移动端菜单也没有);没有分组的就是普通链接。 */
 function mobileNavHtml(current) {
   return NAV_ITEMS.map((n, i) => {
     const on = n.id === current;
-    return `<a href="${n.href}"${on ? ' class="active" aria-current="page"' : ''} style="--mm-i:${i}">${n.label}</a>`;
+    const menu = n.id in NAV_MENUS;
+    if (!menu) {
+      return `<a href="${n.href}"${on ? ' class="active" aria-current="page"' : ''} style="--mm-i:${i}">${n.label}</a>`;
+    }
+    return `<button type="button"${on ? ' class="active"' : ''} data-sub="${n.id}" aria-expanded="false" aria-controls="mmSub-${n.id}" style="--mm-i:${i}">${n.label}</button>`;
   }).join('');
+}
+
+/* 竖屏二级面板:内容复用桌面 NAV_MENUS,版式按 apple.com 移动端子菜单实测
+ * —— 首组大号链接无标题(28px/600),次组 17px 灰标题 + 17px/600 链接。 */
+function mobileSubmenuHtml(n) {
+  const groups = NAV_MENUS[n.id];
+  if (!groups) return '';
+  return `
+    <section class="mobile-menu-sub" id="mmSub-${n.id}" role="dialog" aria-modal="true" aria-label="${n.label}" tabindex="-1">
+      <div class="mm-sub-inner">
+        ${groups.map((g) => g.elevated ? `
+          <ul class="mm-sub-elevated">
+            ${g.links.map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
+          </ul>` : `
+          <div class="mm-sub-group">
+            <h2 class="mm-sub-heading">${g.heading}</h2>
+            <ul class="mm-sub-sec">
+              ${g.links.map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
+            </ul>
+          </div>`).join('')}
+      </div>
+    </section>`;
+}
+
+function mobileSubmenusHtml() {
+  return NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(mobileSubmenuHtml).join('');
 }
 
 function navFlyoutPanelHtml(n) {
   const groups = NAV_MENUS[n.id];
   if (!groups) return '';
+  // 与 Apple 一致:标题占 item 1,链接从 2 起编号;
+  // 退场时长按编号倒序递减(先入场的链接停留更久)。
+  const total = Math.max(...groups.map((g) => g.links.length)) + 1;
   return `
     <div class="nav-flyout-panel" id="navFlyout-${n.id}" data-panel="${n.id}">
       <div class="nav-flyout-inner">
-        ${groups.map((g) => `
-          <div class="nav-flyout-group${g.elevated ? ' is-elevated' : ''}">
+        ${groups.map((g, gi) => {
+          const groupDelay = gi === 0 ? 0 : Math.min(80 + (gi - 1) * 40, gi * 80);
+          return `
+          <div class="nav-flyout-group${g.elevated ? ' is-elevated' : ''}" style="--nav-group-delay:${groupDelay}ms">
             <h2 class="nav-flyout-heading">${g.heading}</h2>
             <ul class="nav-flyout-list${g.elevated ? ' is-large' : ''}">
-              ${g.links.map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
+              ${g.links.map((l, i) => `<li style="--nav-item-i:${i + 2};--nav-exit-dur:${Math.min(160 + 20 * (total - (i + 2)), 240)}ms"><a href="${l.href}">${l.label}</a></li>`).join('')}
             </ul>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>`;
 }
@@ -158,6 +199,11 @@ function headerHtml(current) {
   return `
   <header class="topbar">
     <div class="topbar-inner">
+      <button type="button" id="mmBackBtn" class="mm-back-btn" aria-label="返回主菜单">
+        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 2 2 10l8 8"></path>
+        </svg>
+      </button>
       <a class="brand" href="/" title="返回首页"><span class="logo"><img src="/logo-mark.png?v=4" alt=""></span><span>My books</span></a>
       <nav class="view-switch" aria-label="主导航">${navHtml(current)}</nav>
       <div class="topbar-actions">
@@ -492,6 +538,7 @@ function overlaysHtml() {
       <button type="button" id="mmSettings">⚙ 设置心得仓库</button>
     </div>
   </div>
+  ${mobileSubmenusHtml()}
 
   <div id="toast" class="toast hidden"></div>
 
@@ -513,8 +560,8 @@ document.body.insertAdjacentHTML('beforeend', overlaysHtml());
 
 /* ============ 桌面导航下拉(apple.com globalnav flyout) ============
  * 悬停 100ms 打开(与 Apple 的 hover intent 一致);已展开时划过其它项即时切换。
- * 面板高度 254ms 展开,内容由裁切揭示;标题再延迟 80ms 上浮淡入。
- * 关闭时面板立即消失、幕布单独淡出 —— 与 Apple 的时序一致。
+ * 面板高度 254ms 展开;标题与链接按组错峰入场(标题 +80ms,链接再每项 +20ms),
+ * 切换菜单为 120ms 交叉淡化 + 高度变形;关闭时内容倒序时长淡出,面板延迟 120ms 收起。
  * 键盘:聚焦导航项即展开,↓ 进入菜单,Esc 收起并回到触发项。 */
 function initNavFlyouts() {
   const flyout = document.getElementById('navFlyout');
@@ -527,6 +574,8 @@ function initNavFlyouts() {
   let openTimer = 0;
   let pendingId = null;
   let restoringFocus = false;
+  let closeTimer = 0;
+  let switchTimer = 0;
 
   const triggerFor = (id) => triggers.find((t) => t.dataset.flyout === id) || null;
   const panelFor = (id) => flyout.querySelector(`.nav-flyout-panel[data-panel="${id}"]`);
@@ -535,19 +584,29 @@ function initNavFlyouts() {
     return panel ? panel.offsetHeight : 0;
   };
 
-  function setActive(id) {
+  function syncTriggers(id) {
     triggers.forEach((t) => {
       const on = t.dataset.flyout === id;
       t.setAttribute('aria-expanded', String(on));
       t.classList.toggle('is-open', on);
     });
+  }
+
+  function clearSwitch() {
+    clearTimeout(switchTimer);
+    switchTimer = 0;
+    flyout.classList.remove('is-switching');
+    flyout.querySelectorAll('.nav-flyout-panel.is-entering, .nav-flyout-panel.is-leaving')
+      .forEach((p) => p.classList.remove('is-entering', 'is-leaving'));
+  }
+
+  function setActive(id) {
+    syncTriggers(id);
     flyout.querySelectorAll('.nav-flyout-panel.is-active').forEach((p) => p.classList.remove('is-active'));
     panelFor(id).classList.add('is-active');
     activeId = id;
     flyout.setAttribute('aria-hidden', 'false');
     curtain.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('nav-flyout-open');
-    document.dispatchEvent(new Event('nav-flyout-open'));
   }
 
   function open(id) {
@@ -555,14 +614,48 @@ function initNavFlyouts() {
     clearTimeout(openTimer);
     openTimer = 0;
     pendingId = null;
-    if (activeId === id && document.body.classList.contains('nav-flyout-open')) return;
-    const first = !activeId;
+    const isOpen = document.body.classList.contains('nav-flyout-open');
+    if (activeId === id && isOpen) return;
+
+    if (document.body.classList.contains('nav-flyout-closing')) {
+      clearTimeout(closeTimer);
+      closeTimer = 0;
+      document.body.classList.remove('nav-flyout-closing');
+      flyout.querySelectorAll('.nav-flyout-panel.is-active').forEach((p) => p.classList.remove('is-active'));
+      activeId = null;
+    }
+
+    if (isOpen && activeId && activeId !== id) {
+      // 已展开时切换:旧面板整体淡出、新面板整体淡入,高度 120ms 变形,
+      // 新面板内容直接呈现,不重播逐项 stagger(与 Apple 一致)。
+      const oldPanel = panelFor(activeId);
+      const newPanel = panelFor(id);
+      const startHeight = parseFloat(getComputedStyle(flyout).height) || 0;
+      clearSwitch();
+      syncTriggers(id);
+      oldPanel.classList.remove('is-active');
+      oldPanel.classList.add('is-leaving');
+      newPanel.classList.add('is-active', 'is-entering');
+      activeId = id;
+      flyout.classList.add('is-switching');
+      flyout.style.height = startHeight + 'px';
+      requestAnimationFrame(() => {
+        if (activeId === id) flyout.style.height = newPanel.offsetHeight + 'px';
+      });
+      switchTimer = setTimeout(clearSwitch, 140);
+      return;
+    }
+
+    const first = !isOpen || !activeId;
     setActive(id);
     if (first) {
+      // 面板默认 display:none,浏览器没有关闭态的 computed style,
+      // 直接加 open 类会跳过过渡。先以关闭态强制一次样式计算再展开。
       flyout.style.height = '0px';
-      requestAnimationFrame(() => {
-        if (activeId === id) flyout.style.height = currentHeight() + 'px';
-      });
+      currentHeight();
+      document.body.classList.add('nav-flyout-open');
+      document.dispatchEvent(new Event('nav-flyout-open'));
+      flyout.style.height = currentHeight() + 'px';
     } else {
       flyout.style.height = currentHeight() + 'px';
     }
@@ -572,18 +665,26 @@ function initNavFlyouts() {
     clearTimeout(openTimer);
     openTimer = 0;
     pendingId = null;
-    if (!activeId) return;
-    const trigger = triggerFor(activeId);
-    document.body.classList.remove('nav-flyout-open');
-    flyout.setAttribute('aria-hidden', 'true');
-    curtain.setAttribute('aria-hidden', 'true');
-    flyout.style.height = '';
-    flyout.querySelectorAll('.nav-flyout-panel.is-active').forEach((p) => p.classList.remove('is-active'));
-    triggers.forEach((t) => {
-      t.setAttribute('aria-expanded', 'false');
-      t.classList.remove('is-open');
-    });
-    activeId = null;
+    const trigger = activeId ? triggerFor(activeId) : null;
+    if (activeId && document.body.classList.contains('nav-flyout-open')) {
+      syncTriggers(null);
+      clearSwitch();
+      document.body.classList.remove('nav-flyout-open');
+      document.body.classList.add('nav-flyout-closing');
+      flyout.setAttribute('aria-hidden', 'true');
+      curtain.setAttribute('aria-hidden', 'true');
+      // 面板先留驻,内容按倒序时长淡出;120ms 后整幅收起,与 Apple 节奏一致。
+      flyout.style.height = '0px';
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => {
+        closeTimer = 0;
+        if (!document.body.classList.contains('nav-flyout-closing')) return;
+        document.body.classList.remove('nav-flyout-closing');
+        flyout.style.height = '';
+        flyout.querySelectorAll('.nav-flyout-panel.is-active').forEach((p) => p.classList.remove('is-active'));
+        activeId = null;
+      }, 420);
+    }
     if (restoreFocus && trigger) {
       // focus 事件同步触发,esc 回焦不能被它当成“键盘展开”而重新打开
       restoringFocus = true;

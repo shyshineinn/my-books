@@ -256,6 +256,28 @@ html {
 .mobile-menu-btn:focus-visible { outline-offset: -7px; }
 body.menu-open .mobile-menu-btn { color: #000; opacity: 1; }
 
+/* 二级菜单返回键:apple.com 移动端同款,落在左缘 48×48 命中区(图标中心距左缘 24px),
+   只在二级面板展开时出现;右侧 ✕ 依旧是关闭整层菜单 */
+.mm-back-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-inline-start: -16px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #000;
+  opacity: 0.8;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.mm-back-btn:hover { opacity: 1; }
+.mm-back-btn:focus-visible { outline-offset: -7px; }
+
 /* 展开时整页蒙一层极淡暖灰(apple.com 的 curtain):
    面板长满屏之前页面先退后,关闭时随面板收起同步淡出 */
 .menu-curtain {
@@ -328,9 +350,11 @@ body.menu-open .menu-curtain {
    顶部留白由面板的 47px 内边距给出,首项与 apple.com 一样从 48px 栏底部起排。 */
 .mm-links { display: flex; flex-direction: column; }
 
-.mm-links a {
+.mm-links a,
+.mm-links button {
   display: flex;
   align-items: center;
+  width: 100%;
   min-height: 46px;
   padding: 0 48px;
   font-family: var(--sans);
@@ -354,18 +378,23 @@ body.menu-open .menu-curtain {
 }
 
 .mm-links a:hover,
-.mm-links a:active { color: #000; }
-.mm-links a:focus-visible { outline-offset: -7px; }
+.mm-links a:active,
+.mm-links button:hover,
+.mm-links button:active { color: #000; }
+.mm-links a:focus-visible,
+.mm-links button:focus-visible { outline-offset: -7px; }
 
 /* 进项级联:基准 200ms,每项 +20ms(apple.com 同款);--mm-i 由 chrome.js 按导航顺序写入 */
-.mobile-menu.open .mm-links a {
+.mobile-menu.open .mm-links a,
+.mobile-menu.open .mm-links button {
   opacity: 1;
   transform: none;
   transition-delay: 0s, calc(0.2s + var(--mm-i, 0) * 20ms), calc(0.2s + var(--mm-i, 0) * 20ms);
 }
 
 /* 关闭时条目不再淡出,保持可见由面板收起带出屏幕(apple.com 关闭实测如此) */
-.mobile-menu.closing .mm-links a {
+.mobile-menu.closing .mm-links a,
+.mobile-menu.closing .mm-links button {
   opacity: 1;
   transform: none;
   transition: none;
@@ -384,6 +413,124 @@ body.menu-open .menu-curtain {
 
 #mmSettings:hover { color: var(--ink); }
 
+/* ============ 竖屏二级菜单(apple.com 移动端子菜单 1:1) ============
+   一级列表之上再压一层不透明 #fafafc 面板,淡入 300ms;
+   主列表原样留在下面,返回时上层淡出即回到一级,不重播级联入场。
+   版式按实测:内容上留白 50px、左右 48px;首组大链接 28px/600、
+   行高 32 + 上下 11px、行距约 47px;次组标题 17px 灰字、
+   链接 17px/600、行距约 35px,组底 52px(末组 92px)。 */
+.mobile-menu-sub {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;   /* iOS/Android 都是覆盖式滚动条,桌面窄窗口也不露出轨道 */
+  background: #fafafc;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.3s cubic-bezier(0.4, 0, 0.6, 1),
+    visibility 0s linear 0.3s;
+}
+
+.mobile-menu-sub::-webkit-scrollbar { display: none; }
+
+.mobile-menu-sub.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 0.3s cubic-bezier(0.4, 0, 0.6, 1),
+    visibility 0s linear 0s;
+}
+
+.mobile-menu-sub:focus,
+.mobile-menu-sub:focus-visible { outline: none; }
+
+.mm-sub-inner {
+  max-width: 1024px;
+  margin: 0 auto;
+  padding: 50px 48px 0;
+}
+
+.mm-sub-elevated {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 52px;
+}
+
+.mm-sub-elevated li { margin: 0 0 -7px; }
+
+.mm-sub-elevated a {
+  display: block;
+  padding: 11px 0;
+  font-family: var(--sans);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.007em;
+  line-height: 32px;
+  color: #333336;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.mm-sub-group { padding-bottom: 52px; }
+.mm-sub-group:last-child { padding-bottom: 92px; }
+
+.mm-sub-heading {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 21px;
+  color: #6e6e73;
+}
+
+.mm-sub-sec {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mm-sub-sec li { margin: 0; }
+.mm-sub-sec li + li { margin-top: 8px; }
+.mm-sub-sec li:first-child { margin-top: 14px; }
+
+/* 次组链接 = 小号胶囊按钮(与桌面下拉同款);首组大链接仍是文字形态 */
+.mm-sub-sec a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 39px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: #f0f0f2;
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 25px;
+  color: #333336;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 0.32s cubic-bezier(0.4, 0, 0.6, 1),
+    background-color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.mm-sub-elevated a:hover,
+.mm-sub-elevated a:active { color: #000; }
+.mm-sub-sec a:hover,
+.mm-sub-sec a:active { background: #e8e8ed; color: #000; }
+.mm-sub-elevated a:focus-visible,
+.mm-sub-sec a:focus-visible { outline-offset: 3px; }
+
+/* 桌面端不参与:二级面板只服务竖屏菜单 */
+@media (min-width: 820px) {
+  .mobile-menu-sub { display: none; }
+}
+
 /* 竖屏/窄屏:logo 与品牌居左(apple.com 移动端同款),右侧仅功能按钮 */
 @media (max-width: 819px) {
   /* 搜索面板 z60 长满屏时,顶栏仍压在它上面 —— 汉堡 ✕ 必须一直可点,
@@ -400,6 +547,7 @@ body.menu-open .menu-curtain {
   #searchBtn { display: inline-flex; }   /* 搜索独立成一级入口,与「添加书籍」平级 */
   .mobile-menu-btn { display: inline-flex; }
   .topbar-actions { flex: 0 0 auto; margin-left: auto; }
+  body.mm-sub-open .mm-back-btn { display: inline-flex; }
 
   /* —— 菜单 / 搜索展开态:顶栏退成透明,品牌与图标淡出(apple.com 同款),
      只保留右缘触发器 ✕;关闭时带 80ms 延迟淡回 —— */
@@ -435,8 +583,10 @@ body.menu-open .menu-curtain {
    桌面导航下拉(apple.com globalnav flyout 1:1)
    —— 整幅 #fafafc 面板自导航条下方抽出(高度 254ms),
       页面蒙 20px 毛玻璃幕布;内容 1024px 栅格:主列 24px/600、
-      次列 12px/600,标题 12px 灰字延迟 80ms 上浮。
-      关闭时面板瞬时消失,仅幕布单独淡出。
+      次列 12px/600,标题 12px 灰字。
+      逐项入场:320ms ease,组基延迟 80/160/200ms,列内每项 +20ms;
+      切换菜单:120ms 整体交叉淡化 + 高度变形,不重播 stagger;
+      关闭:内容按倒序时长(160–240ms)同步淡出,面板延迟 120ms 收起。
    ============================================================ */
 /* 移动端整体隐藏:下拉只为桌面导航服务,样式也只在 ≥820px 生效 */
 .nav-flyout,
@@ -445,7 +595,8 @@ body.menu-open .menu-curtain {
 @media (min-width: 820px) {
   .nav-item { display: flex; align-items: center; }
   .view-switch a.is-open { color: #000; }
-  body.nav-flyout-open .topbar { background: #fafafc; }
+  body.nav-flyout-open .topbar,
+  body.nav-flyout-closing .topbar { background: #fafafc; }
 
   .nav-flyout-curtain {
     display: block;
@@ -492,8 +643,47 @@ body.menu-open .menu-curtain {
     transition: height 0.254s cubic-bezier(0.4, 0, 0.6, 1);
   }
 
-  .nav-flyout-panel { display: none; }
-  .nav-flyout-panel.is-active { display: block; }
+  body.nav-flyout-open .nav-flyout.is-switching {
+    transition: height 0.12s cubic-bezier(0.4, 0, 0.6, 1);
+  }
+
+  body.nav-flyout-closing .nav-flyout {
+    visibility: visible;
+    pointer-events: none;
+    transition: height 0.254s cubic-bezier(0.4, 0, 0.6, 1) 0.12s;
+  }
+
+  .nav-flyout-panel { display: none; position: absolute; top: 0; left: 0; right: 0; }
+  .nav-flyout-panel.is-active,
+  .nav-flyout-panel.is-leaving { display: block; }
+  .nav-flyout-panel.is-leaving { pointer-events: none; }
+
+  .nav-flyout-panel.is-entering .nav-flyout-inner {
+    animation: nav-flyout-fade-in 0.12s cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+
+  .nav-flyout-panel.is-leaving .nav-flyout-inner {
+    animation: nav-flyout-fade-out 0.12s cubic-bezier(0.4, 0, 0.6, 1) both;
+  }
+
+  .nav-flyout-panel.is-entering .nav-flyout-heading,
+  .nav-flyout-panel.is-entering .nav-flyout-list li,
+  .nav-flyout-panel.is-leaving .nav-flyout-heading,
+  .nav-flyout-panel.is-leaving .nav-flyout-list li {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  @keyframes nav-flyout-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes nav-flyout-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
 
   .nav-flyout-inner {
     max-width: 1024px;
@@ -516,8 +706,8 @@ body.menu-open .menu-curtain {
     opacity: 0;
     transform: translateY(-4px);
     transition:
-      opacity 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
-      transform 0.32s cubic-bezier(0.4, 0, 0.6, 1) 0.08s;
+      opacity 0.32s ease calc(var(--nav-group-delay, 0ms) + 80ms),
+      transform 0.32s ease calc(var(--nav-group-delay, 0ms) + 80ms);
   }
 
   .nav-flyout-group:not(.is-elevated) .nav-flyout-heading { margin-bottom: 10px; }
@@ -534,6 +724,33 @@ body.menu-open .menu-curtain {
   }
 
   .nav-flyout-list li + li { margin-top: -6px; }
+
+  .nav-flyout-list li {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity 0.32s ease calc(var(--nav-group-delay, 0ms) + 80ms + var(--nav-item-i, 2) * 20ms),
+      transform 0.32s ease calc(var(--nav-group-delay, 0ms) + 80ms + var(--nav-item-i, 2) * 20ms);
+  }
+
+  body.nav-flyout-open .nav-flyout-panel.is-active .nav-flyout-list li {
+    opacity: 1;
+    transform: none;
+  }
+
+  body.nav-flyout-closing .nav-flyout-heading {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition-duration: 0.24s;
+    transition-delay: 0s;
+  }
+
+  body.nav-flyout-closing .nav-flyout-list li {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition-duration: var(--nav-exit-dur, 0.24s);
+    transition-delay: 0s;
+  }
 
   .nav-flyout-list a {
     display: inline-block;
@@ -557,11 +774,40 @@ body.menu-open .menu-curtain {
   .nav-flyout-list a:hover { color: #000; }
   .nav-flyout a:focus-visible { outline-offset: -7px; }
 
+  /* 次列链接做成小号胶囊按钮(主列「分类管理」等大链接保持文字形态):
+     底色比面板略深一档,悬停再深一档;行距改由胶囊高度决定 */
+  .nav-flyout-group:not(.is-elevated) .nav-flyout-list { margin-left: 0; }
+  .nav-flyout-group:not(.is-elevated) .nav-flyout-list li + li { margin-top: 6px; }
+
+  .nav-flyout-group:not(.is-elevated) .nav-flyout-list a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: #f0f0f2;
+    transition:
+      color 0.32s cubic-bezier(0.4, 0, 0.6, 1),
+      background-color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+  }
+
+  .nav-flyout-group:not(.is-elevated) .nav-flyout-list a:hover {
+    background: #e8e8ed;
+    color: #000;
+  }
+
+  .nav-flyout-group:not(.is-elevated) .nav-flyout-list a:focus-visible { outline-offset: 2px; }
+
   @media (prefers-reduced-motion: reduce) {
-    body.nav-flyout-open .nav-flyout { transition: none; }
+    body.nav-flyout-open .nav-flyout,
+    body.nav-flyout-open .nav-flyout.is-switching,
+    body.nav-flyout-closing .nav-flyout { transition: none; }
     .nav-flyout-curtain,
     body.nav-flyout-open .nav-flyout-curtain { transition: none; }
-    .nav-flyout-heading { transition: none; opacity: 1; transform: none; }
+    .nav-flyout-heading,
+    .nav-flyout-list li { transition: none; opacity: 1; transform: none; }
+    .nav-flyout-panel.is-entering .nav-flyout-inner,
+    .nav-flyout-panel.is-leaving .nav-flyout-inner { animation: none; }
   }
 }
 

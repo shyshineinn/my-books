@@ -431,13 +431,16 @@ document.addEventListener('keydown', (e) => {
     // 否则一次 Esc 会把下层表单一起关掉 —— 与 goBack 的逐层退出一致
     if (window.BookScanner && BookScanner.isOpen()) return;
     const hadModal = !!document.querySelector('.modal:not(.hidden)');
-    closeModals();
-    closeMobileMenu();
     // 栈顶弹窗吃掉这次 Esc,下层搜索浮层/菜单不能同时关闭
     if (hadModal) {
+      closeModals();
+      closeMobileMenu();
       e.preventDefault();
       e.stopImmediatePropagation();
+      return;
     }
+    // 二级菜单展开时 Esc 先回主菜单,再按一次才收起整层
+    if (!closeMobileSubmenu(true)) closeMobileMenu();
   }
 });
 
@@ -589,7 +592,61 @@ $('#settingsSave').addEventListener('click', async () => {
 /* ============ 移动端全屏菜单 ============ */
 const mobileMenu = $('#mobileMenu');
 const menuBtn = $('#menuBtn');
+const mmBackBtn = $('#mmBackBtn');
+const mmSubPanels = $$('.mobile-menu-sub');
 let menuClosingTimer = 0;
+let mmSubTimer = 0;
+let mmSubId = null;
+
+/* apple.com 移动端二级结构:一级列表保持不动,上层再压一层全屏面板。
+   面板从 0 淡入 300ms;返回时淡出,主列表一直在下面,无需重播入场。 */
+function openMobileSubmenu(id) {
+  const pane = document.getElementById('mmSub-' + id);
+  if (!pane || !mobileMenu.classList.contains('open')) return;
+  clearTimeout(mmSubTimer);
+  mmSubPanels.forEach((p) => p.classList.toggle('open', p === pane));
+  mmSubId = id;
+  document.body.classList.add('mm-sub-open');
+  // 二级面板盖住主列表时把它移出可访问树与 Tab 序;返回时恢复
+  mobileMenu.setAttribute('aria-hidden', 'true');
+  mobileMenu.inert = true;
+  $$('#mobileMenu .mm-links button[data-sub]').forEach((b) => {
+    b.setAttribute('aria-expanded', String(b.dataset.sub === id));
+  });
+  pane.focus();
+}
+
+function closeMobileSubmenu(restoreFocus = false) {
+  if (!mmSubId) return false;
+  const id = mmSubId;
+  mmSubId = null;
+  const pane = document.getElementById('mmSub-' + id);
+  const row = mobileMenu.querySelector(`.mm-links button[data-sub="${id}"]`);
+  if (pane) pane.classList.remove('open');
+  mobileMenu.removeAttribute('aria-hidden');
+  mobileMenu.inert = false;
+  if (row) {
+    row.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) row.focus();
+  }
+  // 返回键随面板一起淡出(apple.com 实测),300ms 后再撤掉展开态
+  clearTimeout(mmSubTimer);
+  mmSubTimer = setTimeout(() => {
+    if (!mmSubId) document.body.classList.remove('mm-sub-open');
+  }, 300);
+  return true;
+}
+
+// 整层菜单关闭/重开时瞬间复位二级面板,不参与收起动画
+function resetMobileSubmenu() {
+  clearTimeout(mmSubTimer);
+  mmSubId = null;
+  mmSubPanels.forEach((p) => p.classList.remove('open'));
+  $$('#mobileMenu .mm-links button[data-sub]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  mobileMenu.removeAttribute('aria-hidden');
+  mobileMenu.inert = false;
+  document.body.classList.remove('mm-sub-open');
+}
 
 /* apple.com 同款触发器:两条 18×18 折线先在中线会合、再交叉成 ✕。
    搜索展开时它同时充当搜索的 ✕(apple.com 也是同一个 menu trigger)。
@@ -612,6 +669,7 @@ function playMenuTrigger(open) {
 
 function closeMobileMenu() {
   if (!mobileMenu.classList.contains('open')) return;
+  resetMobileSubmenu();
   mobileMenu.classList.remove('open');
   // 关闭时条目保持可见,由面板收起把它们带出屏幕(apple.com 同款);
   // 收起动画(0.422s + 0.12s 延迟)结束后再让它们回到隐藏态
@@ -624,6 +682,7 @@ function closeMobileMenu() {
 
 function openMobileMenu() {
   closeSearchOverlay(false);
+  resetMobileSubmenu();
   clearTimeout(menuClosingTimer);
   mobileMenu.classList.remove('closing');
   mobileMenu.classList.add('open');
@@ -642,10 +701,20 @@ $('#menuBtn').addEventListener('click', () => {
   else openMobileMenu();
 });
 
-// 菜单里的导航项是真实链接(跨页跳转),只需点按时收起菜单
+// 一级项:有二级面板的展开面板,普通链接直接跳转
+$$('#mobileMenu .mm-links button[data-sub]').forEach((btn) => {
+  btn.addEventListener('click', () => openMobileSubmenu(btn.dataset.sub));
+});
+
+// 一级直链与二级面板内的链接都是真实跳转,点按后收起整层菜单
 $$('#mobileMenu .mm-links a').forEach((a) => {
   a.addEventListener('click', closeMobileMenu);
 });
+$$('.mobile-menu-sub a').forEach((a) => {
+  a.addEventListener('click', closeMobileMenu);
+});
+
+mmBackBtn.addEventListener('click', () => closeMobileSubmenu(true));
 
 $('#mmSettings').addEventListener('click', () => {
   closeMobileMenu();
@@ -1828,7 +1897,8 @@ function goBack() {
   if (window.BookScanner && BookScanner.isOpen()) { BookScanner.close(); return true; }
   // 1. 任何浮层弹窗
   if ($$('.modal').some((m) => !m.classList.contains('hidden'))) { closeModals(); return true; }
-  // 2. 移动端全屏菜单
+  // 2. 移动端全屏菜单(二级面板先回主菜单,再退一级才收起整层)
+  if (closeMobileSubmenu(true)) return true;
   if (mobileMenu.classList.contains('open')) { closeMobileMenu(); return true; }
   // 3. 全局搜索浮层
   if (isSearchOpen()) { closeSearchOverlay(true); return true; }
