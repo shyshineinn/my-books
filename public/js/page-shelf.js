@@ -1,5 +1,5 @@
 /* ============================================================
- * 书架页(/shelf) —— 网格 + 状态页签 + 标签/排序筛选 + 实时搜索
+ * 书架页(/shelf) —— 网格 + 实时搜索
  * 逻辑自旧单页 app.js 拆出;筛选状态存本页闭包,
  * URL 查询参数(?q=&status=&tag=&sort=)是跨页进入时的初始条件来源。
  * ============================================================ */
@@ -86,92 +86,14 @@ function renderGrid() {
   }
 }
 
-/* ============ 页签计数与标签下拉(共享 /api/stats) ============ */
-async function loadShelfStats() {
-  const data = await sharedStats();
-  if (!data) return;
-  $('#countAll').textContent = data.total;
-  $('#countWish').textContent = data.byStatus.wish;
-  $('#countReading').textContent = data.byStatus.reading;
-  $('#countDone').textContent = data.byStatus.done;
-  updateTagFilter(data.topTags);
-}
-
-function updateTagFilter(topTags) {
-  const sel = $('#tagFilter');
-  const current = shelf.tag;
-  const tags = [...topTags.map((t) => t.tag)];
-  if (current && !tags.includes(current)) tags.unshift(current);
-  sel.innerHTML = '<option value="">全部标签</option>' +
-    tags.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
-  sel.value = current;
-  syncCustomSelect(sel);   // 选项集合重建后,同步自定义下拉面板
-}
-
-// 作者下拉取自归一化后的 /api/authors(全量,带引用数)
-async function loadAuthorFilter() {
-  let authors;
-  try {
-    authors = await api('/api/authors');
-  } catch { return; }   // 拉取失败静默:保留「全部作者」,不影响其它筛选
-  const sel = $('#authorFilter');
-  const current = shelf.author;
-  const names = authors.map((a) => a.name);
-  if (current && !names.includes(current)) names.unshift(current);
-  sel.innerHTML = '<option value="">全部作者</option>' +
-    names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
-  sel.value = current;
-  syncCustomSelect(sel);
-}
-
-initCustomSelect($('#authorFilter'));
-initCustomSelect($('#tagFilter'));
-initCustomSelect($('#sortSelect'));
-
-/* ============ 筛选交互 ============ */
-$('#statusTabs').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-status]');
-  if (!btn) return;
-  // 「全部」= 回到全库:从导航作者/标签名单进来的筛选一并清掉,
-  // 否则页签亮着「全部」,列表却仍是某个作者/标签的子集
-  if (!btn.dataset.status) clearShelfFilters();
-  shelf.status = btn.dataset.status;
-  $$('#statusTabs button').forEach((b) => b.classList.toggle('active', b === btn));
-  fetchBooks();
-});
-
-$('#tagFilter').addEventListener('change', () => {
-  shelf.tag = $('#tagFilter').value;
-  fetchBooks();
-});
-
-$('#authorFilter').addEventListener('change', () => {
-  shelf.author = $('#authorFilter').value;
-  fetchBooks();
-});
-
-$('#sortSelect').addEventListener('change', () => {
-  shelf.sort = $('#sortSelect').value;
-  fetchBooks();
-});
-
-/* 检索是全库检索:只要搜索词非空,就清掉「状态 / 标签」筛选 ——
+/* ============ 筛选条件(来自地址栏 / 导航菜单) ============ */
+/* 检索是全库检索:只要搜索词非空,就清掉「状态 / 标签 / 作者」条件 ——
    否则会出现在某个标签(或某个状态)下搜索时只在该范围内命中,查不到明明存在的书。
-   筛选 UI 一并回到「全部 / 全部标签」,避免界面与实际条件脱节。
    注意:清空搜索框不会动筛选,只有"发起检索"才清。 */
 function clearShelfFilters() {
-  if (!shelf.status && !shelf.tag && !shelf.author) return;
   shelf.status = '';
   shelf.tag = '';
   shelf.author = '';
-  $$('#statusTabs button').forEach((b) => b.classList.toggle('active', b.dataset.status === ''));
-  for (const id of ['#tagFilter', '#authorFilter']) {
-    const sel = $(id);
-    if (sel) {
-      sel.value = '';
-      syncCustomSelect(sel);   // 程序改 value 不触发 change,自定义下拉需手动同步
-    }
-  }
 }
 
 // 搜索浮层提交(common.js 在书架页派发 shelf-search):
@@ -188,12 +110,7 @@ document.addEventListener('saved-search-apply', (e) => {
   const { q = '', sort = 'updated' } = e.detail || {};
   shelf.q = String(q);
   $('#searchInput').value = shelf.q;
-  const sortSel = $('#sortSelect');
-  if ([...sortSel.options].some((o) => o.value === sort)) {
-    shelf.sort = sort;
-    sortSel.value = sort;
-    syncCustomSelect(sortSel);   // 程序改 value 不触发 change,自定义下拉需手动同步
-  }
+  if (['updated', 'finish', 'title', 'author', 'series', 'created'].includes(sort)) shelf.sort = sort;
   if (shelf.q) clearShelfFilters();
   fetchBooks();
   syncUrl();
@@ -213,22 +130,12 @@ function applyUrlParams() {
   if (['updated', 'finish', 'title', 'author', 'series', 'created'].includes(p.get('sort'))) shelf.sort = p.get('sort');
 
   if (shelf.q) $('#searchInput').value = shelf.q;
-  if (shelf.sort !== 'updated') {
-    const sortSel = $('#sortSelect');
-    sortSel.value = shelf.sort;
-    syncCustomSelect(sortSel);
-  }
-  if (shelf.status) {
-    $$('#statusTabs button').forEach((b) => b.classList.toggle('active', b.dataset.status === shelf.status));
-  }
 }
 
 /* ============ 数据变更刷新 + 地址栏同步 ============ */
-// 弹窗保存/删除后:统计缓存已在 common.js 作废,这里只重拉列表与计数
+// 弹窗保存/删除后:统计缓存已在 common.js 作废,这里只重拉列表
 document.addEventListener('books-changed', () => {
   fetchBooks();
-  loadShelfStats();
-  loadAuthorFilter();
 });
 
 // 筛选条件写回地址栏(replaceState 不新增历史),刷新/分享保住当前视图
@@ -244,13 +151,7 @@ function syncUrl() {
 }
 
 document.addEventListener('shelf-search', syncUrl);
-$('#statusTabs').addEventListener('click', syncUrl);
-$('#tagFilter').addEventListener('change', syncUrl);
-$('#authorFilter').addEventListener('change', syncUrl);
-$('#sortSelect').addEventListener('change', syncUrl);
 
 /* ============ 启动 ============ */
 applyUrlParams();
 fetchBooks();
-loadShelfStats();
-loadAuthorFilter();

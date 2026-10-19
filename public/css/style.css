@@ -1346,21 +1346,19 @@ body.search-open .search-curtain {
 }
 
 /* ============================================================
-   分段控件公共规则(.status-tabs 书架筛选 / .seg 弹窗状态选择)
-   此前这两个控件只有 padding/字号,没有底色、边框、圆角 ——
+   弹窗状态分段控件(.seg)
+   此前该控件只有 padding/字号,没有底色、边框、圆角 ——
    直接回落成浏览器原生按钮(灰底 + 方角 + native 描边),
    与全站 Apple 扁平胶囊语言脱节。
    现统一到 .btn 体系:白底 + 发丝线 + 999px 胶囊;
    选中态改用 Action Blue 实底胶囊(取代原先的 2px 蓝色内描边)。
    ============================================================ */
-.status-tabs,
 .seg {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.status-tabs button,
 .seg button {
   appearance: none;
   -webkit-appearance: none;
@@ -1375,7 +1373,6 @@ body.search-open .search-curtain {
 }
 
 /* 未选中项悬停:与 .btn 悬停同款(白底微亮 + 发丝线加深) */
-.status-tabs button:not(.active):hover,
 .seg button:not(.active):hover {
   background: var(--glass-fill-hover);
   border-color: var(--glass-edge-hover);
@@ -1383,7 +1380,6 @@ body.search-open .search-curtain {
 }
 
 /* 选中项:Action Blue 实底胶囊(全站唯一交互色,与 .btn-primary 同款) */
-.status-tabs button.active,
 .seg button.active {
   background: var(--accent);
   border-color: var(--accent);
@@ -1392,7 +1388,6 @@ body.search-open .search-curtain {
   box-shadow: none;
 }
 
-.status-tabs button.active::before,
 .seg button.active::before {
   content: none;
 }
@@ -1562,74 +1557,15 @@ main {
   margin: 0 0 28px;
 }
 
-/* 工具栏 */
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 14px;
-  align-items: center;
-  margin-bottom: 30px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--hairline-soft);
-}
-
-.status-tabs {
-  overflow-x: auto;
-  max-width: 100%;
-  scrollbar-width: none;
-}
-
-.status-tabs::-webkit-scrollbar { display: none; }
-
-.status-tabs button {
-  padding: 6px 15px;
-  font-size: 13.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  min-height: 34px;
-}
-
-/* 计数角标:跟随按钮文字色,选中态(蓝底白字)下自动变白 */
-.status-tabs em {
-  font-style: normal;
-  font-size: 12px;
-  font-weight: 600;
-  color: currentColor;
-  opacity: 0.72;
-  margin-left: 3px;
-}
-
-.status-tabs button.active em { opacity: 1; }
-
-/* 右侧控件组:作者 / 标签 / 排序 / 语法按钮。
- *
- * 竖屏溢出的根因(2026-10-15 实测):本行是 flex 行,四个子项都是
- * `white-space: nowrap`,而 flex 子项的 min-width 默认是 **auto**(= 内容宽度),
- * 所以整组恒定 403px、**永不收缩**;`.toolbar` 的 flex-wrap 只能换它自己的行,
- * 管不了"某个子项比容器还宽"。结果 documentElement.scrollWidth 被撑到 421px,
- * 320~414px 视口下都能左右滑动。
- *
- * 修法:让这一组自己可换行 + 允许收缩到容器宽度以下(min-width:0 是解开
- * "nowrap 内容卡住 flex" 的关键),子项再按需截断。 */
-.toolbar-right {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-left: auto;
-  min-width: 0;
-  max-width: 100%;
-}
-
 /* ============================================================
    自定义下拉(.sel)
    原生 <select> 展开后的列表由系统绘制,CSS 无法介入 —— 会露出灰底 / 方角 /
    原生高亮,和全站 Apple 扁平语言冲突。这里把原生 select 藏起来(仍作数据源),
    用「胶囊触发按钮 + 圆角浮层面板」接管展开态。
    触发按钮 = 与 .btn 同款白底发丝线胶囊;面板 = 白底 / 18px 圆角 / 单一投影;
-   选中项 = Action Blue 实底胶囊(与书架分段控件、.btn-primary 同一语言)。
+   选中项 = Action Blue 实底胶囊(与 .btn-primary 同一语言)。
    ============================================================ */
-/* 选择器容器:min-width:0 让它能在窄屏被压缩(否则 flex 子项按内容撑住,
-   触发按钮与标签会一起把工具栏顶宽 —— 见 .toolbar-right 的说明)。
+/* 选择器容器:min-width:0 让它能在窄屏被压缩(否则 flex 子项按内容撑住),
    max-width:100% 保证自己也不会超出所在行。 */
 .sel { position: relative; min-width: 0; max-width: 100%; }
 
@@ -1702,7 +1638,7 @@ main {
   max-height: 320px;
   overflow-y: auto;
   /* 隐藏滚动条,但保留滚动能力(滚轮 / 触屏滑动 / 键盘 ↑↓ Home End 均可);
-     与 .status-tabs 同一做法 —— 浅色浮层里露出系统滚动条会破坏整体观感 */
+     浅色浮层里露出系统滚动条会破坏整体观感 */
   scrollbar-width: none;        /* Firefox */
   -ms-overflow-style: none;     /* 旧 Edge */
   padding: 6px;

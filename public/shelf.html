@@ -11,35 +11,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=87">
+  <link rel="stylesheet" href="/css/style.css?v=90">
 </head>
 <body data-page="shelf">
   <main>
     <h1 class="page-title">书架</h1>
-    <div class="toolbar">
-      <div class="status-tabs" id="statusTabs">
-        <button type="button" data-status="" class="active">全部 <em id="countAll"></em></button>
-        <button type="button" data-status="wish">想读 <em id="countWish"></em></button>
-        <button type="button" data-status="reading">在读 <em id="countReading"></em></button>
-        <button type="button" data-status="done">已读 <em id="countDone"></em></button>
-      </div>
-      <div class="toolbar-right">
-        <select id="authorFilter" aria-label="按作者筛选">
-          <option value="">全部作者</option>
-        </select>
-        <select id="tagFilter" aria-label="按标签筛选">
-          <option value="">全部标签</option>
-        </select>
-        <select id="sortSelect" aria-label="排序方式">
-          <option value="updated">最近更新</option>
-          <option value="finish">读完日期</option>
-          <option value="title">书名</option>
-          <option value="author">作者</option>
-          <option value="series">系列</option>
-          <option value="created">添加时间</option>
-        </select>
-      </div>
-    </div>
     <div id="bookGrid" class="book-grid"></div>
     <div id="emptyState" class="empty hidden">
       <div class="empty-icon">书</div>
@@ -52,6 +28,6 @@
   <script defer src="/js/chrome.js?v=28"></script>
   <script defer src="/js/common.js?v=18"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=8"></script>
+  <script defer src="/js/page-shelf.js?v=10"></script>
 </body>
 </html>
