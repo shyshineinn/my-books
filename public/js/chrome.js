@@ -219,6 +219,13 @@ function overlaysHtml() {
               <path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" fill="none" stroke="#fafafc" stroke-width="1.3" stroke-linecap="round"></path>
             </svg>
           </button>
+          <button type="button" id="searchSyntaxBtn" class="search-field-help" aria-label="高级搜索语法" title="高级搜索语法" aria-haspopup="dialog" aria-controls="syntaxModal">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+              <circle cx="10" cy="10" r="8.4"></circle>
+              <path d="M7.8 7.8c0-1.35 1-2.3 2.25-2.3s2.2.85 2.2 2.05c0 1-.55 1.55-1.35 2.05-.65.4-.9.75-.9 1.45v.25"></path>
+              <circle cx="10" cy="14.15" r="0.9" fill="currentColor" stroke="none"></circle>
+            </svg>
+          </button>
         </form>
         <section class="search-results" aria-labelledby="searchResultsTitle">
           <div class="search-results-head">
@@ -231,6 +238,47 @@ function overlaysHtml() {
           <ul id="searchSavedList" class="search-results-list"></ul>
           <p id="searchEmpty" class="search-results-empty" hidden>还没有保存的搜索</p>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- 高级搜索语法说明(全局共享;入口是搜索浮层输入框右侧的 ? 按钮) -->
+  <div id="syntaxModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>高级搜索语法</h2>
+        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+      </div>
+      <div class="syntax-body">
+        <p>在搜索框把多条条件用空格连起来即「并且」,支持这些字段:</p>
+        <table class="syntax-table">
+          <tr><td><code>tag:科幻</code></td><td>标签(精确匹配归一化标签)</td></tr>
+          <tr><td><code>author:刘慈欣</code></td><td>作者(精确匹配归一化作者)</td></tr>
+          <tr><td><code>title:三体</code></td><td>书名(子串)</td></tr>
+          <tr><td><code>status:done</code></td><td>状态:想读 wish / 在读 reading / 已读 done(或中文)</td></tr>
+          <tr><td><code>rating&gt;=9</code></td><td>评分,支持 &gt; &lt; &gt;= &lt;= = !=</td></tr>
+          <tr><td><code>pubyear:2008</code></td><td>出版年,可用 <code>pubyear&lt;2010</code> 这类范围</td></tr>
+          <tr><td><code>publisher:译文</code></td><td>出版社(子串)</td></tr>
+          <tr><td><code>isbn:978...</code></td><td>ISBN(子串)</td></tr>
+          <tr><td><code>series:基地</code></td><td>系列(精确匹配)</td></tr>
+          <tr><td><code>series_index:&gt;=2</code></td><td>系列序号,支持 &gt; &lt; &gt;= &lt;= = !=</td></tr>
+          <tr><td><code>identifier:goodreads:5907</code></td><td>标识符(类型:值;只写类型表示"有该类标识符")</td></tr>
+          <tr><td><code>format:epub</code></td><td>电子书格式(已上传)</td></tr>
+          <tr><td><code>#页数:&gt;300</code></td><td>自定义字段(<code>#</code> 开头;数值可比较)</td></tr>
+        </table>
+        <p>其它写法:</p>
+        <ul>
+          <li><code>or</code> —— 把条件改成「或者」:<code>status:done or 活着</code></li>
+          <li><code>not</code> / 前导 <code>-</code> —— 否定紧随其后的一条:<code>not tag:草稿</code></li>
+          <li>值含空格加引号:<code>publisher:"上海译文"</code></li>
+          <li>不写字段名的词按书名 / 作者 / 简介 / 标签全文检索</li>
+        </ul>
+        <p class="syntax-example">组合示例:<code>status:done rating&gt;=9 三体</code></p>
+      </div>
+      <div class="form-foot">
+        <div class="form-foot-btns">
+          <button type="button" class="btn btn-ghost" data-close>知道了</button>
+        </div>
       </div>
     </div>
   </div>

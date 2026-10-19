@@ -430,8 +430,14 @@ document.addEventListener('keydown', (e) => {
     // 扫码浮层开着时,Escape 只关它(scanner.js 自己处理);
     // 否则一次 Esc 会把下层表单一起关掉 —— 与 goBack 的逐层退出一致
     if (window.BookScanner && BookScanner.isOpen()) return;
+    const hadModal = !!document.querySelector('.modal:not(.hidden)');
     closeModals();
     closeMobileMenu();
+    // 栈顶弹窗吃掉这次 Esc,下层搜索浮层/菜单不能同时关闭
+    if (hadModal) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
   }
 });
 
@@ -1593,7 +1599,9 @@ function syncSearchHeight() {
 // 保存 / 编辑按钮与空态文案随输入变化,不整表重绘
 function syncSearchTools() {
   const q = searchQuery();
-  searchResetBtn.hidden = !searchInput.value;
+  const hasText = !!searchInput.value;
+  searchResetBtn.hidden = !hasText;
+  searchForm.classList.toggle('has-query', hasText);
   searchSaveBtn.hidden = !q;
   if (savedEditMode && !savedItems.length) savedEditMode = false;
   searchEditBtn.hidden = !savedItems.length;
@@ -1726,6 +1734,7 @@ searchResetBtn.addEventListener('click', () => {
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
   searchInput.focus();
 });
+$('#searchSyntaxBtn').addEventListener('click', () => openModal('#syntaxModal'));
 
 searchSavedList.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-act]');
@@ -1784,8 +1793,9 @@ searchSaveBtn.addEventListener('click', async () => {
 
 document.addEventListener('pointerdown', (e) => {
   if (!isSearchOpen()) return;
-  // #menuBtn 在搜索展开时就是 ✕,由它的 click 负责关闭,不能当成"面板外点击"
-  if (e.target.closest('#searchFlyout') || e.target.closest('#searchBtn') || e.target.closest('#menuBtn')) return;
+  // #menuBtn 在搜索展开时就是 ✕,由它的 click 负责关闭,不能当成"面板外点击";
+  // 语法说明弹窗盖在搜索之上,点它也不能顺带收起搜索
+  if (e.target.closest('#searchFlyout') || e.target.closest('#searchBtn') || e.target.closest('#menuBtn') || e.target.closest('.modal')) return;
   closeSearchOverlay(false);
 });
 

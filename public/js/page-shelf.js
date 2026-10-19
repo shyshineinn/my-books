@@ -246,8 +246,6 @@ $('#tagFilter').addEventListener('change', syncUrl);
 $('#authorFilter').addEventListener('change', syncUrl);
 $('#sortSelect').addEventListener('change', syncUrl);
 
-$('#syntaxBtn').addEventListener('click', () => openModal('#syntaxModal'));
-
 /* ============ 启动 ============ */
 applyUrlParams();
 fetchBooks();

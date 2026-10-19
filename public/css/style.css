@@ -706,7 +706,7 @@ body.search-open .search-curtain {
   width: 100%;
   height: 40px;
   margin: 0;
-  padding: 0 38px 0 42px;
+  padding: 0 40px 0 42px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -724,10 +724,10 @@ body.search-open .search-curtain {
 .search-field input::placeholder { color: #6e6e73; opacity: 1; }
 .search-field input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
 
-.search-field-reset {
+.search-field-reset,
+.search-field-help {
   position: absolute;
   top: 0;
-  right: 2px;
   width: 38px;
   height: 40px;
   display: flex;
@@ -739,7 +739,20 @@ body.search-open .search-curtain {
   color: #86868b;
   cursor: pointer;
 }
+
+.search-field-reset { right: 40px; }
 .search-field-reset[hidden] { display: none; }
+
+/* 语法帮助入口:输入框右缘的问号;有查询时回退到清空按钮左侧 */
+.search-field-help {
+  right: 2px;
+  border-radius: 50%;
+  transition: color 0.2s var(--ease);
+}
+.search-field-help:hover { color: #1d1d1f; }
+.search-field-help:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; }
+
+.search-field.has-query input { padding-right: 80px; }
 
 .search-results { margin-top: 49px; }
 
@@ -897,7 +910,7 @@ body.search-open .search-curtain {
 
   .search-field input {
     height: 40px;
-    padding: 1px 34px 0 28px;
+    padding: 1px 38px 0 28px;
     font-size: 24px;
     line-height: 24px;
     letter-spacing: 0.009em;
@@ -4050,16 +4063,9 @@ body.menu-open { overflow: hidden; }
 }
 
 /* ============================================================
-   书架:高级搜索语法按钮 + 语法说明弹窗
+   高级搜索语法说明弹窗(入口:搜索浮层输入框右侧的 ?)
    ============================================================ */
-.syntax-btn {
-  padding: 0 14px;
-  min-height: 34px;
-  font-size: 13.5px;
-  white-space: nowrap;
-}
-
-/* 语法说明弹窗 —— 宽高/内边距/标题/底栏全走 .modal-box 家族规则(宽度 620,
+/* 宽高/内边距/标题/底栏全走 .modal-box 家族规则(宽度 620,
    各朝向的高度封顶),不单独覆写;唯一特殊点:内容多(13 行表格 + 列表),
    头尾固定不动,只让 .syntax-body 内部滚动。 */
 .syntax-body {
