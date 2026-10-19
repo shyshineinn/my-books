@@ -93,20 +93,20 @@ html {
 /* 键盘导航的可见焦点(置于 :focus 之后,同优先级下覆盖之) */
 :focus-visible { outline: 2px solid #0071e3; outline-offset: 2px; }
 
-/* ============ 顶部导航(浅色毛玻璃,颜色走 Apple 规范) ============ */
+/* ============ 顶部导航(apple.com globalnav 同款毛玻璃) ============ */
 .topbar {
   position: sticky;
   top: 0;
   z-index: 50;
-  /* 与页面主题底色 --paper 同源,避免顶栏发白、色带断层 */
-  background: rgba(245, 245, 247, 0.8);
+  /* apple.com 实测:80% 白 + saturate(180%) blur(20px),无描边、无阴影 */
+  background: rgba(255, 255, 255, 0.8);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
-  transition: background-color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+  transition: background-color 0.279s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .topbar { background: rgba(245, 245, 247, 0.97); }
+  .topbar { background: rgba(255, 255, 255, 0.97); }
 }
 
 .topbar-inner {
@@ -132,7 +132,7 @@ html {
   font-weight: 400;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  color: rgba(29, 29, 31, 0.8);
+  color: rgba(0, 0, 0, 0.8);
   text-decoration: none;
   cursor: pointer;
   transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
@@ -176,7 +176,7 @@ html {
   font-size: 12px;
   font-weight: 400;
   letter-spacing: -0.01em;
-  color: rgba(29, 29, 31, 0.8);
+  color: rgba(0, 0, 0, 0.8);
   text-decoration: none;
   min-height: 44px;
   display: inline-flex;
@@ -216,7 +216,7 @@ html {
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  color: rgba(29, 29, 31, 0.8);
+  color: rgba(0, 0, 0, 0.8);
   transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
@@ -302,7 +302,7 @@ body.menu-open .menu-curtain {
 }
 
 /* 移动端全屏菜单:apple.com 同款展开 —— 面板从 48px 高度长到满屏,
-   底色由半透明纸色过渡为不透明 #fafafc;导航项无分隔线、28px/600。
+   底色由半透明白过渡为不透明 #fafafc;导航项无分隔线、28px/600。
    面板压在顶栏之下(z 45 < 50),顶栏开菜单时转为透明,只剩右侧 ✕。 */
 .mobile-menu {
   position: fixed;
@@ -317,12 +317,12 @@ body.menu-open .menu-curtain {
   overflow: hidden;
   visibility: hidden;
   pointer-events: none;
-  background: rgba(245, 245, 247, 0.8);
+  background: rgba(255, 255, 255, 0.8);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   transition:
     height 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.12s,
-    background-color 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    background-color 0.279s cubic-bezier(0.4, 0, 0.6, 1),
     visibility 0s linear 0.56s;
 }
 
@@ -334,9 +334,11 @@ body.menu-open .menu-curtain {
   visibility: visible;
   pointer-events: auto;
   background: #fafafc;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   transition:
     height 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
-    background-color 0.422s cubic-bezier(0.4, 0, 0.6, 1) 0.08s,
+    background-color 0.279s cubic-bezier(0.4, 0, 0.6, 1),
     visibility 0s linear 0s;
 }
 
@@ -674,7 +676,11 @@ body.menu-open .menu-curtain {
   .nav-item { display: flex; align-items: center; }
   .view-switch a.is-open { color: #000; }
   body.nav-flyout-open .topbar,
-  body.nav-flyout-closing .topbar { background: #fafafc; }
+  body.nav-flyout-closing .topbar {
+    background: #fafafc;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 
   .nav-flyout-curtain {
     display: block;
@@ -779,8 +785,10 @@ body.menu-open .menu-curtain {
     align-items: flex-start;
   }
 
-  .nav-flyout-group { padding-right: 88px; }
-  .nav-flyout-group:not(.is-elevated) { padding-right: 44px; }
+  /* 固定列宽:主列 240px、次列 160px。
+     菜单内容随页面变化时,列起点仍保持在同一条竖线上。 */
+  .nav-flyout-group { flex: 0 0 160px; }
+  .nav-flyout-group.is-elevated { flex: 0 0 240px; }
 
   .nav-flyout-heading {
     margin: 0 0 6px;

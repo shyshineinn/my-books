@@ -39,8 +39,9 @@ const NAV_ITEMS = [
 ];
 
 /* 桌面端下拉菜单:apple.com 的 globalnav flyout。
- * 结构 = 一个「主列」(24px/600 大链接)+ 若干「次列」(12px/600 小链接),
- * 列内按内容宽度排布,主列右侧留 88px、次列留 44px。 */
+ * 结构 = 一个「主列」(24px/600 大链接)+ 若干「次列」(12px/600 小链接)。
+ * 列宽由 CSS 固定,各菜单页的列位置完全对齐。
+ * 每个菜单只放本页入口:榜单页没有子栏目,不设下拉。 */
 const NAV_MENUS = {
   shelf: [
     { heading: '浏览书架', elevated: true, links: [
@@ -59,26 +60,6 @@ const NAV_MENUS = {
       { label: '按作者', submenu: 'authors' },
       { label: '按标签', submenu: 'tags' },
     ] },
-    { heading: '更多', links: [
-      { label: '分类管理', href: '/tags' },
-      { label: '阅读心得', href: '/notes' },
-    ] },
-  ],
-  rank: [
-    { heading: '榜单', elevated: true, links: [
-      { label: '重读榜', href: '/rank' },
-      { label: '最近读完', href: '/shelf?status=done&amp;sort=finish' },
-      { label: '最近添加', href: '/shelf?sort=created' },
-    ] },
-    { heading: '书架', links: [
-      { label: '全部书籍', href: '/shelf' },
-      { label: '在读', href: '/shelf?status=reading' },
-      { label: '想读', href: '/shelf?status=wish' },
-    ] },
-    { heading: '记录', links: [
-      { label: '已读', href: '/shelf?status=done' },
-      { label: '阅读心得', href: '/notes' },
-    ] },
   ],
   stats: [
     { heading: '阅读统计', elevated: true, links: [
@@ -89,11 +70,6 @@ const NAV_MENUS = {
     ] },
     { heading: '分布', links: [
       { label: '标签分布', href: '/stats#tagPanel' },
-      { label: '分类管理', href: '/tags' },
-    ] },
-    { heading: '更多', links: [
-      { label: '书架', href: '/shelf' },
-      { label: '阅读心得', href: '/notes' },
     ] },
   ],
   tags: [
@@ -107,8 +83,6 @@ const NAV_MENUS = {
     ] },
     { heading: '更多', links: [
       { label: '自定义字段', href: '/tags#fieldsHead' },
-      { label: '标签分布', href: '/stats#tagPanel' },
-      { label: '作者排行', href: '/stats#authorPanel' },
     ] },
   ],
 };
