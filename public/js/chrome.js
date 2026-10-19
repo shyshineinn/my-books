@@ -95,21 +95,22 @@ const NAV_MENUS = {
     { heading: '分类', elevated: true, links: [
       { label: '分类管理', href: '/tags' },
     ] },
-    { heading: '管理', links: [
-      { label: '标签', href: '/tags#tagsHead' },
-      { label: '作者', href: '/tags#authorsHead' },
+    { heading: '作者', source: 'authors' },
+    { heading: '标签', source: 'tags' },
+    { heading: '更多', links: [
       { label: '自定义字段', href: '/tags#fieldsHead' },
-    ] },
-    { heading: '书目', links: [
-      { label: '全部书籍', href: '/shelf' },
-      { label: '已读', href: '/shelf?status=done' },
-      { label: '想读', href: '/shelf?status=wish' },
-    ] },
-    { heading: '统计', links: [
       { label: '标签分布', href: '/stats#tagPanel' },
       { label: '作者排行', href: '/stats#authorPanel' },
     ] },
   ],
+};
+
+/* 分类下拉里的作者 / 标签名单来自真实书库,不能写死在 NAV_MENUS:
+ * 先渲染空占位组,页面载入后各拉一次接口,桌面 flyout 与竖屏二级面板共用。
+ * 名单按书籍数排序(接口已排好),点名字直接去书架按该分类筛选。 */
+const NAV_LIST_SOURCES = {
+  authors: { param: 'author', endpoint: '/api/authors' },
+  tags: { param: 'tag', endpoint: '/api/tags' },
 };
 
 function navHtml(current) {
@@ -150,12 +151,12 @@ function mobileSubmenuHtml(n) {
       <div class="mm-sub-inner">
         ${groups.map((g) => g.elevated ? `
           <ul class="mm-sub-elevated">
-            ${g.links.map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
+            ${(g.links || []).map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
           </ul>` : `
-          <div class="mm-sub-group">
+          <div class="mm-sub-group"${g.source ? ` data-nav-group="${g.source}" hidden` : ''}>
             <h2 class="mm-sub-heading">${g.heading}</h2>
-            <ul class="mm-sub-sec">
-              ${g.links.map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
+            <ul class="mm-sub-sec"${g.source ? ` data-nav-list="${g.source}"` : ''}>
+              ${(g.links || []).map((l) => `<li><a href="${l.href}">${l.label}</a></li>`).join('')}
             </ul>
           </div>`).join('')}
       </div>
@@ -171,17 +172,17 @@ function navFlyoutPanelHtml(n) {
   if (!groups) return '';
   // 与 Apple 一致:标题占 item 1,链接从 2 起编号;
   // 退场时长按编号倒序递减(先入场的链接停留更久)。
-  const total = Math.max(...groups.map((g) => g.links.length)) + 1;
+  const total = Math.max(0, ...groups.map((g) => (g.links ? g.links.length : 0))) + 1;
   return `
     <div class="nav-flyout-panel" id="navFlyout-${n.id}" data-panel="${n.id}">
       <div class="nav-flyout-inner">
         ${groups.map((g, gi) => {
           const groupDelay = gi === 0 ? 0 : Math.min(80 + (gi - 1) * 40, gi * 80);
           return `
-          <div class="nav-flyout-group${g.elevated ? ' is-elevated' : ''}" style="--nav-group-delay:${groupDelay}ms">
+          <div class="nav-flyout-group${g.elevated ? ' is-elevated' : ''}"${g.source ? ` data-nav-group="${g.source}" hidden` : ''} style="--nav-group-delay:${groupDelay}ms">
             <h2 class="nav-flyout-heading">${g.heading}</h2>
-            <ul class="nav-flyout-list${g.elevated ? ' is-large' : ''}">
-              ${g.links.map((l, i) => `<li style="--nav-item-i:${i + 2};--nav-exit-dur:${Math.min(160 + 20 * (total - (i + 2)), 240)}ms"><a href="${l.href}">${l.label}</a></li>`).join('')}
+            <ul class="nav-flyout-list${g.elevated ? ' is-large' : ''}"${g.source ? ` data-nav-list="${g.source}"` : ''}>
+              ${(g.links || []).map((l, i) => `<li style="--nav-item-i:${i + 2};--nav-exit-dur:${Math.min(160 + 20 * (total - (i + 2)), 240)}ms"><a href="${l.href}">${l.label}</a></li>`).join('')}
             </ul>
           </div>`;
         }).join('')}
@@ -193,6 +194,48 @@ function navFlyoutHtml() {
   return `<div id="navFlyout" class="nav-flyout" aria-hidden="true">
     ${NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(navFlyoutPanelHtml).join('')}
   </div>`;
+}
+
+function navEscape(value) {
+  return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+
+/* 名单载入后,桌面面板的入场序号 / 退场时长要按新总数重算
+ * (退场按编号倒序递减,名单可能比静态链接长很多)。 */
+function syncFlyoutItemMeta() {
+  document.querySelectorAll('.nav-flyout-panel').forEach((panel) => {
+    const lists = [...panel.querySelectorAll('.nav-flyout-group:not([hidden]) .nav-flyout-list')];
+    const total = Math.max(0, ...lists.map((list) => list.children.length)) + 1;
+    lists.forEach((list) => {
+      [...list.children].forEach((li, i) => {
+        li.style.setProperty('--nav-item-i', i + 2);
+        li.style.setProperty('--nav-exit-dur', Math.min(160 + 20 * (total - (i + 2)), 240) + 'ms');
+      });
+    });
+  });
+}
+
+function fillNavList(source, items) {
+  const meta = NAV_LIST_SOURCES[source];
+  if (!meta) return;
+  const html = items.map((item) => {
+    const name = navEscape(item.name);
+    const count = Number(item.count) || 0;
+    return `<li><a href="/shelf?${meta.param}=${encodeURIComponent(item.name)}" title="在书架中筛选「${name}」(${count} 本)">${name}</a></li>`;
+  }).join('');
+  document.querySelectorAll(`[data-nav-list="${source}"]`).forEach((list) => { list.innerHTML = html; });
+  document.querySelectorAll(`[data-nav-group="${source}"]`).forEach((group) => { group.hidden = items.length === 0; });
+  syncFlyoutItemMeta();
+  if (items.length) document.dispatchEvent(new Event('nav-flyout-refresh'));
+}
+
+function loadNavLists() {
+  Object.entries(NAV_LIST_SOURCES).forEach(([source, meta]) => {
+    fetch(meta.endpoint, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((items) => { if (Array.isArray(items)) fillNavList(source, items); })
+      .catch(() => {});
+  });
 }
 
 function headerHtml(current) {
@@ -557,6 +600,7 @@ const currentPage = document.body.dataset.page || 'home';
 
 document.body.insertAdjacentHTML('afterbegin', headerHtml(currentPage));
 document.body.insertAdjacentHTML('beforeend', overlaysHtml());
+loadNavLists();
 
 /* ============ 桌面导航下拉(apple.com globalnav flyout) ============
  * 悬停 100ms 打开(与 Apple 的 hover intent 一致);已展开时划过其它项即时切换。
@@ -740,6 +784,12 @@ function initNavFlyouts() {
 
   // 搜索浮层打开时通过该事件收起导航下拉(两者共用同一块顶栏空间)
   document.addEventListener('nav-flyout-close', () => close(false));
+
+  // 名单异步到达时若面板已展开,按新高度重新展开,避免内容被裁切
+  document.addEventListener('nav-flyout-refresh', () => {
+    if (!activeId || !document.body.classList.contains('nav-flyout-open')) return;
+    flyout.style.height = currentHeight() + 'px';
+  });
 
   document.addEventListener('focusout', () => {
     if (!activeId) return;

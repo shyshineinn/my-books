@@ -495,18 +495,12 @@ body.menu-open .menu-curtain {
   padding: 0;
 }
 
-.mm-sub-sec li { margin: 0; }
-.mm-sub-sec li + li { margin-top: 8px; }
-.mm-sub-sec li:first-child { margin-top: 14px; }
+.mm-sub-sec li { margin: 0 0 -5px; }
 
-/* 次组链接 = 小号胶囊按钮(与桌面下拉同款);首组大链接仍是文字形态 */
 .mm-sub-sec a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 39px;
-  padding: 7px 16px;
-  border-radius: 999px;
-  background: #f0f0f2;
+  display: block;
+  padding: 8px 11px 7px;
+  margin-left: -11px;
   font-family: var(--sans);
   font-size: 17px;
   font-weight: 600;
@@ -514,15 +508,13 @@ body.menu-open .menu-curtain {
   color: #333336;
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
-  transition:
-    color 0.32s cubic-bezier(0.4, 0, 0.6, 1),
-    background-color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+  transition: color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
 }
 
 .mm-sub-elevated a:hover,
-.mm-sub-elevated a:active { color: #000; }
+.mm-sub-elevated a:active,
 .mm-sub-sec a:hover,
-.mm-sub-sec a:active { background: #e8e8ed; color: #000; }
+.mm-sub-sec a:active { color: #000; }
 .mm-sub-elevated a:focus-visible,
 .mm-sub-sec a:focus-visible { outline-offset: 3px; }
 
@@ -774,29 +766,16 @@ body.menu-open .menu-curtain {
   .nav-flyout-list a:hover { color: #000; }
   .nav-flyout a:focus-visible { outline-offset: -7px; }
 
-  /* 次列链接做成小号胶囊按钮(主列「分类管理」等大链接保持文字形态):
-     底色比面板略深一档,悬停再深一档;行距改由胶囊高度决定 */
-  .nav-flyout-group:not(.is-elevated) .nav-flyout-list { margin-left: 0; }
-  .nav-flyout-group:not(.is-elevated) .nav-flyout-list li + li { margin-top: 6px; }
-
-  .nav-flyout-group:not(.is-elevated) .nav-flyout-list a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 30px;
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: #f0f0f2;
-    transition:
-      color 0.32s cubic-bezier(0.4, 0, 0.6, 1),
-      background-color 0.32s cubic-bezier(0.4, 0, 0.6, 1);
+  /* 作者 / 标签名单可能很长:名单列在视口内滚动,面板总高仍贴着屏幕,
+     滚动条隐藏(iOS 覆盖式滚动条同款),不至于撑破下拉面板 */
+  .nav-flyout-list[data-nav-list] {
+    max-height: calc(100dvh - 210px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
   }
 
-  .nav-flyout-group:not(.is-elevated) .nav-flyout-list a:hover {
-    background: #e8e8ed;
-    color: #000;
-  }
-
-  .nav-flyout-group:not(.is-elevated) .nav-flyout-list a:focus-visible { outline-offset: 2px; }
+  .nav-flyout-list[data-nav-list]::-webkit-scrollbar { display: none; }
 
   @media (prefers-reduced-motion: reduce) {
     body.nav-flyout-open .nav-flyout,
