@@ -30,16 +30,16 @@ function getByName(handleDb, name) {
   return handleDb.prepare('SELECT * FROM saved_searches WHERE name = ?').get(n);
 }
 
-function addSaved(handleDb, { name, query, sort } = {}) {
+function addSaved(handleDb, { name, query, sort, isVirtual = false } = {}) {
   const n = String(name || '').trim();
   if (!n) throw Object.assign(new Error('名称不能为空'), { code: 'VALIDATION' });
   const ts = now();
   try {
     const r = handleDb
       .prepare(
-        'INSERT INTO saved_searches (name, query, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO saved_searches (name, query, sort, is_virtual, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
-      .run(n, String(query || ''), String(sort || ''), ts, ts);
+      .run(n, String(query || ''), String(sort || ''), isVirtual ? 1 : 0, ts, ts);
     return getSaved(handleDb, r.lastInsertRowid);
   } catch (err) {
     if (/UNIQUE constraint failed: saved_searches.name/i.test(err.message)) {
@@ -49,16 +49,17 @@ function addSaved(handleDb, { name, query, sort } = {}) {
   }
 }
 
-function updateSaved(handleDb, id, { name, query, sort } = {}) {
+function updateSaved(handleDb, id, { name, query, sort, isVirtual } = {}) {
   const existing = getSaved(handleDb, id);
   if (!existing) return null;
   const n = name !== undefined && String(name).trim() ? String(name).trim() : existing.name;
   const q = query !== undefined ? String(query) : existing.query;
   const s = sort !== undefined ? String(sort) : existing.sort;
+  const v = isVirtual === undefined ? existing.is_virtual : (isVirtual ? 1 : 0);
   try {
     handleDb
-      .prepare('UPDATE saved_searches SET name = ?, query = ?, sort = ?, updated_at = ? WHERE id = ?')
-      .run(n, q, s, now(), id);
+      .prepare('UPDATE saved_searches SET name = ?, query = ?, sort = ?, is_virtual = ?, updated_at = ? WHERE id = ?')
+      .run(n, q, s, v, now(), id);
   } catch (err) {
     if (/UNIQUE constraint failed: saved_searches.name/i.test(err.message)) {
       throw Object.assign(new Error('该名称已存在'), { code: 'CONFLICT' });
@@ -73,4 +74,26 @@ function removeSaved(handleDb, id) {
   return r.changes > 0;
 }
 
-module.exports = { listSaved, getSaved, getByName, addSaved, updateSaved, removeSaved };
+/* ---------- 虚拟书库(is_virtual = 1 的保存搜索) ---------- */
+
+function getVirtualByName(handleDb, name) {
+  const row = getByName(handleDb, name);
+  return row && row.is_virtual ? row : undefined;
+}
+
+function listVirtual(handleDb) {
+  return handleDb
+    .prepare('SELECT * FROM saved_searches WHERE is_virtual = 1 ORDER BY name COLLATE NOCASE')
+    .all();
+}
+
+module.exports = {
+  listSaved,
+  getSaved,
+  getByName,
+  addSaved,
+  updateSaved,
+  removeSaved,
+  getVirtualByName,
+  listVirtual,
+};

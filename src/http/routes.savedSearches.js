@@ -9,6 +9,7 @@ const express = require('express');
 
 const { db } = require('../db/index');
 const saved = require('../db/saved_searches');
+const search = require('../db/search');
 
 const router = express.Router();
 
@@ -27,6 +28,19 @@ function respond(err, res) {
 
 router.get('/api/saved-searches', (req, res) => res.json(saved.listSaved(db)));
 
+// 虚拟书库(is_virtual = 1 的保存搜索)+ 命中数,给书架的作用域下拉用。
+// 某个书库坏了(循环引用/语法错)不影响其它条目:count 给 null,前端显示"—"。
+router.get('/api/virtual-libraries', (req, res) => {
+  const rows = saved.listVirtual(db);
+  res.json(rows.map((r) => {
+    let count = null;
+    try {
+      count = search.resolveVirtualIds(db, r.name).length;
+    } catch { /* 坏定义留给用户在搜索面板里修,不让整个下拉挂掉 */ }
+    return { id: r.id, name: r.name, query: r.query, sort: r.sort, count };
+  }));
+});
+
 router.get('/api/saved-searches/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (id === null) return res.status(400).json({ error: 'id 应为正整数', code: 'VALIDATION' });
@@ -37,7 +51,9 @@ router.get('/api/saved-searches/:id', (req, res) => {
 
 router.post('/api/saved-searches', (req, res) => {
   try {
-    const created = saved.addSaved(db, { name: req.body.name, query: req.body.query, sort: req.body.sort });
+    const created = saved.addSaved(db, {
+      name: req.body.name, query: req.body.query, sort: req.body.sort, isVirtual: req.body.isVirtual,
+    });
     res.status(201).json({ ok: true, item: created, items: saved.listSaved(db) });
   } catch (err) { return respond(err, res); }
 });
@@ -46,7 +62,9 @@ router.put('/api/saved-searches/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (id === null) return res.status(400).json({ error: 'id 应为正整数', code: 'VALIDATION' });
   try {
-    const updated = saved.updateSaved(db, id, { name: req.body.name, query: req.body.query, sort: req.body.sort });
+    const updated = saved.updateSaved(db, id, {
+      name: req.body.name, query: req.body.query, sort: req.body.sort, isVirtual: req.body.isVirtual,
+    });
     if (!updated) return res.status(404).json({ error: '保存的搜索不存在', code: 'NOT_FOUND' });
     res.json({ ok: true, item: updated, items: saved.listSaved(db) });
   } catch (err) { return respond(err, res); }

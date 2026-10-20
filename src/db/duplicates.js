@@ -8,8 +8,8 @@
 const books = require('./books');
 const { findDuplicateGroups } = require('../core/duplicates');
 
-function listDuplicateGroups(handleDb) {
-  const rows = books.listBooks({}, handleDb);
+function listDuplicateGroups(handleDb, { scopeIds = null } = {}) {
+  const rows = books.listBooks({ scopeIds }, handleDb);
   if (rows.length < 2) return [];
 
   const compact = rows.map((r) => ({

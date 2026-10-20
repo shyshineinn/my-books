@@ -416,8 +416,19 @@ function migrateV13(db, dataDir) {
   db.exec('CREATE INDEX IF NOT EXISTS books_deleted_idx ON books (deleted_at)');
 }
 
+// v14:虚拟书库(对标 calibre library_item.is_virtual)。
+//     「保存的搜索」只是命名查询;打上 is_virtual 后它才成为虚拟书库 ——
+//     可以用 ?vl=名称 或 `vl:名称` 把整套视图(列表/分类计数/统计/导出)收进去。
+//     纯增量:回退只需忽略本列。
+function migrateV14(db, dataDir) {
+  const cols = db.prepare('PRAGMA table_info(saved_searches)').all().map((c) => c.name);
+  if (!cols.includes('is_virtual')) {
+    db.exec('ALTER TABLE saved_searches ADD COLUMN is_virtual INTEGER NOT NULL DEFAULT 0 CHECK (is_virtual IN (0,1))');
+  }
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

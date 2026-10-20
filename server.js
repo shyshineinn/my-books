@@ -19,6 +19,7 @@ const routesSavedSearches = require('./src/http/routes.savedSearches');
 const routesCustomFields = require('./src/http/routes.customFields');
 const routesExport = require('./src/http/routes.export');
 const { requireAdmin } = require('./src/http/middleware.auth');
+const { attachVlScope } = require('./src/http/middleware.vl');
 const { db } = require('./src/db/index');
 const books = require('./src/db/books');
 const { removeBookAssets } = require('./src/core/fs-utils');
@@ -59,6 +60,8 @@ app.get('/notes/:rest(.*)', (req, res) => res.redirect('/shelf'));
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
 // token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。
 app.use('/api', requireAdmin);
+// 虚拟书库作用域(?vl=名称):解析一次挂到 req.vlScope,各路由只管取用
+app.use('/api', attachVlScope);
 
 // 电子书文件路由(multipart 上传/列表/删除/下载登记)
 app.use(routesFiles);

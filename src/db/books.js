@@ -5,8 +5,9 @@
 
 const { db, now, inTransaction } = require('./index');
 const crypto = require('node:crypto');
-const { STATUSES, coverUploadFile, splitAuthors } = require('../core/book');
+const { coverUploadFile, splitAuthors } = require('../core/book');
 const { isbnKey } = require('../core/isbn');
+const { inClause } = require('../core/sql');
 const { applyStatusTransition, deriveLogFields, todayStr } = require('../core/bulk');
 const search = require('./search');
 const bookFiles = require('./book_files');
@@ -18,42 +19,10 @@ const identifiers = require('./identifiers');
 const TRASH_RETENTION_DAYS = 14;
 const TRASH_DAY_MS = 24 * 3600 * 1000;
 
-const SORTS = {
-  updated: 'updated_at DESC',
-  created: 'created_at DESC',
-  finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC',
-  // title 改用 title_sort(A8):剥引号 + 英语冠词移位,「The Hobbit」排到 H 组。
-  // 中文书名不含冠词,title_sort === title,排序结果不变
-  title: 'title_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
-  author: 'author_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
-  // A3 新增:按系列 + 系列序号排序(未入系列的书排在最后)
-  series: "CASE WHEN series = '' THEN 1 ELSE 0 END, series COLLATE NOCASE ASC, series_index ASC, title COLLATE NOCASE ASC",
-};
-
-// 书籍列表:有搜索词时走独立全文检索层(search.js),其余走主表。
-// handleDb 可选,便于测试用 openDb(临时目录) 隔离。
-function listBooks({ q, status, tag, author, sort } = {}, handleDb = db) {
-  if (q && String(q).trim()) {
-    return search.searchBooks(handleDb, { q, status, tag, author, sort });
-  }
-  const where = ['deleted_at IS NULL'];
-  const params = [];
-  if (status && STATUSES.includes(status)) {
-    where.push('status = ?');
-    params.push(status);
-  }
-  if (tag) {
-    where.push('tags LIKE ?');
-    params.push(`%"${tag}"%`);
-  }
-  if (author) {
-    where.push('author LIKE ?');
-    params.push(`%${search.escapeLike(author)}%`);
-  }
-
-  const order = SORTS[sort] || SORTS.updated;
-  const sql = `SELECT * FROM books WHERE ${where.join(' AND ')} ORDER BY ${order}`;
-  return handleDb.prepare(sql).all(...params);
+// 排序 / 筛选 / 虚拟书库作用域全部由检索层负责(与带 q 的检索同一套语义),
+// 这里只做入口转发,避免两条查询路径日后走偏。
+function listBooks(query = {}, handleDb = db) {
+  return search.searchBooks(handleDb, query);
 }
 
 // 默认只在“在架书”里查;回收站里的书要显式 includeDeleted 才能读到
@@ -65,17 +34,20 @@ function getBook(id, handleDb = db, { includeDeleted = false } = {}) {
 }
 
 // 系列列表(带计数与序号范围)。放在 db 层而不是路由里,便于统一过滤与测试。
-function listSeries(handleDb = db) {
+// scopeIds 用于虚拟书库作用域:null = 全部在架书。
+function listSeries(handleDb = db, { scopeIds = null } = {}) {
+  const scope = Array.isArray(scopeIds) ? ` AND ${inClause('id', scopeIds).sql}` : '';
+  const scopeParams = Array.isArray(scopeIds) ? inClause('id', scopeIds).params : [];
   return handleDb.prepare(`
     SELECT series AS name,
            COUNT(*) AS count,
            MIN(series_index) AS min_index,
            MAX(series_index) AS max_index
     FROM books
-    WHERE series <> '' AND deleted_at IS NULL
+    WHERE series <> '' AND deleted_at IS NULL${scope}
     GROUP BY series COLLATE NOCASE
     ORDER BY series COLLATE NOCASE
-  `).all();
+  `).all(...scopeParams);
 }
 
 // 新增书籍:values 来自 core/parseBook 的规范化输出。
@@ -354,5 +326,4 @@ module.exports = {
   collectAssets,
   listSeries,
   TRASH_RETENTION_DAYS,
-  SORTS,
 };

@@ -19,7 +19,8 @@ const router = express.Router();
 router.get('/api/export.csv', (req, res) => {
   let catalog;
   try {
-    catalog = buildCatalog(db, req.query);
+    const { scopeIds: _ignored, ...filter } = req.query;
+    catalog = buildCatalog(db, { ...filter, scopeIds: req.vlScope });
   } catch (err) {
     // 检索语法错误是用户输入问题,保持与 /api/books 相同的 400 语义
     if (err && err.code === 'VALIDATION') {

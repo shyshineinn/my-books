@@ -12,6 +12,7 @@
  * ============================================================ */
 
 const { splitAuthors } = require('../core/book');
+const { inClause } = require('../core/sql');
 
 const AUTHOR_JOIN = '、';
 
@@ -82,8 +83,21 @@ function reindexAll(db) {
 
 /* ---------- 列表(带每本计数) ---------- */
 
-// 计数只算在架书:回收站里的书不应影响标签 / 作者的引用数
-function listTags(db) {
+// 计数只算在架书:回收站里的书不应影响标签 / 作者的引用数。
+// scopeIds(虚拟书库)语义照 calibre:只列出该作用域内出现过的分类,
+// 且计数只统计作用域内的书。
+function listTags(db, { scopeIds = null } = {}) {
+  if (Array.isArray(scopeIds)) {
+    const scope = inClause('b.id', scopeIds);
+    return db.prepare(`
+      SELECT t.id, t.name, COUNT(b.id) AS count
+      FROM tags t
+      JOIN book_tags bt ON bt.tag = t.id
+      JOIN books b ON b.id = bt.book AND b.deleted_at IS NULL
+      WHERE ${scope.sql}
+      GROUP BY t.id ORDER BY count DESC, t.name COLLATE NOCASE
+    `).all(...scope.params);
+  }
   return db.prepare(`
     SELECT t.id, t.name, COUNT(b.id) AS count
     FROM tags t
@@ -93,7 +107,18 @@ function listTags(db) {
   `).all();
 }
 
-function listAuthors(db) {
+function listAuthors(db, { scopeIds = null } = {}) {
+  if (Array.isArray(scopeIds)) {
+    const scope = inClause('b.id', scopeIds);
+    return db.prepare(`
+      SELECT a.id, a.name, COUNT(b.id) AS count
+      FROM authors a
+      JOIN book_authors ba ON ba.author = a.id
+      JOIN books b ON b.id = ba.book AND b.deleted_at IS NULL
+      WHERE ${scope.sql}
+      GROUP BY a.id ORDER BY count DESC, a.name COLLATE NOCASE
+    `).all(...scope.params);
+  }
   return db.prepare(`
     SELECT a.id, a.name, COUNT(b.id) AS count
     FROM authors a

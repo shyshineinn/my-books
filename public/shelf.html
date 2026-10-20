@@ -11,24 +11,20 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=100">
+  <link rel="stylesheet" href="/css/style.css?v=102">
 </head>
 <body data-page="shelf">
   <main>
-    <div class="page-head">
-      <h1 class="page-title">书架</h1>
-      <button type="button" class="btn btn-ghost btn-sm" id="selectToggle" aria-pressed="false">选择</button>
-    </div>
+    <h1 class="page-title">书架</h1>
     <div id="bookGrid" class="book-grid"></div>
     <div id="emptyState" class="empty hidden">
       <div class="empty-icon">书</div>
       <p id="emptyTitle">书架还是空的</p>
       <p class="hint" id="emptyText">添加第一本书,开始你的阅读记录之旅。</p>
-      <button type="button" id="emptyAddBtn" class="btn btn-primary">＋ 添加书籍</button>
     </div>
   </main>
 
-  <!-- 多选模式底部操作条 -->
+  <!-- 多选底部操作条:长按卡片(手机)或 Ctrl/⌘+点击(电脑)进入多选后才出现 -->
   <div id="bulkBar" class="bulk-bar hidden" role="region" aria-label="批量操作">
     <span class="bulk-count" id="bulkCount">已选 0 本</span>
     <button type="button" class="btn btn-primary btn-sm" id="bulkEditBtn" disabled>批量编辑</button>
@@ -92,9 +88,9 @@
     </div>
   </div>
 
-  <script defer src="/js/chrome.js?v=29"></script>
-  <script defer src="/js/common.js?v=19"></script>
+  <script defer src="/js/chrome.js?v=30"></script>
+  <script defer src="/js/common.js?v=22"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=11"></script>
+  <script defer src="/js/page-shelf.js?v=14"></script>
 </body>
 </html>

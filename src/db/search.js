@@ -16,9 +16,12 @@
  * ============================================================ */
 
 const { parseQuery } = require('../core/query');
+const { inClause } = require('../core/sql');
 const customFieldsRepo = require('./custom_fields');
+const savedSearches = require('./saved_searches');
 
 const TRIGRAM_MIN = 3; // trigram 只索引/匹配 >=3 字符的片段
+const MAX_VL_DEPTH = 10; // 虚拟书库最多嵌套 10 层(循环引用另有显式检测)
 
 // 建 FTS 虚表(幂等)。外部内容表:books_fts 不含真实数据,
 // 查询时回源 books 表,books 变动经 indexBook/removeBook 同步。
@@ -86,6 +89,31 @@ function escapeLike(s) {
   return String(s).replace(/[\\%_]/g, (ch) => '\\' + ch);
 }
 
+/* ---------- 虚拟书库(命名作用域,对标 calibre 的 vl: 字段与 Virtual library) ---------- */
+
+// 把一个虚拟书库名解析成命中的书籍 id 集合。
+// 虚拟书库 = saved_searches 里 is_virtual = 1 的一行,query 字段是普通语法串,
+// 因此可以嵌套引用别的虚拟书库(vl:A and vl:B)—— 用 stack 挡住自引用与环。
+function resolveVirtualIds(db, name, stack = []) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) throw Object.assign(new Error('虚拟书库名称不能为空'), { code: 'VALIDATION' });
+  if (stack.length >= MAX_VL_DEPTH) {
+    throw Object.assign(new Error(`虚拟书库嵌套层数超过 ${MAX_VL_DEPTH}`), { code: 'VALIDATION' });
+  }
+  const lowered = trimmed.toLowerCase();
+  if (stack.some((s) => String(s).toLowerCase() === lowered)) {
+    throw Object.assign(
+      new Error(`虚拟书库循环引用:${[...stack, trimmed].join(' → ')}`),
+      { code: 'VALIDATION' },
+    );
+  }
+  const row = db ? savedSearches.getVirtualByName(db, trimmed) : null;
+  if (!row) {
+    throw Object.assign(new Error(`虚拟书库「${trimmed}」不存在`), { code: 'VALIDATION' });
+  }
+  return searchBooks(db, { q: row.query }, [...stack, trimmed]).map((b) => b.id);
+}
+
 /* ---------- 结构化查询构件(字段谓词 / 自由词 / 布尔 / 否定) ---------- */
 
 // 自由词 LIKE 兜底覆盖的列集合(书名/作者/简介/标签全文)
@@ -145,7 +173,7 @@ function splitLeadingOp(op, value, isNumeric) {
 // op 来自 core/query:eq/ne/ge/le/gt/lt。文本字段只区分 eq(子串)与 ne,范围运算符按 eq 处理。
 // columns:自定义字段注册表(label → 定义),由调用方一次性查好传入 ——
 //          这样本函数保持"纯 SQL 构造"职责,不在循环里反复查库。
-function fieldClause({ field, op, value }, columns) {
+function fieldClause({ field, op, value }, columns, ctx = {}) {
   const likeVal = `%${escapeLike(String(value).trim())}%`;
   const numericCmp = { eq: '=', ne: '<>', ge: '>=', le: '<=', gt: '>', lt: '<' };
 
@@ -281,6 +309,15 @@ function fieldClause({ field, op, value }, columns) {
         params: [t, `%${escapeLike(v)}%`],
       };
     }
+    // 虚拟书库:`vl:科幻` / `vl:"我的 书库"` / `not vl:草稿`
+    // 名称必须已标记为虚拟书库;解析出命中 id 集合后按 id 收口。
+    // 递归解析带 stack,循环引用与超深嵌套都报 VALIDATION 而不是栈溢出。
+    case 'vl': {
+      const ids = resolveVirtualIds(ctx.db, value, ctx.vlStack);
+      const clause = inClause('b.id', ids);
+      if (op === 'ne') return { sql: `NOT (${clause.sql})`, params: clause.params };
+      return clause;
+    }
     case 'format': {
       const f = String(value).trim().toUpperCase();
       return {
@@ -311,9 +348,12 @@ function fieldClause({ field, op, value }, columns) {
 // 独立入参(status/tag/author)沿用改造前的 SQL,保证向后兼容与既有测试零变化。
 // 回收站过滤放在这里:plainSearch / structuredSearch / 空查询三条路径都会经过
 // legacy,一处生效,避免新增查询路径时漏掉 deleted_at。
-function legacyFilterClauses(status, tag, author) {
+// scopeIds 是「虚拟书库 / 外部作用域」传进来的 id 集合:
+// null = 不限定;空数组 = 什么都不命中(不能退化成不限定)。
+function legacyFilterClauses(status, tag, author, scopeIds = null) {
   const STATUSES = ['wish', 'reading', 'done'];
   const clauses = [{ sql: 'b.deleted_at IS NULL', params: [] }];
+  if (Array.isArray(scopeIds)) clauses.push(inClause('b.id', scopeIds));
   if (status && STATUSES.includes(status)) clauses.push({ sql: 'b.status = ?', params: [status] });
   if (tag) clauses.push({ sql: 'b.tags LIKE ?', params: [`%"${escapeLike(tag)}"%`] });
   if (author) clauses.push({ sql: 'b.author LIKE ?', params: [`%${escapeLike(author)}%`] });
@@ -373,12 +413,13 @@ function plainSearch(db, rawQ, legacy, order) {
 // 结构化检索:字段谓词 + 自由词(可含 FTS)→ 统一以 books 主表为驱动,
 // 各条款按 or 标志整体 OR 或默认 AND;否定条款恒为 AND NOT(...)。
 // 这里不追求 BM25(排序交给 SORTS/显式 sort),换取布尔组合的正确与简单。
-function structuredSearch(db, parsed, legacy, order, columns) {
+function structuredSearch(db, parsed, legacy, order, columns, vlStack = []) {
+  const ctx = { db, vlStack };
   const build = (forceLike) => {
     const pos = [];
     const posParams = [];
     for (const f of parsed.filters) {
-      const c = fieldClause(f, columns);
+      const c = fieldClause(f, columns, ctx);
       if (c) { pos.push(c.sql); posParams.push(...c.params); }
     }
     for (const t of parsed.free) {
@@ -388,7 +429,7 @@ function structuredSearch(db, parsed, legacy, order, columns) {
     const neg = [];
     const negParams = [];
     for (const f of parsed.notFilters) {
-      const c = fieldClause(f, columns);
+      const c = fieldClause(f, columns, ctx);
       if (c) { neg.push(`NOT (${c.sql})`); negParams.push(...c.params); }
     }
     for (const t of parsed.notFree) {
@@ -425,11 +466,12 @@ function structuredSearch(db, parsed, legacy, order, columns) {
 }
 
 // 返回完整书籍行(SELECT * FROM books 的同构),按相关度或白名单排序。
-// 入参 { q, status, tag, author, sort }:q 为空走主表;纯自由词走 plainSearch;
-// 含字段谓词/布尔/否定则走 structuredSearch。status/tag/author 独立过滤器恒正交生效。
-function searchBooks(db, { q, status, tag, author, sort } = {}) {
+// 入参 { q, status, tag, author, sort, scopeIds }:q 为空走主表;纯自由词走 plainSearch;
+// 含字段谓词/布尔/否定则走 structuredSearch。status/tag/author/scopeIds 恒正交生效。
+// vlStack 只在解析虚拟书库时内部传入,用于环检测。
+function searchBooks(db, { q, status, tag, author, sort, scopeIds } = {}, vlStack = []) {
   const order = SORTS[sort] || SORTS.updated;
-  const legacy = legacyFilterClauses(status, tag, author);
+  const legacy = legacyFilterClauses(status, tag, author, scopeIds);
 
   if (!q || !String(q).trim()) {
     const where = legacy.length ? 'WHERE ' + legacy.map((c) => c.sql).join(' AND ') : '';
@@ -448,7 +490,7 @@ function searchBooks(db, { q, status, tag, author, sort } = {}) {
   // 只有查询里真的出现 #字段 时才查注册表(空 Map 也要传,
   // 这样未知 #字段 依然会被 fieldClause 判为 VALIDATION 错误)
   const columns = new Map(customFieldsRepo.listColumns(db).map((c) => [c.label, c]));
-  return structuredSearch(db, parsed, legacy, order, columns);
+  return structuredSearch(db, parsed, legacy, order, columns, vlStack);
 }
 
 module.exports = {
@@ -459,6 +501,7 @@ module.exports = {
   removeBook,
   updateBookIndex,
   searchBooks,
+  resolveVirtualIds,
   meaningfulLen,
   toFtsQuery,
   escapeLike,

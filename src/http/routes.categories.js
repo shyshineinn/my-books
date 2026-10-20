@@ -38,7 +38,8 @@ function inTx(fn) {
 }
 
 /* ---------- 标签 ---------- */
-router.get('/api/tags', (req, res) => res.json(categories.listTags(db)));
+// 列表读取支持虚拟书库作用域(?vl=);写操作后的回包仍给全量(管理视图)
+router.get('/api/tags', (req, res) => res.json(categories.listTags(db, { scopeIds: req.vlScope })));
 
 router.post('/api/tags/rename', (req, res) => {
   const id = parseId(req.body.id);
@@ -69,7 +70,7 @@ router.delete('/api/tags/:id', (req, res) => {
 });
 
 /* ---------- 作者 ---------- */
-router.get('/api/authors', (req, res) => res.json(categories.listAuthors(db)));
+router.get('/api/authors', (req, res) => res.json(categories.listAuthors(db, { scopeIds: req.vlScope })));
 
 router.post('/api/authors/rename', (req, res) => {
   const id = parseId(req.body.id);

@@ -198,10 +198,16 @@ function fileSizeText(bytes) {
 
 /* ============ 统计共享缓存 ============
  * /api/stats 一次拉取,多处使用:书架页签计数与标签下拉、编辑弹窗标签建议。
- * 数据变更后 invalidateSharedStats() 作废,下次访问重新拉。 */
+ * 数据变更后 invalidateSharedStats() 作废,下次访问重新拉。
+ * 书架上若带着 ?vl=(虚拟书库作用域),统计口径要跟着收窄。 */
 let sharedStatsPromise = null;
 function sharedStats() {
-  if (!sharedStatsPromise) sharedStatsPromise = api('/api/stats').catch(() => null);
+  if (!sharedStatsPromise) {
+    const vl = document.body.dataset.page === 'shelf'
+      ? (new URLSearchParams(location.search).get('vl') || '') : '';
+    const url = '/api/stats' + (vl ? '?vl=' + encodeURIComponent(vl) : '');
+    sharedStatsPromise = api(url).catch(() => null);
+  }
   return sharedStatsPromise;
 }
 function invalidateSharedStats() { sharedStatsPromise = null; }
@@ -1781,12 +1787,18 @@ function renderSaved() {
       ? '按' + (SEARCH_SORT_TEXT[item.sort] || item.sort)
       : '';
     const meta = [item.query || '', sortText].filter(Boolean).join(' · ');
+    const isVl = !!item.is_virtual;
+    const chip = isVl ? '<span class="saved-chip">书库</span>' : '';
+    const applyTitle = isVl
+      ? `套用虚拟书库「${item.name}」(整个书架视图收进去)`
+      : `套用搜索「${item.name}」`;
     return `<li class="search-results-item" style="--i:${Math.min(i, 8)}"><div class="search-result-row" data-id="${item.id}">`
-      + `<button type="button" class="search-result-link" data-act="apply" title="${esc(meta)}">`
+      + `<button type="button" class="search-result-link" data-act="apply" title="${esc(isVl ? applyTitle : meta)}">`
       + `<span class="search-result-icon" aria-hidden="true">${SEARCH_ARROW_SVG}</span>`
-      + `<span class="search-result-name">${esc(item.name)}</span>`
+      + `<span class="search-result-name">${esc(item.name)}${chip}</span>`
       + '</button>'
       + `<span class="search-result-actions"${savedEditMode ? '' : ' hidden'}>`
+      + `<button type="button" class="search-result-act${isVl ? ' is-on' : ''}" data-act="virtual" title="${isVl ? '取消虚拟书库' : '设为虚拟书库'}" aria-label="${isVl ? '取消虚拟书库' : '设为虚拟书库'}「${esc(item.name)}」" aria-pressed="${isVl ? 'true' : 'false'}">▣</button>`
       + `<button type="button" class="search-result-act" data-act="rename" title="重命名" aria-label="重命名「${esc(item.name)}」">✎</button>`
       + `<button type="button" class="search-result-act is-danger" data-act="del" title="删除" aria-label="删除「${esc(item.name)}」">✕</button>`
       + '</span></div></li>';
@@ -1858,17 +1870,21 @@ function submitSearch() {
 }
 
 function applySavedSearch(item) {
-  const q = item.query || '';
+  // 虚拟书库:整个视图收进去(不带 q);普通保存搜索:套用查询串
+  const isVl = !!item.is_virtual;
+  const q = isVl ? '' : (item.query || '');
+  const vl = isVl ? item.name : '';
   const sort = item.sort || 'updated';
   searchInput.value = q;
   syncSearchTools();
   closeSearchOverlay(false);
   if (document.body.dataset.page === 'shelf') {
-    document.dispatchEvent(new CustomEvent('saved-search-apply', { detail: { q, sort } }));
+    document.dispatchEvent(new CustomEvent('saved-search-apply', { detail: { q, sort, vl } }));
     return;
   }
   const params = new URLSearchParams();
   if (q) params.set('q', q);
+  if (vl) params.set('vl', vl);
   if (sort && sort !== 'updated') params.set('sort', sort);
   location.href = '/shelf' + (params.toString() ? '?' + params.toString() : '');
 }
@@ -1917,6 +1933,13 @@ searchSavedList.addEventListener('click', async (e) => {
       savedItems = Array.isArray(res.items) ? res.items : savedItems;
       renderSaved();
       toast('已重命名');
+    } else if (btn.dataset.act === 'virtual') {
+      const res = await api('/api/saved-searches/' + item.id, {
+        method: 'PUT', body: JSON.stringify({ isVirtual: !item.is_virtual }),
+      });
+      savedItems = Array.isArray(res.items) ? res.items : savedItems;
+      renderSaved();
+      toast(item.is_virtual ? '已取消虚拟书库' : '已设为虚拟书库,在搜索面板点它即可切换书架视图');
     } else if (btn.dataset.act === 'del') {
       if (!confirm(`删除保存的搜索「${item.name}」?`)) return;
       const res = await api('/api/saved-searches/' + item.id, { method: 'DELETE' });
@@ -1924,6 +1947,8 @@ searchSavedList.addEventListener('click', async (e) => {
       renderSaved();
       toast('已删除');
     }
+    // 改名 / 取消 / 删除都可能让书架正在用的 ?vl= 失效,通知它重新对齐作用域
+    document.dispatchEvent(new Event('virtual-libraries-changed'));
   } catch (err) { toast(err.message, true); }
 });
 

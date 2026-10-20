@@ -35,6 +35,8 @@ const FIELD_ALIAS = {
   series_index: 'series_index', 序号: 'series_index',
   // A5 标识符:`identifier:isbn:978...` / `identifier:goodreads:123`
   identifier: 'identifier', identifiers: 'identifier', 标识符: 'identifier',
+  // 虚拟书库:`vl:科幻` / `虚拟书库:"我的 书库"`(对标 calibre 的 vl: 字段)
+  vl: 'vl', virtual: 'vl', virtual_library: 'vl', 虚拟书库: 'vl',
 };
 
 // 状态中文/别名 → 库内 code(wish/reading/done)。

@@ -90,7 +90,9 @@ const badBody = (res, msg) => res.status(400).json({ error: msg, code: 'VALIDATI
 
 router.get('/api/books', (req, res) => {
   try {
-    res.json(withCustomDisplay(books.listBooks(req.query)));
+    // 作用域只由 ?vl= 中间件决定:请求体/查询串里的 scopeIds 一律忽略
+    const { scopeIds: _ignored, ...filter } = req.query;
+    res.json(withCustomDisplay(books.listBooks({ ...filter, scopeIds: req.vlScope }, db)));
   } catch (err) {
     // 检索语法错误(如未知的 #自定义字段、数值字段给非数字)是用户输入问题,回 400 并说明原因。
     // 不能让它掉进兜底 500 —— 那是"服务器坏了"的语义,会误导排查方向。
@@ -104,7 +106,7 @@ router.get('/api/books', (req, res) => {
 // A3:系列列表(带计数与序号范围)—— 等价于 calibre 的 tag browser 系列分类。
 // 不建 series 值表,GROUP BY 即可(count / min / max 一次查出)。
 router.get('/api/series', (req, res) => {
-  res.json(books.listSeries(db).map((r) => ({
+  res.json(books.listSeries(db, { scopeIds: req.vlScope }).map((r) => ({
     name: r.name,
     count: r.count,
     // 0 表示"未指定序号",对外统一成 null,前端据此不显示 #
@@ -121,7 +123,7 @@ router.get('/api/identifiers/duplicates', (req, res) => {
 
 // 疑似重复书籍(只读扫描)。同样必须在 /api/books/:id 之前。
 router.get('/api/books/duplicates', (req, res) => {
-  res.json({ groups: duplicatesRepo.listDuplicateGroups(db) });
+  res.json({ groups: duplicatesRepo.listDuplicateGroups(db, { scopeIds: req.vlScope }) });
 });
 
 // 回收站列表。必须定义在 /api/books/:id 之前,否则 "trash" 会被当成 id 校验。

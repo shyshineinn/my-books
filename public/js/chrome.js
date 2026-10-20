@@ -353,6 +353,7 @@ function overlaysHtml() {
           <tr><td><code>identifier:goodreads:5907</code></td><td>标识符(类型:值;只写类型表示"有该类标识符")</td></tr>
           <tr><td><code>format:epub</code></td><td>电子书格式(已上传)</td></tr>
           <tr><td><code>#页数:&gt;300</code></td><td>自定义字段(<code>#</code> 开头;数值可比较)</td></tr>
+          <tr><td><code>vl:已读科幻</code></td><td>虚拟书库(名字带空格要加引号:<code>vl:"我的 书库"</code>)</td></tr>
         </table>
         <p>其它写法:</p>
         <ul>

@@ -37,10 +37,10 @@
 | 页面 | URL | 内容 |
 | --- | --- | --- |
 | **首页** | `/` | Apple 官网式排版:Hero 标语 → 「最新上架」特色卡 → 双列书格(4 本)→ 「Endless entertainment.」双排无限轮播(复刻 apple.com media-gallery:自动播放、进度条圆点、拖拽/甩动、键盘方向键) |
-| **书架** | `/shelf` | 封面卡片网格,状态页签(想读/在读/已读)带计数,标签筛选 + 排序,支持添加 / 编辑 / 删除书籍(删除移入回收站,14 天内可恢复);右上「选择」进入多选,可批量编辑状态/标签/系列/出版/评分;URL 查询串 `?q=&status=&tag=&sort=` 携带筛选条件,可分享/回退 |
+| **书架** | `/shelf` | 纯封面卡片网格,**页内不放任何按钮与下拉框**;筛选与排序全由 URL 查询串 `?q=&status=&tag=&author=&vl=&sort=` 驱动(可分享/回退),虚拟书库靠地址栏或顶栏搜索面板切换;长按卡片(手机)或 Ctrl/⌘+点击(电脑)进入多选,底部浮出操作条可批量编辑状态/标签/系列/出版/评分 |
 | **榜单** | `/rank` | 英雄区(总藏书 / 读完数)+ **重读榜**(读过两次以上的书,按次数排序,至多 8 本) |
 | **统计** | `/stats` | 阅读印象 Hero(总藏书 / 已读及占比 / 在读 / 想读)+ 每年读完柱状图 + 标签分布(点击标签跳 `/shelf?tag=…` 筛选) |
-| **分类** | `/tags` | 标签 / 作者的双列管理(重命名 / 合并 / 删除,均同步全部书籍)+ **自定义字段**管理(新建 / 编辑 / 软删除后恢复 / 彻底删除) |
+| **分类** | `/tags` | 标签 / 作者的双列管理(重命名 / 合并 / 删除,均同步全部书籍)+ **自定义字段**管理(新建 / 编辑 / 软删除后恢复 / 彻底删除)+ **回收站**、**重复书籍**扫描与合并、**CSV 导出**入口 |
 | **读书心得** | `/notes/:id` | 独立页面,渲染单本书的 Markdown 心得 |
 
 > 旧单页深链 `#/notes/<id>`、`#/rank` 由 `chrome.js` 的 `legacyHashRedirect` 用 `location.replace` 兼容跳转到新页面,老书签/分享链接照常可用。
@@ -79,6 +79,8 @@
 - **系列检索**:`series:地球往事`(精确)、`series_index:>=2`(序号比较)
 - **标识符检索**:`identifier:goodreads:5907`;只写类型表示「有该类标识符」
 - **自定义字段检索**:`#字段名:值`,如 `#页数:>=300`
+- **虚拟书库检索**:`vl:已读科幻`,把另一条保存搜索的结果当条件用(名字含空格要加引号:`vl:"我的 书库"`);
+  可 `not vl:` 取补集,也可被别的虚拟书库嵌套引用(循环引用直接报错而不是栈溢出)
 - 排序与筛选都在 SQL 层完成;标签 / 作者走归一化链接表的 `EXISTS` 精确匹配
 
 ### 系列与标识符
@@ -143,7 +145,7 @@ ISBN 是书的「身份证」:扫码或手输条码数字即可精确取元数�
 
 `/tags` 页底部有「导出 CSV」入口,也可以直接请求 `GET /api/export.csv`:
 
-- 查询参数与 `/api/books` 完全一致(`q` / `status` / `tag` / `author` / `sort`),所以可以只导出当前筛选,
+- 查询参数与 `/api/books` 完全一致(`q` / `status` / `tag` / `author` / `vl` / `sort`),所以可以只导出当前筛选,
   例如 `/api/export.csv?status=done&tag=科幻`
 - 固定列包含:书名/排序键、作者/排序键、状态(原值 + 中文标签)、标签、系列与序号、评分、出版信息、
   ISBN/豆瓣 ID、阅读日期与 `read_logs`、简介、心得链接、封面、uuid、电子书格式、全部标识符、创建/更新时间
@@ -155,7 +157,9 @@ ISBN 是书的「身份证」:扫码或手输条码数字即可精确取元数�
 
 ### 批量编辑
 
-书架右上角「选择」进入多选模式:点卡片勾选,底部操作条显示已选数量;「批量编辑」可一次修改:
+书架页没有任何控件,多选靠手势进入:**手机长按卡片(约半秒),电脑 Ctrl / ⌘ + 点击卡片**。
+进入后点卡片继续勾选,底部浮出操作条显示已选数量,「批量编辑」可一次修改:
+(退出按 `Esc`,或点操作条上的「取消」;`Esc` 与操作条只在多选期间出现)
 
 - **状态**:与单本编辑相同的阅读记录联动 —— 切「已读」补读完日、切「在读」补开读日
 - **标签**:添加 / 移除(只增删,不清空其它标签;同一标签不能同时增删)
@@ -164,6 +168,24 @@ ISBN 是书的「身份证」:扫码或手输条码数字即可精确取元数�
 - API:`POST /api/books/bulk`,体 `{ ids: [...], patch: {...} }`;一次最多 500 本
 
 > 对标 calibre 的 *Edit metadata in bulk*。当前覆盖常用字段;自定义字段的批量填写暂未纳入。
+
+### 虚拟书库
+
+虚拟书库 = **一条被标记为「书库」的保存搜索**,选中它相当于把整个视图收进这个条件里
+(对标 calibre 的 *Virtual library* 与 `vl:` 检索字段)。
+
+- **设为书库**:顶栏搜索面板 → 「保存的搜索」→ 点「编辑」→ 按 `▣` 切换;被标记的行会挂上「书库」字样
+- **切换 / 退出**:在同一个面板里点它的名字,书架即收进该书库;再点「全部书籍」或清空地址栏即退出。
+  作用域的唯一真源是地址栏 `?vl=名字`,所以刷新、回退、分享链接都保持同一个书库视图
+- **收窄范围**:书籍列表、全文检索、标签 / 作者计数、系列列表、统计、重复扫描、CSV 导出**一起**收进去;
+  书库外的标签与作者直接不出现(而不是显示成 0),与 calibre 虚拟书库的观感一致
+- **统计口径跟着走**:`/api/stats` 接受同一份作用域,书架上编辑弹窗的**标签建议**只给书库里的标签;
+  `/stats` 页本身不带书库条件(它统计的是全架)
+- **可嵌套**:书库的查询里还能写 `vl:另一个书库`;超过 10 层或出现循环引用会明确报错
+- **失效自愈**:地址栏里的书库被改名 / 删除 / 取消标记后,书架自动退回全部书籍并给一条提示,不会卡在错误页
+
+> 书架页不放下拉框,所以「切换书库」这件事只发生在搜索面板与地址栏两处 —— 少一个控件,
+> 也少一处会和地址栏不同步的状态。
 
 ### 重复书籍与合并
 
@@ -298,22 +320,27 @@ npm start     # 启动服务
 **`src/db/` 数据访问(只 import node: 内置模块与 core)**
 
 - `index.js`:打开 `data/books.db`、**PRAGMA 加固**(`busy_timeout` / `WAL` / `foreign_keys`)、
-  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v13)、新库写 17 本种子数据;
+  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v14)、新库写 17 本种子数据;
   另导出 **`inTransaction(db, fn)`** —— 嵌套安全的事务包裹助手(各层都无脑 BEGIN 会报
   "cannot start a transaction within a transaction";用 `db.isTransaction` 判断,不靠计数器)
 - `search.js`:**独立全文检索层**(对标 calibre `db/search.py` + `db/fts`)。FTS5 虚表
   `books_fts`(trigram 分词,中文子串友好)通过外部内容连接 books 主表,增删改由
   `books.js` 同步一行;检索 ≥3 字走 FTS+BM25 相关度排序,1~2 字短词回退 LIKE。
-  结构化检索把 `#自定义字段` 翻译成 `book_custom_values` 上的 `EXISTS` 子查询
+  结构化检索把 `#自定义字段` 翻译成 `book_custom_values` 上的 `EXISTS` 子查询,
+  把 `vl:书库名` 翻译成**递归调用自身**(解析另一条保存搜索,带深度上限与循环检测);
+  所有查询都吃 `scopeIds` —— 虚拟书库的书 id 集合一旦确定,列表 / 分类计数 / 统计一起收窄
 - `books.js`:CRUD 与列表查询(**主表 + 标签/作者链接 + 自定义值 + FTS 索引整体裹事务**);
-  有搜索词时 `listBooks` 委托 `search.js`,无搜索词走主表
+  列表一律委托 `search.js`(有无搜索词都一样,区别只在要不要建 FTS 子查询)
 - `custom_fields.js`:自定义字段注册表 CRUD(含**软删除 / 恢复 / 物理删除**)+ 取值读写
   (`setValues` 按 label 局部更新,空值删行);db 句柄由调用方传入(测试可完全隔离)
 - `identifiers.js`:标识符读写 —— `isbn` / `douban` 与 `books` 专用列**双写**,读以表为准、旧列兜底;
   另有 `findDuplicates()` 冲突检测、`pruneOrphans()` 兜底清理与 `listIsbnIndex()` 查重索引
   (专用列 + 标识符表两条来源合并,ISBN-10/13 两形态归一后命中)
-- `categories.js`:标签 / 作者归一化(重命名 / 合并 / 删除后重算缓存并重建 FTS)
-- `book_files.js` / `saved_searches.js` / `settings.js` / `stats.js`
+- `categories.js`:标签 / 作者归一化(重命名 / 合并 / 删除后重算缓存并重建 FTS);
+  `listTags` / `listAuthors` 支持 `scopeIds`,作用域外的分类**不出现**而不是计数为 0
+- `saved_searches.js`:保存的搜索 + **虚拟书库**(`is_virtual` 标记,同名大小写不敏感唯一);
+  `getVirtualByName` / `listVirtual` 供 `vl:` 谓词与 `/api/virtual-libraries` 使用
+- `book_files.js` / `settings.js` / `stats.js`(`getStats` 同样吃 `scopeIds`)
 
 **`src/http/` HTTP 适配(解析请求 → 调 db → 组响应,不写规则与 SQL)**
 
@@ -327,6 +354,9 @@ npm start     # 启动服务
   Open Library 兜底;组合入口 `lookupIsbn()` 让扫码回填与批量导入共用同一条取数链路
 - `routes.misc.js`:设置 / 上传(MIME 白名单 + 5MB + 随机文件名)/ 统计路由
 - `middleware.auth.js`:写接口鉴权(Bearer token、恒时比较、失败限速)
+- `middleware.vl.js`:`?vl=名字` → 解析成书 id 集合挂到 `req.vlScope`,列表 / 分类 / 统计 /
+  系列 / 查重 / 导出共用同一份作用域;名字不存在或循环引用返回 `400 VALIDATION`,
+  多个 `?vl=` 取交集。**客户端自己传的 `scopeIds` 一律丢弃**,作用域只能由服务端解析
 - `routes.proxy.js`:两个出站代理,原样保留缓存与超时:
   - `/api/notes`:仅接受 `github.com` 与 `raw/gist.githubusercontent.com` 链接;短文件名解析到设置里的仓库;`AbortSignal.timeout(30s)`;缓存 5 分钟
   - `/api/img-proxy`:SSRF 防护(内网地址黑名单)、仅 http/https、`content-type` 必须为 `image/*`、≤5MB、15s 超时 + 失败自动重试一次;缓存 1 小时并给浏览器 `Cache-Control: public, max-age=3600`
@@ -343,7 +373,7 @@ npm start     # 启动服务
 
 ### 测试
 
-`npm test`(Node 内置 test runner,零新依赖),当前 **307 条用例**全部通过(31 个文件):
+`npm test`(Node 内置 test runner,零新依赖),当前 **314 条用例**全部通过(32 个文件):
 
 - `test/book.test.js`(18 条):校验规则 + 核心推导规则 —— 有记录时日期与次数由记录推导、
   请求体旧值被忽略、进行中记录不计次数、无记录时保留兜底值(API 兼容)、PUT 保留旧值语义等
@@ -381,6 +411,10 @@ npm start     # 启动服务
   + `test/merge-db.test.js`(2 条,2026-10-20 新增):查重与合并 —— 书名/作者归一化、相似度、
   ISBN 分组、传递分组、同书名不同作者不误报、标签并集、阅读记录去重、字段回填、
   文件格式迁移、来源永久删除、缺失/回收站来源整体拒绝
+- `test/virtual.test.js`(7 条,2026-10-20 新增):虚拟书库 —— v14 迁移 `is_virtual` 默认 0、
+  `addSaved/updateSaved` 的标记可设可改且省略时保持、`vl:` 收窄结果与 `not vl:` 取补集、
+  带空格名字加引号 / 未知名与非书库名报 VALIDATION、嵌套引用与循环引用拒绝(不栈溢出)、
+  `scopeIds` 让列表 / 搜索 / 分类计数 / 统计一起收窄(空数组 = 不命中)、`listSeries` 作用域
 - `test/categories.test.js`(11 条)/ `test/migrations.test.js`(6 条)/ `test/saved-searches.test.js`(8 条)/
   `test/ebook.test.js`(10 条)/ `test/delete-assets.test.js`(11 条)/ `test/douban.test.js`(7 条)/
   `test/fs-utils.test.js`(6 条)/ `test/lru.test.js`(7 条)/ `test/metadata-cache.test.js`(3 条)/
@@ -458,7 +492,9 @@ npm start     # 启动服务
 
 `settings` 表:`key TEXT PRIMARY KEY, value TEXT`;现用键:`notes_repo`、`notes_branch`。
 
-`saved_searches` 表(v10):`name UNIQUE COLLATE NOCASE` + `query`(原始语法串)+ `sort`。
+`saved_searches` 表(v10):`name UNIQUE COLLATE NOCASE` + `query`(原始语法串)+ `sort`;
+v14 追加 `is_virtual INTEGER NOT NULL DEFAULT 0 CHECK (is_virtual IN (0,1))` —— 为 1 时这条
+保存搜索就是一个**虚拟书库**,`vl:` 谓词按 `name`(大小写不敏感)反查它的 `query` 并递归求解。
 
 **推导规则**(服务端 `parseBook` 强制执行):阅读记录存在时,`read_count` / `finish_date` / `start_date` 全部由记录推导,忽略请求体里的旧值;无记录时保留请求体兜底值(API 兼容旧客户端)。
 
@@ -506,6 +542,8 @@ npm start     # 启动服务
 | 2026-10-20 | **CSV 导出上线**(对标 calibre Catalog → CSV) | 数据要能出得来。复用书架筛选语法;UTF-8 BOM/CRLF 兼容 Excel,保留自定义字段、阅读记录与 uuid;公式注入防护 |
 | 2026-10-20 | **批量编辑上线**(对标 calibre *Edit metadata in bulk*) | 逐本整理几十本书效率低。书架多选 + 一次改状态/标签/系列/出版/评分;状态联动阅读记录,全部书事务内更新 |
 | 2026-10-20 | **重复书籍扫描 + 合并上线**(对标 calibre *Merge book records*) | 手工排查重复书效率低。按 ISBN/书名/作者相似度分组,合并标签/记录/自定义字段/标识符/文件;来源永久删除,UI 二次确认 |
+| 2026-10-20 | **虚拟书库上线**(v14:`saved_searches.is_virtual` + `vl:` 谓词,对标 calibre Virtual library) | 常用条件要能一键收成整个视图。复用已有序列表 + `?vl=`,一次解析出书 id 集合喂给列表/分类/统计/查重/导出,口径天然一致;递归求解带深度上限与循环检测 |
+| 2026-10-20 | **书架页去控件**(移除「虚拟书库」下拉、「选择」按钮与空书架的「添加书籍」按钮) | 页内控件与地址栏/搜索面板是重复入口,还会各自状态不同步。书架只留标题与网格;多选改由长按 / Ctrl⌘+点击手势进入,书库切换只在搜索面板与 `?vl=` 两处发生 |
 
 ### 安全设计
 
@@ -548,28 +586,30 @@ my-books/
 │   │   ├── ebook.js                  # 电子书格式 / 大小 / 存储名规则
 │   │   ├── stats.js                  # computeStats 统计聚合
 │   │   ├── csv.js                    # CSV 序列化(RFC 4180 / BOM / CRLF / 公式注入防护)
+│   │   ├── sql.js                    # inClause(id 集合 → 分块 IN 片段;空集合恒不命中)
 │   │   ├── fs-utils.js               # 原子写 + 受边界约束的删除
 │   │   └── paths.js                  # 目录常量(唯一来源)
 │   ├── db/                           # 数据访问层(只 import node: 与 core)
-│   │   ├── index.js                  # 打开 books.db、PRAGMA 加固、版本化迁移(v1~v13)、种子、inTransaction
+│   │   ├── index.js                  # 打开 books.db、PRAGMA 加固、版本化迁移(v1~v14)、种子、inTransaction
 │   │   ├── seed-data.js              # 17 本示例书数据
-│   │   ├── books.js                  # 书籍 CRUD 与列表查询 + 回收站(软删除/恢复/彻底删除,事务包裹)
-│   │   ├── search.js                 # 独立全文检索层(FTS5 trigram + BM25)+ 结构化检索
-│   │   ├── categories.js             # 标签 / 作者归一化(重命名 / 合并 / 删除)
+│   │   ├── books.js                  # 书籍 CRUD + 回收站(软删除/恢复/彻底删除)+ 批量编辑,事务包裹
+│   │   ├── search.js                 # 全文检索层(FTS5 trigram + BM25)+ 结构化检索 + vl: 递归求解
+│   │   ├── categories.js             # 标签 / 作者归一化(重命名 / 合并 / 删除)+ 作用域内计数
 │   │   ├── custom_fields.js          # 自定义字段注册表 CRUD + 取值读写
 │   │   ├── identifiers.js            # 标识符读写(isbn/douban 双写 + 任意类型 + 查重索引 listIsbnIndex)
 │   │   ├── book_files.js             # 一本书多格式文件登记
-│   │   ├── saved_searches.js         # 保存的搜索
+│   │   ├── saved_searches.js         # 保存的搜索 + 虚拟书库(is_virtual、getVirtualByName、listVirtual)
 │   │   ├── catalog.js                # CSV 导出的字段组装(固定列 + 自定义字段 + 标识符 + 文件)
 │   │   ├── duplicates.js             # 重复书籍扫描(在架书 + 文件格式)
 │   │   ├── merge.js                  # 合并事务:字段/格式/自定义值/标识符 + 永久删除来源
 │   │   ├── settings.js / stats.js    # 设置读写 / 统计查询入口
 │   ├── http/                         # HTTP 适配层(解析请求 → 调 db → 组响应)
 │   │   ├── middleware.auth.js        # 写接口应用内鉴权(Bearer token,恒时比较,失败限速)
+│   │   ├── middleware.vl.js          # ?vl=名字 → req.vlScope(书 id 集合;多名字取交集;失效 400)
 │   │   ├── routes.books.js           # 书籍 CRUD + 自定义字段值读写
 │   │   ├── routes.customFields.js    # 自定义字段管理(增删改 + 恢复)
 │   │   ├── routes.categories.js      # 标签 / 作者管理
-│   │   ├── routes.savedSearches.js   # 保存的搜索
+│   │   ├── routes.savedSearches.js   # 保存的搜索 + GET /api/virtual-libraries(带命中数)
 │   │   ├── routes.export.js          # CSV 导出(GET /api/export.csv)
 │   │   ├── routes.files.js           # 电子书上传 / 列表 / 删除
 │   │   ├── routes.metadata.js        # 豆瓣元数据检索
@@ -578,10 +618,11 @@ my-books/
 │   │   ├── routes.misc.js            # 设置 / 封面上传 / 统计
 │   │   ├── routes.proxy.js           # notes / img-proxy 出站代理(缓存 + SSRF 防护)
 │   │   └── lru.js                    # 有上限的内存缓存
-├── test/                             # node:test 用例(npm test,31 个文件 307 条)
+├── test/                             # node:test 用例(npm test,32 个文件 314 条)
 │   ├── custom-fields.test.js         # 自定义字段:规则 / 落库 / 检索 / 软删除 / 事务
 │   ├── a-group-v12.test.js           # 系列 / 标识符 / uuid / 排序键(A3/A5/A7/A8)
 │   ├── trash.test.js                 # 回收站:过滤矩阵 / 恢复冲突 / 彻底删除 / 过期清理
+│   ├── virtual.test.js               # 虚拟书库:is_virtual / vl: 谓词 / 嵌套与循环 / 作用域收窄
 │   ├── csv.test.js / catalog.test.js # CSV 序列化 / 目录字段组装
 │   ├── bulk.test.js                  # 批量编辑:校验 / 状态联动 / 事务 / 标签增删
 │   ├── duplicates.test.js / merge.test.js        # 查重算法 / 合并规则
@@ -626,13 +667,13 @@ my-books/
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/books?q=&status=&tag=&author=&sort=` | 书籍列表;`q` 支持**高级语法**(自由词 + `tag:` / `author:` / `status:` / `rating>=n` / `series:` / `series_index>=n` / `identifier:type:value` / `#自定义字段:值` + `and`/`or`/`not`),`sort` ∈ updated(默认)/created/finish/title/author/series。每行附 `custom_display` 与 `series_label` |
+| GET | `/api/books?q=&status=&tag=&author=&vl=&sort=` | 书籍列表;`q` 支持**高级语法**(自由词 + `tag:` / `author:` / `status:` / `rating>=n` / `series:` / `series_index>=n` / `identifier:type:value` / `#自定义字段:值` / `vl:书库名` + `and`/`or`/`not`),`sort` ∈ updated(默认)/created/finish/title/author/series;`vl=名字` 把整个结果收进该虚拟书库(多个 `vl=` 取交集,名字失效返回 `400 VALIDATION`)。每行附 `custom_display` 与 `series_label` |
 | GET | `/api/books/trash` | 回收站列表 `{ retention_days, books: [{ id, title, author, deleted_at, days_left, cover }] }`;不包含在架书 |
 | GET | `/api/books/:id` | 单本书详情(不存在或已在回收站返回 404);附 `files`、`file_formats`、`identifiers`、`identifier_list`(带外链)、`series_label`、`custom`(原始值,表单回填)、`custom_display`(展示文本) |
-| GET | `/api/export.csv?q=&status=&tag=&author=&sort=` | 导出 CSV(UTF-8 BOM);筛选参数与 `/api/books` 相同;包含固定列与全部 `#自定义字段` 列;仅导出在架书 |
-| GET | `/api/series` | 系列列表:每项 `{ name, count, min_index, max_index, label }` |
+| GET | `/api/export.csv?q=&status=&tag=&author=&vl=&sort=` | 导出 CSV(UTF-8 BOM);筛选参数与 `/api/books` 相同(含 `vl=` 虚拟书库作用域);包含固定列与全部 `#自定义字段` 列;仅导出在架书 |
+| GET | `/api/series?vl=` | 系列列表:每项 `{ name, count, min_index, max_index, label }`;带 `vl=` 时只统计书库内的书 |
 | GET | `/api/identifiers/duplicates` | 标识符冲突自检:同类型同值被多本书占用的情况 |
-| GET | `/api/books/duplicates` | 疑似重复书籍分组 `{ groups: [{ reason, score, books }] }`;只读扫描,不落库 |
+| GET | `/api/books/duplicates?vl=` | 疑似重复书籍分组 `{ groups: [{ reason, score, books }] }`;只读扫描,不落库;`vl=` 只在书库范围内找重复 |
 | POST | `/api/books/merge` | 合并书籍:体 `{ targetId, sourceIds }`;目标保留标题/作者,其余字段合并;**来源永久删除**;需写口令 |
 | POST | `/api/books` | 添加书籍;服务端统一校验并推导阅读记录字段;可选 `custom: { label: value }` |
 | POST | `/api/books/bulk` | 批量编辑:体 `{ ids, patch }`;patch 支持 `status` / `tags_add` / `tags_remove` / `series` / `series_index` / `publisher` / `pub_year` / `rating`;只改出现的字段,事务内整体生效;最多 500 本;**需写口令** |
@@ -647,17 +688,18 @@ my-books/
 | PUT | `/api/custom-fields/:id` | 改字段(`name` / `options` / `display_order`);**`datatype` 与 `is_multiple` 不可改**;**需写口令** |
 | DELETE | `/api/custom-fields/:id` | **软删除**(可恢复);加 `?purge=1` 才物理删除(取值随外键 CASCADE 一起清掉);**需写口令** |
 | POST | `/api/custom-fields/:id/restore` | 取消软删除,恢复字段;**需写口令** |
-| GET | `/api/tags` `GET /api/authors` | 归一化后的标签 / 作者列表(带引用计数) |
+| GET | `/api/tags?vl=` `GET /api/authors?vl=` | 归一化后的标签 / 作者列表(带引用计数);带 `vl=` 时只列书库里出现过的分类 |
 | POST | `/api/tags/rename` `POST /api/tags/merge` `DELETE /api/tags/:id` | 标签重命名 / 合并 / 删除(删除仅解除分类) |
 | POST | `/api/authors/rename` `POST /api/authors/merge` `DELETE /api/authors/:id` | 作者同上 |
-| GET | `/api/saved-searches` | 保存的搜索列表 |
-| POST / PUT / DELETE | `/api/saved-searches` `/api/saved-searches/:id` | 保存的搜索增改删;**写需口令** |
+| GET | `/api/saved-searches` | 保存的搜索列表(每项带 `is_virtual`) |
+| GET | `/api/virtual-libraries` | 虚拟书库列表 `{ id, name, query, sort, count }`;`count` 是当前命中本数,名字失效 / 循环引用时为 `null`(不整套报错) |
+| POST / PUT / DELETE | `/api/saved-searches` `/api/saved-searches/:id` | 保存的搜索增改删;体可带 `isVirtual`(PUT 省略时保持原值);**写需口令** |
 | POST | `/api/upload` | 上传封面;JSON 体 `{ data: "data:image/png;base64,…" }`,≤5MB,返回 `{ url }` |
 | GET | `/api/settings` | 读心得仓库设置 `{ notesRepo, notesBranch }` |
 | PUT | `/api/settings` | 保存心得仓库;`notesRepo` 自动去掉 `https://github.com/` 前缀与 `.git` 后缀 |
 | GET | `/api/notes?url=` | 代理拉取 GitHub 上的心得 Markdown(内存缓存 5 分钟);`url` 可为完整 GitHub 链接或按书名短文件名 |
 | GET | `/api/img-proxy?url=` | 外链封面图片代理:同源化供 Canvas 取色(SSRF 防护,缓存 1 小时,失败重试一次) |
-| GET | `/api/stats` | 统计数据 `{ total, byStatus, byYear, topTags }`(topTags 至多 12 个) |
+| GET | `/api/stats?vl=` | 统计数据 `{ total, byStatus, byYear, topTags }`(topTags 至多 12 个);`vl=` 时只统计书库内的书 |
 | GET | `/api/metadata/search?q=` | 豆瓣元数据检索(书名或 ISBN),返回最多 5 个候选 |
 | GET | `/api/isbn/check?isbn=` | ISBN 校验 + 归一化 + 查重:`{ input, valid, normalized, duplicate }`(`duplicate` 为已存在书的 `{id,title}` 或 null);**不落库** |
 | GET | `/api/isbn/lookup?isbn=` | 按 ISBN 查元数据(豆瓣直查 → Open Library 兜底),返回 `{ status, book, source }`;**不建档**,扫码回填与批量添加共用同一条链路 |

@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 
 const settings = require('../db/settings');
 const stats = require('../db/stats');
+const { db } = require('../db/index');
 const { atomicWrite } = require('../core/fs-utils');
 const { UPLOAD_DIR } = require('../core/paths');
 
@@ -44,9 +45,9 @@ router.post('/api/upload', (req, res) => {
   res.status(201).json({ url: `/uploads/${filename}` });
 });
 
-// 统计数据
+// 统计数据(支持 ?vl= 虚拟书库作用域)
 router.get('/api/stats', (req, res) => {
-  res.json(stats.getStats());
+  res.json(stats.getStats(db, req.vlScope));
 });
 
 module.exports = router;
