@@ -54,24 +54,28 @@ function listSeries(handleDb = db, { scopeIds = null } = {}) {
 // customValues(可选)= { label: 规范化字符串 },来自 core/normalizeBookValues。
 // 主表 + 标签/作者链接 + 自定义值 + FTS 索引必须同生共死,故整体裹事务
 // (inTransaction 是嵌套安全的:若外层 routes 已开事务则并入)。
-function addBook(values, customValues = null) {
-  return inTransaction(db, () => {
+//
+// handleDb 可选(第 3 参数):合并/导入/测试需要在临时库或外层事务里复用同一句柄。
+// 此前这里写死模块级单例,导致所有测试只要调用 addBook 就写进真实库
+// (PROJECT_MEMORY §8 记过这个债务);导入功能需要它,顺手补上句柄参数。
+function addBook(values, customValues = null, handleDb = db) {
+  return inTransaction(handleDb, () => {
     const ts = now();
     // identifiers 不是 books 表的列(它落 book_identifiers 表),必须从命名参数里
     // 剔掉 —— node:sqlite 对**多余的命名参数**是严格报错的(ERR_INVALID_STATE:
     // Unknown named parameter),不像某些驱动会忽略。
     const { identifiers: idMap, ...cols } = values;
-    const result = db.prepare(`
+    const result = handleDb.prepare(`
       INSERT INTO books (title, title_sort, author, author_sort, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, series, series_index, uuid, created_at, updated_at)
       VALUES (@title, @title_sort, @author, @author_sort, @status, @summary, @tags, @start_date, @finish_date, @cover, @notes_url, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @series, @series_index, @uuid, @ts, @ts)
     `).run({ ...cols, uuid: crypto.randomUUID(), ts });
-    const created = getBook(result.lastInsertRowid);
-    categories.syncBookTags(db, created.id, categories.parseTagNames(created.tags));
-    categories.syncBookAuthors(db, created.id, splitAuthors(created.author));
-    if (customValues) customFields.setValues(db, created.id, customValues);
+    const created = getBook(result.lastInsertRowid, handleDb);
+    categories.syncBookTags(handleDb, created.id, categories.parseTagNames(created.tags));
+    categories.syncBookAuthors(handleDb, created.id, splitAuthors(created.author));
+    if (customValues) customFields.setValues(handleDb, created.id, customValues);
     // 标识符:isbn/douban 双写进 book_identifiers,其余类型也在这一步落库
-    if (idMap) identifiers.setIdentifiers(db, created.id, idMap);
-    search.indexBook(db, created); // 同步全文索引
+    if (idMap) identifiers.setIdentifiers(handleDb, created.id, idMap);
+    search.indexBook(handleDb, created); // 同步全文索引
     return created;
   });
 }
@@ -311,11 +315,83 @@ function purgeExpired(handleDb = db, days = TRASH_RETENTION_DAYS) {
   return purged;
 }
 
+// 局部更新一本书(批量补全元数据用):patch 里只出现哪些列,就只改哪些列,
+// 其余保持原值。与 bulkUpdateBooks 的区别:
+//   · bulk 是"用户在图上一批字段",字段集固定(status/tags/series/…)且要联动阅读记录
+//   · enrich 是"数据源返回了哪些就补哪些",字段集由 core/enrich.buildPatch 动态决定
+// 所以不复用 bulkUpdateBooks —— 那边的字段白名单写死在 SQL 里,
+// 硬套会把 summary/cover 这类"只有 enrich 才补"的列漏掉。
+//
+// 支持的特殊键:
+//   tags_add     追加标签(并集语义,不删已有;与批量编辑同款)
+//   identifiers  { type: value } —— **并集**语义,只新增/填空,
+//                不删除未出现的类型(calibre apply_mi 的 idents.update 同款思路;
+//                整体替换会把没在 patch 里的类型清掉,那是编辑器的语义不是补全的)
+//
+// 校验:列名的键必须在 ENRICH_COLUMNS 白名单里,防止调用方传进任意列名
+// (列名是拼进 SQL 的,不收口就是注入面)。
+const ENRICH_COLUMNS = new Set(['summary', 'cover', 'publisher', 'pub_year', 'rating']);
+
+function enrichBook(handleDb, id, patch) {
+  const row = getBook(id, handleDb);
+  if (!row) return null;
+
+  const sets = [];
+  const params = [];
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (!ENRICH_COLUMNS.has(k)) continue;        // 白名单外一律忽略
+    sets.push(`${k} = ?`);
+    params.push(v);
+  }
+
+  // 标签并集:后端再判一次重(规则层已判,这里防并发与重复提交)
+  let tagsJson = null;
+  if (Array.isArray(patch && patch.tags_add) && patch.tags_add.length) {
+    const cur = categories.parseTagNames(row.tags);
+    const seen = new Set(cur.map((t) => t.toLowerCase()));
+    for (const t of patch.tags_add) {
+      const name = String(t == null ? '' : t).trim();
+      if (!name || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      cur.push(name);
+    }
+    tagsJson = JSON.stringify(cur);
+    sets.push('tags = ?');
+    params.push(tagsJson);
+  }
+
+  const idPatch = patch && patch.identifiers && typeof patch.identifiers === 'object'
+    ? patch.identifiers
+    : null;
+
+  if (!sets.length && !idPatch) return row;
+
+  return inTransaction(handleDb, () => {
+    const oldRow = getBook(id, handleDb);
+    if (sets.length) {
+      handleDb.prepare(`UPDATE books SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`)
+        .run(...params, now(), id);
+    }
+    // 标识符按类型增量写:setIdentifiers 的语义是"未出现的类型保持不动",
+    // 正好符合补全需求(不用先读出来再整体回写,少一次竞态面)
+    if (idPatch) identifiers.setIdentifiers(handleDb, id, idPatch);
+
+    const updated = getBook(id, handleDb);
+    if (tagsJson !== null) {
+      categories.syncBookTags(handleDb, id, categories.parseTagNames(tagsJson));
+      // FTS 是外部内容表,不会自动感知 UPDATE —— 必须用旧行显式 delete 再插新行
+      search.updateBookIndex(handleDb, id, oldRow, updated);
+    }
+    return updated;
+  });
+}
+
 module.exports = {
   listBooks,
   getBook,
   addBook,
   updateBook,
+  enrichBook,
   bulkUpdateBooks,
   hardDeleteBook,
   softDeleteBook,

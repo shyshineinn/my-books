@@ -50,9 +50,9 @@ function buildCatalog(handleDb, query = {}) {
   const ids = rows.map((r) => r.id);
   const custom = customFields.getValuesForBooks(handleDb, ids, { columns: cols });
   const idMap = identifiers.getIdentifiersForBooks(handleDb, ids);
-  const fileMap = new Map(
-    ids.map((id) => [id, bookFiles.listFiles(handleDb, id).map((f) => f.format)]),
-  );
+  // 一次查完所有书的文件格式(早期版本在这里写 for 循环逐本 listFiles,
+  // 书一多就是 N+1 查询 —— CSV 导出会随书量线性变慢)。
+  const fileMap = bookFiles.listFormatsForBooks(handleDb, ids);
 
   const data = rows.map((r) => {
     const customValues = custom[r.id] || {};

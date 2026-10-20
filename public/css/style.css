@@ -4423,6 +4423,19 @@ body.menu-open { overflow: hidden; }
 }
 .cat-actions { padding: 14px 20px 18px; }
 
+/* CSV 导入(数据导出区旁)。选择器用 .import-opt 而不是复用 .field,
+   因为这里要横向排一行(标签 + 下拉),不是竖排表单项。 */
+.import-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.import-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink-2); }
+.import-opt select {
+  font: inherit; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+}
+.import-bad { color: #b3261e; }
+@media (max-width: 560px) {
+  .import-actions { flex-direction: column; align-items: flex-start; }
+}
+
 .field-name { flex: 0 1 auto; font-size: 15.5px; letter-spacing: -0.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .field-label {
   flex: 0 0 auto;

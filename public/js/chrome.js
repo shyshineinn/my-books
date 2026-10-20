@@ -351,18 +351,32 @@ function overlaysHtml() {
           <tr><td><code>series:基地</code></td><td>系列(精确匹配)</td></tr>
           <tr><td><code>series_index:&gt;=2</code></td><td>系列序号,支持 &gt; &lt; &gt;= &lt;= = !=</td></tr>
           <tr><td><code>identifier:goodreads:5907</code></td><td>标识符(类型:值;只写类型表示"有该类标识符")</td></tr>
-          <tr><td><code>format:epub</code></td><td>电子书格式(已上传)</td></tr>
+          <tr><td><code>format:epub</code></td><td>电子书格式(已上传);<code>format:false</code> 找没有文件的书</td></tr>
+          <tr><td><code>cover:true</code></td><td>有无封面(<code>true</code>/<code>false</code>,也可写「是」「否」)</td></tr>
+          <tr><td><code>date:&gt;10daysago</code></td><td>加入日期:支持 <code>today</code> / <code>yesterday</code> / <code>thismonth</code> / <code>&gt;Ndaysago</code> / <code>&lt;=2026-01-01</code></td></tr>
+          <tr><td><code>size:&gt;1M</code></td><td>电子书总大小,单位 K / M / G(不写按字节)</td></tr>
+          <tr><td><code>tags:#&gt;4</code></td><td>标签个数比较(同理 <code>authors:#=2</code>)</td></tr>
           <tr><td><code>#页数:&gt;300</code></td><td>自定义字段(<code>#</code> 开头;数值可比较)</td></tr>
           <tr><td><code>vl:已读科幻</code></td><td>虚拟书库(名字带空格要加引号:<code>vl:"我的 书库"</code>)</td></tr>
         </table>
+        <p>三种匹配强度(写在值开头):</p>
+        <ul>
+          <li><code>=</code> 精确相等:<code>tag:=科幻</code>(不命中「科幻小说」)</li>
+          <li><code>~</code> 正则:<code>title:~^三体.*</code>(支持 <code>^</code> <code>$</code> <code>.*</code> <code>.</code>;
+              分组与 <code>|</code> 无法下推,会退化成取第一个分支的子串)</li>
+          <li><code>^</code> 字符变体:忽略大小写与变音符号:<code>title:^big</code></li>
+        </ul>
         <p>其它写法:</p>
         <ul>
-          <li><code>or</code> —— 把条件改成「或者」:<code>status:done or 活着</code></li>
-          <li><code>not</code> / 前导 <code>-</code> —— 否定紧随其后的一条:<code>not tag:草稿</code></li>
+          <li><code>and</code> / <code>or</code> —— <strong>and 优先于 or</strong>,与数学惯例一致:
+              <code>a or b and c</code> 等于 <code>a or (b and c)</code></li>
+          <li><strong>括号改变优先级</strong>:<code>(tag:科幻 or tag:小说) and status:done</code></li>
+          <li><code>not</code> / 前导 <code>-</code> —— 否定紧随其后的一条;
+              <code>not ( ... )</code> 可否定一整组:<code>not (tag:科幻 or tag:小说)</code></li>
           <li>值含空格加引号:<code>publisher:"上海译文"</code></li>
           <li>不写字段名的词按书名 / 作者 / 简介 / 标签全文检索</li>
         </ul>
-        <p class="syntax-example">组合示例:<code>status:done rating&gt;=9 三体</code></p>
+        <p class="syntax-example">组合示例:<code>(tag:科幻 or tag:小说) and status:done and rating&gt;=8</code></p>
       </div>
       <div class="form-foot">
         <div class="form-foot-btns">

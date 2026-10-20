@@ -12,6 +12,9 @@ const shelf = {
   vl: '',
 };
 
+// 批量补全的上限,与后端 src/core/enrich.js 的 MAX_BATCH 保持一致
+const ENRICH_MAX = 100;
+
 let fetchSeq = 0; // 请求序号:连续查询时只渲染最后一次的结果,避免旧响应覆盖新结果
 
 async function fetchBooks() {
@@ -187,6 +190,12 @@ function updateBulkBar() {
   bar.classList.toggle('hidden', !shelf.selectMode || !shelf.books.length);
   $('#bulkCount').textContent = `已选 ${n} 本`;
   $('#bulkEditBtn').disabled = n === 0;
+  // 补全元数据:一次最多 100 本(与后端 core/enrich.js 的 MAX_BATCH 一致)。
+  // 超了就禁用按钮并说明,而不是让用户点了才收到 400。
+  const enrichBtn = $('#bulkEnrichBtn');
+  const tooMany = n > ENRICH_MAX;
+  enrichBtn.disabled = n === 0 || tooMany;
+  enrichBtn.title = tooMany ? `一次最多补全 ${ENRICH_MAX} 本,请分批` : '从豆瓣/Open Library 补全简介、出版社、评分、封面等';
   $('#bulkSaveBtn').textContent = `应用到 ${n} 本`;
 }
 
@@ -269,6 +278,56 @@ async function applyBulkEdit() {
   }
 }
 
+/* ============ 批量补全元数据(对标 calibre Download metadata and covers) ============ */
+/* 语义:只补空字段(不覆盖你手写的简介/选的封面),标签只追加。
+   一次最多 ENRICH_MAX 本;逐条结果里有成功/无可补/未找到/被拒/异常,
+   用一条 toast 概括 + 控制台明细,不在页面上堆一个结果弹窗(书架页坚持不放控件)。 */
+async function runEnrich() {
+  const ids = [...shelf.selected];
+  if (!ids.length) return;
+  const btn = $('#bulkEnrichBtn');
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = '补全中…';
+  try {
+    const res = await api('/api/books/enrich', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    const s = res.summary || {};
+    // 一条 toast 说清结果;封面单独报(元数据成功但封面挂了是很常见的情形,
+    // 与 calibre 把 failed_ids / failed_covers 分开统计同思路)
+    const parts = [];
+    if (s.updated) parts.push(`补全 ${s.updated} 本`);
+    if (s.unchanged) parts.push(`${s.unchanged} 本无可补`);
+    if (s.not_found) parts.push(`${s.not_found} 本未找到`);
+    if (s.blocked) parts.push(`${s.blocked} 本被豆瓣拒绝`);
+    if (s.skipped) parts.push(`${s.skipped} 本缺 ISBN/书名`);
+    if (s.error) parts.push(`${s.error} 本出错`);
+    if (s.cover_failed) parts.push(`${s.cover_failed} 本封面未下载`);
+    toast(parts.length ? parts.join(' · ') : '没有可补全的书');
+
+    const bad = (res.results || []).filter(
+      (r) => r.status !== 'updated' && r.status !== 'unchanged',
+    );
+    const coverBad = (res.results || []).filter((r) => r.coverStatus === 'failed');
+    if (bad.length || coverBad.length) {
+      console.info('[enrich] 未完全成功的条目:', {
+        元数据: bad.map((r) => ({ id: r.id, title: r.title, status: r.status, error: r.error })),
+        封面: coverBad.map((r) => ({ id: r.id, title: r.title, error: r.coverError })),
+      });
+    }
+
+    invalidateSharedStats();
+    setSelectMode(false);
+    fetchBooks();
+  } catch (e) {
+    toast(e.message || '批量补全失败');
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
 /* ============ 筛选条件(来自地址栏 / 导航菜单) ============ */
 /* 检索是全库检索:只要搜索词非空,就清掉「状态 / 标签 / 作者」条件 ——
    否则会出现在某个标签(或某个状态)下搜索时只在该范围内命中,查不到明明存在的书。
@@ -340,6 +399,7 @@ document.addEventListener('shelf-search', syncUrl);
 /* ============ 批量编辑事件(多选由卡片手势进入,页面上没有按钮) ============ */
 $('#bulkCancelBtn').addEventListener('click', () => setSelectMode(false));
 $('#bulkEditBtn').addEventListener('click', openBulkModal);
+$('#bulkEnrichBtn').addEventListener('click', runEnrich);
 $('#bulkSaveBtn').addEventListener('click', applyBulkEdit);
 initCustomSelect($('#bulkStatus'));
 

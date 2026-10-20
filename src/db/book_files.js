@@ -58,6 +58,29 @@ function moveFormatsToBook(db, sourceId, targetId) {
   return moved;
 }
 
+// 批量取多本书的文件(格式名列表),返回 Map<bookId, string[]>。
+// 与 identifiers.getIdentifiersForBooks / custom_fields.getValuesForBooks
+// 同一动机:避免调用方写 for 循环逐本查 —— 那会随书的数量线性增加往返
+// (CSV 导出、列表接口都会踩到),而这里一条 IN 查完。
+function listFormatsForBooks(db, bookIds) {
+  const ids = [...new Set((bookIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  const out = new Map();
+  if (!ids.length) return out;
+  // 分块:SQLite 的默认变量上限(SQLITE_MAX_VARIABLE_NUMBER)通常是 32766,
+  // 本项目 node:sqlite 走 APSW 包装,同样有上限;500 一块与 core/sql.js 对齐。
+  const MAX_CHUNK = 500;
+  for (let i = 0; i < ids.length; i += MAX_CHUNK) {
+    const part = ids.slice(i, i + MAX_CHUNK);
+    const ph = part.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT book, format FROM book_files WHERE book IN (${ph}) ORDER BY format`).all(...part);
+    for (const r of rows) {
+      if (!out.has(r.book)) out.set(r.book, []);
+      out.get(r.book).push(r.format);
+    }
+  }
+  return out;
+}
+
 // 删除登记(磁盘文件删除后调用);format 省略则清空该书全部登记
 function removeFile(db, bookId, format) {
   if (format) {
@@ -67,4 +90,4 @@ function removeFile(db, bookId, format) {
   return db.prepare('DELETE FROM book_files WHERE book = ?').run(bookId).changes;
 }
 
-module.exports = { listFiles, getFile, getFileById, upsertFile, moveFormatsToBook, removeFile };
+module.exports = { listFiles, getFile, getFileById, upsertFile, moveFormatsToBook, listFormatsForBooks, removeFile };

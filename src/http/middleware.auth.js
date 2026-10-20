@@ -80,7 +80,26 @@ function extractToken(req) {
 // 但双层模式下 token 本身 48 位 hex,有限速兜底已足够)。
 const FAIL_LIMIT = 5;
 const COOLDOWN_MS = 10 * 60 * 1000;
+// Map 必须有上限:失败 IP 会被无限写进来(公网上扫你站段的爬虫每小时能造几百个),
+// 无上限的 Map 会随进程寿命单调增长 —— 单用户站点内存缓慢泄漏的典型形态。
+// 做法:超过 MAX_ENTRIES 时先淘汰已过期的记录,仍然满则清空最早的(整表收缩)。
+// 淘汰只影响"哪些 IP 还记得自己失败过几次",不影响 fail-closed 语义。
+const MAX_ENTRIES = 1000;
 const failLog = new Map(); // ip -> { count, blockedUntil }
+
+// 收紧:删掉所有冷却期已过的记录(它们的计数也该归零重来),
+// 返回删除条数。在每次写入前调用,成本 O(n) 但 n ≤ MAX_ENTRIES。
+function pruneFailLog() {
+  const now = Date.now();
+  let removed = 0;
+  for (const [ip, rec] of failLog) {
+    if (rec.blockedUntil <= now) {
+      failLog.delete(ip);
+      removed += 1;
+    }
+  }
+  return removed;
+}
 
 function clientIp(req) {
   // 有反代时优先取 X-Forwarded-For 首个(Nginx 已配置传递);否则直连地址
@@ -102,6 +121,14 @@ function rateCheck(req, res) {
 
 function rateFail(req) {
   const ip = clientIp(req);
+  // 先收紧再写入:保证 failLog 的条目数不超过 MAX_ENTRIES
+  if (failLog.size >= MAX_ENTRIES) {
+    pruneFailLog();
+    // 淘汰过期后仍然满(极端情况:同一时刻有上千个 IP 正在冷却期)→ 整表收缩。
+    // 代价是这些 IP 的失败计数归零重来;但它们本来就在 10 分钟冷却里,
+    // 重新计满 5 次也要再等 5 次失败,暴力枚举的净成本没有下降。
+    if (failLog.size >= MAX_ENTRIES) failLog.clear();
+  }
   const rec = failLog.get(ip) || { count: 0, blockedUntil: 0 };
   rec.count += 1;
   if (rec.count >= FAIL_LIMIT) rec.blockedUntil = Date.now() + COOLDOWN_MS;
@@ -150,4 +177,9 @@ function resetTokenCache() {
   failLog.clear();
 }
 
-module.exports = { requireAdmin, safeEqual, extractToken, loadToken, resetTokenCache, TOKEN_FILE, FAIL_LIMIT };
+// 供测试/运维:查看当前限速表规模(确认上限生效)
+function failLogSize() {
+  return failLog.size;
+}
+
+module.exports = { requireAdmin, safeEqual, extractToken, loadToken, resetTokenCache, TOKEN_FILE, FAIL_LIMIT, MAX_ENTRIES, failLogSize };

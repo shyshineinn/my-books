@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=102">
+  <link rel="stylesheet" href="/css/style.css?v=103">
 </head>
 <body data-page="shelf">
   <main>
@@ -28,6 +28,7 @@
   <div id="bulkBar" class="bulk-bar hidden" role="region" aria-label="批量操作">
     <span class="bulk-count" id="bulkCount">已选 0 本</span>
     <button type="button" class="btn btn-primary btn-sm" id="bulkEditBtn" disabled>批量编辑</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="bulkEnrichBtn" disabled>补全元数据</button>
     <button type="button" class="btn btn-ghost btn-sm" id="bulkCancelBtn">取消</button>
   </div>
 
@@ -88,9 +89,9 @@
     </div>
   </div>
 
-  <script defer src="/js/chrome.js?v=30"></script>
+  <script defer src="/js/chrome.js?v=31"></script>
   <script defer src="/js/common.js?v=22"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=14"></script>
+  <script defer src="/js/page-shelf.js?v=15"></script>
 </body>
 </html>

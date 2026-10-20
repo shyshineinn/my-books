@@ -18,6 +18,8 @@ const routesCategories = require('./src/http/routes.categories');
 const routesSavedSearches = require('./src/http/routes.savedSearches');
 const routesCustomFields = require('./src/http/routes.customFields');
 const routesExport = require('./src/http/routes.export');
+const routesEnrich = require('./src/http/routes.enrich');
+const routesImport = require('./src/http/routes.import');
 const { requireAdmin } = require('./src/http/middleware.auth');
 const { attachVlScope } = require('./src/http/middleware.vl');
 const { db } = require('./src/db/index');
@@ -30,6 +32,10 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(express.json({ limit: '10mb' }));
+// CSV 导入允许直接发 text/csv 请求体(比 JSON 包一层 base64 省 33% 体积,
+// 也更符合"把文件拖进来"的直觉)。只对这一个路由生效,不给全局加文本解析器 ——
+// 那会让所有路由都接受任意文本体,收窄攻击面。
+app.use('/api/import.csv', express.text({ type: ['text/csv', 'text/plain'], limit: '10mb' }));
 // 静态资源缓存策略:HTML 一律 no-cache(每次向服务器验证新鲜度),
 // 解决"备案号/新功能要强制刷新才出现"—— index.html 自身没有 ?v= 缓存戳,
 // 浏览器会缓存它,导致新发布的页面内容看不到。其余资源靠 ?v= 长缓存不受影响。
@@ -90,6 +96,8 @@ apiV1.use(routesCategories);
 apiV1.use(routesSavedSearches);
 apiV1.use(routesCustomFields);
 apiV1.use(routesExport);
+apiV1.use(routesEnrich);
+apiV1.use(routesImport);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
@@ -99,6 +107,8 @@ app.use(routesCategories);
 app.use(routesSavedSearches);
 app.use(routesCustomFields);
 app.use(routesExport);
+app.use(routesEnrich);
+app.use(routesImport);
 
 // Markdown 渲染库(浏览器版;marked v16+ 的 exports 限制子路径,需手动拼接包内路径)
 const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')), 'lib', 'marked.umd.js');

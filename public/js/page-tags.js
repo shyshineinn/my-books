@@ -515,6 +515,185 @@ $('#trashList').addEventListener('click', (e) => {
   else if (btn.dataset.tact === 'purge') purgeTrashBook(id);
 });
 
+/* ---------- CSV 导入(导出功能的另一半) ---------- */
+/* 两步走,与 calibre 导入前的确认对话框同思路:
+     ① 选文件 → 读进内存 → 打 dry_run=1 请求:服务端跑完校验+查重但不写库
+     ② 展示"会新建几本 / 会合并几本 / 会跳过几本 / 哪几行有问题"
+     ③ 点「确认导入」才真发一次(同样内容,去掉 dry_run)
+   为什么要两步:导入是不可逆的批量写。dry_run 让"列名打错、整份数据重复"
+   这类问题在写库前就暴露,而不是事后收拾。 */
+const importState = { text: '', fileName: '', preview: null };
+
+function importQuery(dryRun) {
+  const dup = $('#importDup').value;
+  const am = $('#importAutomerge').value;
+  const p = new URLSearchParams();
+  p.set('duplicate', dup);
+  p.set('automerge', am);
+  if (dryRun) p.set('dry_run', '1');
+  return p.toString();
+}
+
+// 「合并方式」只在"合并进已有记录"时才有意义,其余情况藏着
+function syncImportOptions() {
+  $('#importMergeOpt').hidden = $('#importDup').value !== 'add_formats_to_existing';
+}
+
+function importSummaryText(s) {
+  const parts = [];
+  if (s.created) parts.push(`新建 ${s.created} 本`);
+  if (s.merged) parts.push(`合并 ${s.merged} 本`);
+  if (s.duplicate) parts.push(`跳过 ${s.duplicate} 本`);
+  if (s.invalid) parts.push(`${s.invalid} 行有误`);
+  if (s.error) parts.push(`${s.error} 行出错`);
+  return parts.length ? parts.join(' · ') : '没有可导入的行';
+}
+
+function renderImportPreview(preview) {
+  const info = $('#importInfo');
+  const s = preview.summary || {};
+  const bad = (preview.results || []).filter((r) => r.status === 'invalid' || r.status === 'error');
+  const lines = [
+    `<b>${esc(preview.fileName || 'CSV')}</b> · 预览:${esc(importSummaryText(s))}`,
+  ];
+  if (preview.mappedFields && preview.mappedFields.length) {
+    lines.push(`识别到的列:${esc(preview.mappedFields.join('、'))}`);
+  }
+  if (preview.customFields && preview.customFields.length) {
+    lines.push(`自定义字段列:${preview.customFields.map((x) => '#' + esc(x)).join('、')}`);
+  }
+  if (preview.ignoredHeaders && preview.ignoredHeaders.length) {
+    lines.push(`忽略的列:${esc(preview.ignoredHeaders.join('、'))}`);
+  }
+  if (bad.length) {
+    lines.push(`<span class="import-bad">问题行:${bad.slice(0, 8).map((r) => `第 ${r.row} 行(${esc(r.error)})`).join(';')}${bad.length > 8 ? ` …共 ${bad.length} 行` : ''}</span>`);
+  }
+  info.innerHTML = lines.join('<br>');
+  info.hidden = false;
+  // 有致命问题行时仍允许导入(其余行是好的),但要明确告知
+  $('#importConfirmRow').hidden = !(s.created || s.merged);
+}
+
+async function readImportFile(file) {
+  // FileReader 而非 file.text():兼容旧 WebView,且能显式指定编码。
+  // CSV 一律按 UTF-8 读;Excel 导出的 GBK 文件会出现乱码 ——
+  // 那属于"文件本身不是 UTF-8",不在前端猜编码(猜错的代价是静默写错书名)。
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('读取文件失败'));
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.readAsText(file, 'utf-8');
+  });
+}
+
+// api() 的默认 headers 是 `Content-Type: json` + 鉴权头,而 `...options` 会**整体覆盖**
+// 掉 headers —— 所以传自定义 Content-Type 时必须把鉴权头一起带上,
+// 否则写接口会 401。这里用一个共用常量避免两处漏写。
+const CSV_HEADERS = () => ({
+  'Content-Type': 'text/csv; charset=utf-8',
+  ...authHeaders(),
+});
+
+async function previewImport() {
+  if (!importState.text) return;
+  const btn = $('#importPickBtn');
+  btn.disabled = true;
+  btn.textContent = '预览中…';
+  try {
+    const res = await api(`/api/import.csv?${importQuery(true)}`, {
+      method: 'POST',
+      headers: CSV_HEADERS(),
+      body: importState.text,
+    });
+    importState.preview = { ...res, fileName: importState.fileName };
+    renderImportPreview(importState.preview);
+  } catch (e) {
+    toast(e.message, true);
+    $('#importInfo').hidden = true;
+    $('#importConfirmRow').hidden = true;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '选择 CSV 文件';
+  }
+}
+
+async function confirmImport() {
+  if (!importState.text) return;
+  const s = (importState.preview && importState.preview.summary) || {};
+  const msg = `将按预览结果导入:${importSummaryText(s)}。\n导入后不能一键撤销(可用回收站逐本删),继续?`;
+  if (!confirm(msg)) return;
+
+  const btn = $('#importConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = '导入中…';
+  try {
+    const res = await api(`/api/import.csv?${importQuery(false)}`, {
+      method: 'POST',
+      headers: CSV_HEADERS(),
+      body: importState.text,
+    });
+    toast(`导入完成:${importSummaryText(res.summary || {})}`);
+    invalidateSharedStats();
+    notifyBooksChanged();
+    // 导入会新增标签/作者与书籍 → 本页全部区块都要刷新
+    await load();
+    await loadFields();
+    await loadDuplicates();
+    resetImport();
+  } catch (e) {
+    toast(e.message, true);
+    btn.disabled = false;
+    btn.textContent = '确认导入';
+  }
+}
+
+function resetImport() {
+  importState.text = '';
+  importState.fileName = '';
+  importState.preview = null;
+  const input = $('#importFile');
+  if (input) input.value = '';
+  $('#importInfo').hidden = true;
+  $('#importConfirmRow').hidden = true;
+  const btn = $('#importConfirmBtn');
+  if (btn) { btn.disabled = false; btn.textContent = '确认导入'; }
+}
+
+$('#importDup').addEventListener('change', () => {
+  syncImportOptions();
+  // 策略变了,预览结论会变 → 自动重新预览(有文件时)
+  if (importState.text) previewImport();
+});
+
+$('#importAutomerge').addEventListener('change', () => {
+  if (importState.text) previewImport();
+});
+
+$('#importPickBtn').addEventListener('click', () => $('#importFile').click());
+
+$('#importFile').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  // 10MB 上限与后端 express.text 的限制对齐,提前拦住而不是让服务端 413
+  if (file.size > 10 * 1024 * 1024) {
+    toast('CSV 不能超过 10MB,请拆分后分批导入', true);
+    e.target.value = '';
+    return;
+  }
+  try {
+    importState.text = await readImportFile(file);
+    importState.fileName = file.name;
+    await previewImport();
+  } catch (err) {
+    toast(err.message || '读取文件失败', true);
+  }
+});
+
+$('#importConfirmBtn').addEventListener('click', confirmImport);
+$('#importCancelBtn').addEventListener('click', resetImport);
+
+syncImportOptions();
+
 /* ---------- 启动 ---------- */
 initCollapsibleSections('.cat-col', '.cat-head');
 load();
