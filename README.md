@@ -37,7 +37,7 @@
 | 页面 | URL | 内容 |
 | --- | --- | --- |
 | **首页** | `/` | Apple 官网式排版:Hero 标语 → 「最新上架」特色卡 → 双列书格(4 本)→ 「Endless entertainment.」双排无限轮播(复刻 apple.com media-gallery:自动播放、进度条圆点、拖拽/甩动、键盘方向键) |
-| **书架** | `/shelf` | 封面卡片网格,状态页签(想读/在读/已读)带计数,标签筛选 + 排序,支持添加 / 编辑 / 删除书籍(删除有确认提示);URL 查询串 `?q=&status=&tag=&sort=` 携带筛选条件,可分享/回退 |
+| **书架** | `/shelf` | 封面卡片网格,状态页签(想读/在读/已读)带计数,标签筛选 + 排序,支持添加 / 编辑 / 删除书籍(删除移入回收站,14 天内可恢复);右上「选择」进入多选,可批量编辑状态/标签/系列/出版/评分;URL 查询串 `?q=&status=&tag=&sort=` 携带筛选条件,可分享/回退 |
 | **榜单** | `/rank` | 英雄区(总藏书 / 读完数)+ **重读榜**(读过两次以上的书,按次数排序,至多 8 本) |
 | **统计** | `/stats` | 阅读印象 Hero(总藏书 / 已读及占比 / 在读 / 想读)+ 每年读完柱状图 + 标签分布(点击标签跳 `/shelf?tag=…` 筛选) |
 | **分类** | `/tags` | 标签 / 作者的双列管理(重命名 / 合并 / 删除,均同步全部书籍)+ **自定义字段**管理(新建 / 编辑 / 软删除后恢复 / 彻底删除) |
@@ -123,6 +123,62 @@ ISBN 是书的「身份证」:扫码或手输条码数字即可精确取元数�
 - 一本书可挂**多个格式**(EPUB / PDF / MOBI / AZW3 / TXT),同一格式只保留一份,重复上传即替换
 - 单文件上限 80MB;存储用「先写临时名再原子改名」,被替换的旧文件在登记成功后删除
 - 下载走 `/books-files/`,由详情弹窗的下载链接提供(`download` 属性带书名)
+
+### 回收站(软删除)
+
+删除书籍默认**移入回收站**,而不是立刻抹掉数据:
+
+- 删除后 14 天内可恢复(保留期与 calibre 默认一致);`/tags` 页的「回收站」区可恢复或彻底删除
+- 删除后的书**不参与**列表、搜索、统计、标签/作者计数、系列列表与 ISBN 查重;重新添加同一 ISBN 不会被它挡住
+- 恢复只需清掉墓碑标记,标签链接、作者链接、自定义字段值、阅读记录、标识符与 FTS 索引都原样保留
+- **彻底删除**才清理磁盘上的封面与电子书文件,并清掉失去全部引用的标签/作者
+- 恢复时若 ISBN 已被其他在架书占用 → `409 CONFLICT`,提示冲突书名;先处理冲突再恢复
+- 过期清理在服务启动时与每 6 小时执行一次;`data-check.js` 会同时检查回收站条目的时间戳
+
+> 实现取舍:calibre 把书目录移到 `.trash` 再从 OPF 重建行;本项目元数据真源是规范化
+> SQLite,搬目录会丢关联数据,所以用 `books.deleted_at` 墓碑 + 查询层过滤。生命周期与
+> 交互(14 天、恢复、彻底删除)与 calibre 对齐。
+
+### 数据导出(CSV)
+
+`/tags` 页底部有「导出 CSV」入口,也可以直接请求 `GET /api/export.csv`:
+
+- 查询参数与 `/api/books` 完全一致(`q` / `status` / `tag` / `author` / `sort`),所以可以只导出当前筛选,
+  例如 `/api/export.csv?status=done&tag=科幻`
+- 固定列包含:书名/排序键、作者/排序键、状态(原值 + 中文标签)、标签、系列与序号、评分、出版信息、
+  ISBN/豆瓣 ID、阅读日期与 `read_logs`、简介、心得链接、封面、uuid、电子书格式、全部标识符、创建/更新时间
+- 每个**自定义字段**自动追加一列,列名为 `#label`;回收站中的书**不导出**
+- 文件为 **UTF-8 BOM + CRLF**,Excel / WPS 打开中文不乱码;字段按 RFC 4180 转义,
+  以 `= + - @` 开头的单元格会加单引号前缀,避免 CSV 公式注入
+- 对标 calibre 的 *Catalog → CSV*(`library/catalogs/csv_xml.py`),但保留本项目的阅读记录、
+  uuid 与自定义字段,便于后续迁移/备份
+
+### 批量编辑
+
+书架右上角「选择」进入多选模式:点卡片勾选,底部操作条显示已选数量;「批量编辑」可一次修改:
+
+- **状态**:与单本编辑相同的阅读记录联动 —— 切「已读」补读完日、切「在读」补开读日
+- **标签**:添加 / 移除(只增删,不清空其它标签;同一标签不能同时增删)
+- **系列 / 系列序号 / 出版社 / 出版年 / 评分**(评分 0 = 清空评分)
+- **留空 = 不修改**,避免批量误清;所有书在**一个事务**内更新,任一 id 不存在或已在回收站则整体拒绝
+- API:`POST /api/books/bulk`,体 `{ ids: [...], patch: {...} }`;一次最多 500 本
+
+> 对标 calibre 的 *Edit metadata in bulk*。当前覆盖常用字段;自定义字段的批量填写暂未纳入。
+
+### 重复书籍与合并
+
+`/tags` 页「重复书籍」区自动扫描疑似重复:
+
+- **检测证据**:ISBN 归一化后相同;书名规范化后相同(忽略大小写/标点/空白/英文冠词);
+  或书名与作者同时高度相似(处理错字/副标题差异);同书名不同作者不会误合并
+- **合并**:每组选择一本目标书,点「合并其余 N 本到所选」
+  - 标签取并集、阅读记录合并去重、状态取 `done > reading > wish`
+  - 目标为空的字段用来源补(封面/简介/出版社/出版年/评分/系列),目标已有值优先
+  - 来源独有的电子书格式迁到目标;自定义字段、标识符一并合并(冲突时目标优先)
+  - **来源记录永久删除**(不进回收站);磁盘资产在事务提交后清理
+- API:`GET /api/books/duplicates`(只读扫描)、`POST /api/books/merge`(`{ targetId, sourceIds }`)
+
+> 对标 calibre 的 *Merge book records*。合并不可恢复,操作前有二次确认。
 
 ### 移动端与无障碍
 
@@ -242,7 +298,7 @@ npm start     # 启动服务
 **`src/db/` 数据访问(只 import node: 内置模块与 core)**
 
 - `index.js`:打开 `data/books.db`、**PRAGMA 加固**(`busy_timeout` / `WAL` / `foreign_keys`)、
-  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v12)、新库写 17 本种子数据;
+  **版本化迁移**(`user_version` 计数 + 事务包裹 + 失败回滚,v1~v13)、新库写 17 本种子数据;
   另导出 **`inTransaction(db, fn)`** —— 嵌套安全的事务包裹助手(各层都无脑 BEGIN 会报
   "cannot start a transaction within a transaction";用 `db.isTransaction` 判断,不靠计数器)
 - `search.js`:**独立全文检索层**(对标 calibre `db/search.py` + `db/fts`)。FTS5 虚表
@@ -287,7 +343,7 @@ npm start     # 启动服务
 
 ### 测试
 
-`npm test`(Node 内置 test runner,零新依赖),当前 **264 条用例**全部通过(23 个文件):
+`npm test`(Node 内置 test runner,零新依赖),当前 **307 条用例**全部通过(31 个文件):
 
 - `test/book.test.js`(18 条):校验规则 + 核心推导规则 —— 有记录时日期与次数由记录推导、
   请求体旧值被忽略、进行中记录不计次数、无记录时保留兜底值(API 兼容)、PUT 保留旧值语义等
@@ -313,6 +369,18 @@ npm start     # 启动服务
   10 位存量 vs 13 位输入命中 duplicate、本次输入内重复只查一次、not_found/blocked/error 互不影响、
   convertTo13 决定查询与存储形态、超 50 条拒绝、查重索引覆盖旧列与标识符表;豆瓣 `/isbn/` 直连 302、
   跳搜索页时取 ISBN 精确匹配、候选不匹配宁可 not_found、豆瓣被拒且 OL 未命中报 blocked、OL 兜底成功
+- `test/trash.test.js`(9 条,2026-10-20 新增):回收站 —— v13 迁移、软删除后的列表/搜索/统计/
+  标签作者计数/系列/ISBN 索引过滤、恢复与 FTS 免重建、恢复时 ISBN 冲突、彻底删除的级联清理、
+  共享封面保护、过期清理边界、磁盘资产按目录收口删除
+- `test/csv.test.js`(5 条)+ `test/catalog.test.js`(3 条,2026-10-20 新增):CSV 导出 ——
+  BOM/CRLF、RFC 4180 转义、空值与首尾空格、公式注入前缀、固定列与 `#自定义字段` 动态列、
+  标识符/文件格式/阅读记录、筛选与回收站排除、空结果表头
+- `test/bulk.test.js`(6 条,2026-10-20 新增):批量编辑 —— `{ ids, patch }` 请求形状、ids/patch
+  校验、状态→阅读记录联动、标签增删与保留、系列/出版/评分、事务整体拒绝、FTS 同步
+- `test/duplicates.test.js`(7 条)+ `test/merge.test.js`(6 条)+ `test/duplicates-db.test.js`(2 条)
+  + `test/merge-db.test.js`(2 条,2026-10-20 新增):查重与合并 —— 书名/作者归一化、相似度、
+  ISBN 分组、传递分组、同书名不同作者不误报、标签并集、阅读记录去重、字段回填、
+  文件格式迁移、来源永久删除、缺失/回收站来源整体拒绝
 - `test/categories.test.js`(11 条)/ `test/migrations.test.js`(6 条)/ `test/saved-searches.test.js`(8 条)/
   `test/ebook.test.js`(10 条)/ `test/delete-assets.test.js`(11 条)/ `test/douban.test.js`(7 条)/
   `test/fs-utils.test.js`(6 条)/ `test/lru.test.js`(7 条)/ `test/metadata-cache.test.js`(3 条)/
@@ -341,6 +409,7 @@ npm start     # 启动服务
 | `series_index` | REAL | 系列序号(v12),支持小数;**0 表示未指定** |
 | `title_sort` | TEXT | 书名排序键(v12):剥外层引号 + 英语冠词移位(「The Hobbit」→「Hobbit, The」);中文书名与原书名相同 |
 | `uuid` | TEXT | 单本稳定标识(v12):跨库/导入导出时识别「同一本书」,不受自增 id 变化影响 |
+| `deleted_at` | TEXT | 回收站墓碑(v13):空 = 在架;ISO 时间串 = 删除时间(14 天后自动彻底删除) |
 | `created_at` / `updated_at` | TEXT | ISO 时间戳 |
 
 > `author_sort` 自 v12 起改用**图书馆惯例的倒装键**(「Smith, John」),多作者用 ` & ` 连接
@@ -355,7 +424,13 @@ npm start     # 启动服务
 `book_authors(book,author,position)` —— 真源是这四张表,`books.tags` / `books.author` 是派生缓存。
 
 **文件表**(v7):`book_files(id, book, format, path, size, ...)`,`UNIQUE(book, format)`;
-一本书可挂多个格式,删书经外键 `CASCADE` 自动清登记(磁盘文件由路由层删)。
+一本书可挂多个格式,彻底删书经外键 `CASCADE` 自动清登记(磁盘文件由路由层在 DB 提交后删)。
+软删除只写 `books.deleted_at`,不碰文件登记与内容。
+
+**回收站(v13)**:`books.deleted_at` 是墓碑列,索引 `books_deleted_idx`。
+所有面向用户的查询统一过滤 `deleted_at IS NULL`;搜索层在 `legacyFilterClauses()` 一处收口。
+过期清理在 `server.js` 启动时与每 6 小时执行,复用 `collectAssets` + `removeBookAssets`
+清理磁盘文件;封面仍被其他书(含回收站)引用时保留。
 
 **自定义字段**(v11,对标 calibre 的自定义列):
 
@@ -427,6 +502,10 @@ npm start     # 启动服务
 | 2026-10-15 | **自定义字段上线**(v11:对标 calibre 的自定义列) | 让「加字段」从"改代码 + 发版"变成"在页面上加" —— 见[数据模型](#数据模型)的取舍说明 |
 | 2026-10-15 | **A 组剩余数据模型完成**(v12:系列 / 标识符 / uuid / 排序键) | 补齐对标 calibre 的最后四项。**A4 出版社实体表 / A6 语言表经评估不做**(投入产出比低) |
 | 2026-10-16 | **按 ISBN 添加上线**(扫码 / 精确回填 / 批量导入,对标 calibre *Add from ISBN*) | ISBN 比书名精确;扫码是网页端新增路径(calibre 无此功能);批量补录几十本时逐条结果 + 查重,不产生重复条目 |
+| 2026-10-20 | **回收站上线**(v13:软删除 + 14 天保留,对标 calibre 最近删除) | 硬删除误删只能靠备份;calibre 的文件回收站不适用于规范化 SQLite,故用 `deleted_at` 墓碑保留关联数据,恢复为一条 UPDATE |
+| 2026-10-20 | **CSV 导出上线**(对标 calibre Catalog → CSV) | 数据要能出得来。复用书架筛选语法;UTF-8 BOM/CRLF 兼容 Excel,保留自定义字段、阅读记录与 uuid;公式注入防护 |
+| 2026-10-20 | **批量编辑上线**(对标 calibre *Edit metadata in bulk*) | 逐本整理几十本书效率低。书架多选 + 一次改状态/标签/系列/出版/评分;状态联动阅读记录,全部书事务内更新 |
+| 2026-10-20 | **重复书籍扫描 + 合并上线**(对标 calibre *Merge book records*) | 手工排查重复书效率低。按 ISBN/书名/作者相似度分组,合并标签/记录/自定义字段/标识符/文件;来源永久删除,UI 二次确认 |
 
 ### 安全设计
 
@@ -454,6 +533,9 @@ my-books/
 ├── src/
 │   ├── core/                         # 纯业务规则(不依赖 express / 数据库,可独立测试)
 │   │   ├── book.js                   # parseBook 校验+推导、mergeUpdate 局部更新语义、作者拆分
+│   │   ├── bulk.js                   # 批量编辑的 ids/patch 校验 + 状态→阅读记录联动
+│   │   ├── duplicates.js             # 书名/作者归一化 + bigram 相似度 + 重复分组
+│   │   ├── merge.js                  # 标签并集 / 阅读记录合并 / 字段回填 / 合并请求校验
 │   │   ├── custom_fields.js          # 自定义字段规则:定义校验、值规范化、展示文本
 │   │   ├── sort_keys.js              # 排序键:titleSort(冠词移位)、authorToAuthorSort(倒装)
 │   │   ├── series.js                 # 系列规则:`系列 [n]` 解析、序号规范与自动递增
@@ -465,18 +547,22 @@ my-books/
 │   │   ├── isbn_import.js            # 「按 ISBN 批量添加」编排(校验→查重→抓取→建档,逐条状态)
 │   │   ├── ebook.js                  # 电子书格式 / 大小 / 存储名规则
 │   │   ├── stats.js                  # computeStats 统计聚合
+│   │   ├── csv.js                    # CSV 序列化(RFC 4180 / BOM / CRLF / 公式注入防护)
 │   │   ├── fs-utils.js               # 原子写 + 受边界约束的删除
 │   │   └── paths.js                  # 目录常量(唯一来源)
 │   ├── db/                           # 数据访问层(只 import node: 与 core)
-│   │   ├── index.js                  # 打开 books.db、PRAGMA 加固、版本化迁移(v1~v12)、种子、inTransaction
+│   │   ├── index.js                  # 打开 books.db、PRAGMA 加固、版本化迁移(v1~v13)、种子、inTransaction
 │   │   ├── seed-data.js              # 17 本示例书数据
-│   │   ├── books.js                  # 书籍 CRUD 与列表查询(事务包裹)
+│   │   ├── books.js                  # 书籍 CRUD 与列表查询 + 回收站(软删除/恢复/彻底删除,事务包裹)
 │   │   ├── search.js                 # 独立全文检索层(FTS5 trigram + BM25)+ 结构化检索
 │   │   ├── categories.js             # 标签 / 作者归一化(重命名 / 合并 / 删除)
 │   │   ├── custom_fields.js          # 自定义字段注册表 CRUD + 取值读写
 │   │   ├── identifiers.js            # 标识符读写(isbn/douban 双写 + 任意类型 + 查重索引 listIsbnIndex)
 │   │   ├── book_files.js             # 一本书多格式文件登记
 │   │   ├── saved_searches.js         # 保存的搜索
+│   │   ├── catalog.js                # CSV 导出的字段组装(固定列 + 自定义字段 + 标识符 + 文件)
+│   │   ├── duplicates.js             # 重复书籍扫描(在架书 + 文件格式)
+│   │   ├── merge.js                  # 合并事务:字段/格式/自定义值/标识符 + 永久删除来源
 │   │   ├── settings.js / stats.js    # 设置读写 / 统计查询入口
 │   ├── http/                         # HTTP 适配层(解析请求 → 调 db → 组响应)
 │   │   ├── middleware.auth.js        # 写接口应用内鉴权(Bearer token,恒时比较,失败限速)
@@ -484,6 +570,7 @@ my-books/
 │   │   ├── routes.customFields.js    # 自定义字段管理(增删改 + 恢复)
 │   │   ├── routes.categories.js      # 标签 / 作者管理
 │   │   ├── routes.savedSearches.js   # 保存的搜索
+│   │   ├── routes.export.js          # CSV 导出(GET /api/export.csv)
 │   │   ├── routes.files.js           # 电子书上传 / 列表 / 删除
 │   │   ├── routes.metadata.js        # 豆瓣元数据检索
 │   │   ├── metadata-sources.js       # 元数据源网络层:豆瓣按 ISBN 直查/搜索 + Open Library 兜底(组合入口 lookupIsbn)
@@ -491,9 +578,14 @@ my-books/
 │   │   ├── routes.misc.js            # 设置 / 封面上传 / 统计
 │   │   ├── routes.proxy.js           # notes / img-proxy 出站代理(缓存 + SSRF 防护)
 │   │   └── lru.js                    # 有上限的内存缓存
-├── test/                             # node:test 用例(npm test,23 个文件 264 条)
+├── test/                             # node:test 用例(npm test,31 个文件 307 条)
 │   ├── custom-fields.test.js         # 自定义字段:规则 / 落库 / 检索 / 软删除 / 事务
 │   ├── a-group-v12.test.js           # 系列 / 标识符 / uuid / 排序键(A3/A5/A7/A8)
+│   ├── trash.test.js                 # 回收站:过滤矩阵 / 恢复冲突 / 彻底删除 / 过期清理
+│   ├── csv.test.js / catalog.test.js # CSV 序列化 / 目录字段组装
+│   ├── bulk.test.js                  # 批量编辑:校验 / 状态联动 / 事务 / 标签增删
+│   ├── duplicates.test.js / merge.test.js        # 查重算法 / 合并规则
+│   ├── duplicates-db.test.js / merge-db.test.js  # 查重扫描 / 合并事务
 │   ├── isbn.test.js / openlibrary.test.js     # ISBN 校验归一 / Open Library 字段映射
 │   ├── isbn-import.test.js / isbn-lookup.test.js  # 批量添加编排 / 豆瓣+OL 查询链
 │   ├── book.test.js / stats.test.js / auth.test.js
@@ -535,12 +627,18 @@ my-books/
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/books?q=&status=&tag=&author=&sort=` | 书籍列表;`q` 支持**高级语法**(自由词 + `tag:` / `author:` / `status:` / `rating>=n` / `series:` / `series_index>=n` / `identifier:type:value` / `#自定义字段:值` + `and`/`or`/`not`),`sort` ∈ updated(默认)/created/finish/title/author/series。每行附 `custom_display` 与 `series_label` |
-| GET | `/api/books/:id` | 单本书详情(不存在返回 404);附 `files`、`file_formats`、`identifiers`、`identifier_list`(带外链)、`series_label`、`custom`(原始值,表单回填)、`custom_display`(展示文本) |
+| GET | `/api/books/trash` | 回收站列表 `{ retention_days, books: [{ id, title, author, deleted_at, days_left, cover }] }`;不包含在架书 |
+| GET | `/api/books/:id` | 单本书详情(不存在或已在回收站返回 404);附 `files`、`file_formats`、`identifiers`、`identifier_list`(带外链)、`series_label`、`custom`(原始值,表单回填)、`custom_display`(展示文本) |
+| GET | `/api/export.csv?q=&status=&tag=&author=&sort=` | 导出 CSV(UTF-8 BOM);筛选参数与 `/api/books` 相同;包含固定列与全部 `#自定义字段` 列;仅导出在架书 |
 | GET | `/api/series` | 系列列表:每项 `{ name, count, min_index, max_index, label }` |
 | GET | `/api/identifiers/duplicates` | 标识符冲突自检:同类型同值被多本书占用的情况 |
+| GET | `/api/books/duplicates` | 疑似重复书籍分组 `{ groups: [{ reason, score, books }] }`;只读扫描,不落库 |
+| POST | `/api/books/merge` | 合并书籍:体 `{ targetId, sourceIds }`;目标保留标题/作者,其余字段合并;**来源永久删除**;需写口令 |
 | POST | `/api/books` | 添加书籍;服务端统一校验并推导阅读记录字段;可选 `custom: { label: value }` |
+| POST | `/api/books/bulk` | 批量编辑:体 `{ ids, patch }`;patch 支持 `status` / `tags_add` / `tags_remove` / `series` / `series_index` / `publisher` / `pub_year` / `rating`;只改出现的字段,事务内整体生效;最多 500 本;**需写口令** |
 | PUT | `/api/books/:id` | 更新书籍;未提供的字段保留旧值;`custom` 按 label 局部更新(传空串 = 清空该字段) |
-| DELETE | `/api/books/:id` | 删除书籍(同时清理磁盘上的电子书与封面) |
+| DELETE | `/api/books/:id` | **移入回收站**(14 天内可恢复);`?purge=1` 才是彻底删除(仅限已在回收站的书,清理磁盘上的电子书与封面);**需写口令** |
+| POST | `/api/books/:id/restore` | 从回收站恢复;ISBN 已被其他在架书占用时返回 `409 CONFLICT`;**需写口令** |
 | POST | `/api/books/:id/file` | 上传电子书文件(multipart,≤80MB);同格式覆盖替换 |
 | GET | `/api/books/:id/file` | 列出该书的电子书文件 |
 | DELETE | `/api/books/:id/file?format=EPUB` | 删除某个格式的文件(磁盘 + 登记) |

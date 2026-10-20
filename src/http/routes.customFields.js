@@ -40,10 +40,11 @@ function respond(err, res) {
 // 让用户在删除前知道影响面 —— calibre 的字段删除确认也是这个思路)
 function usageCounts() {
   const rows = db.prepare(`
-    SELECT column_id, COUNT(*) AS n
-    FROM book_custom_values
-    WHERE value <> ''
-    GROUP BY column_id
+    SELECT v.column_id, COUNT(*) AS n
+    FROM book_custom_values v
+    JOIN books b ON b.id = v.book AND b.deleted_at IS NULL
+    WHERE v.value <> ''
+    GROUP BY v.column_id
   `).all();
   const map = new Map(rows.map((r) => [r.column_id, r.n]));
   return map;

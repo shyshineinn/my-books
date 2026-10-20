@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=96">
+  <link rel="stylesheet" href="/css/style.css?v=100">
 </head>
 <body data-page="tags">
   <main>
@@ -42,6 +42,40 @@
         <h3 class="fields-deleted-head">已删除的字段(可恢复)</h3>
         <div class="cat-list" id="fieldsDeletedList"></div>
       </div>
+    </section>
+
+    <!-- 重复书籍(对标 calibre 的 Merge book records / 重复扫描):
+         按 ISBN、规范化书名与作者相似度分组;合并会永久删除来源记录。 -->
+    <section class="cat-col cat-col-wide is-collapsed" aria-labelledby="dupsHead">
+      <header class="cat-head">
+        <h2 id="dupsHead">重复书籍</h2>
+        <span class="cat-count" id="dupsCount"></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="dupsRefresh">重新扫描</button>
+      </header>
+      <p class="cat-hint">按 ISBN、规范化书名与作者相似度扫描。合并会把其余记录并入所选书,<strong>来源记录永久删除</strong>;标签、阅读记录、自定义字段、标识符与电子书格式会一并合并。</p>
+      <div class="cat-list" id="dupsList"></div>
+    </section>
+
+    <!-- 回收站(对标 calibre 的「最近删除」):删除的书保留 14 天。
+         数据仍在 books 表里(墓碑 deleted_at),可无损恢复;
+         只有「彻底删除」才清行、关联数据与磁盘文件。 -->
+    <section class="cat-col cat-col-wide is-collapsed" aria-labelledby="trashHead">
+      <header class="cat-head">
+        <h2 id="trashHead">回收站</h2>
+        <span class="cat-count" id="trashCount"></span>
+      </header>
+      <p class="cat-hint">删除的书会在这里保留 <strong>14 天</strong>,期间可恢复;到期或「彻底删除」后,封面与电子书文件一并清理。</p>
+      <div class="cat-list" id="trashList"></div>
+    </section>
+
+    <!-- 数据导出(对标 calibre 的 Catalog → CSV):全部在架书 + 自定义字段。
+         也可以直接带查询参数,例如 /api/export.csv?status=done&tag=科幻。 -->
+    <section class="cat-col cat-col-wide is-collapsed" aria-labelledby="exportHead">
+      <header class="cat-head">
+        <h2 id="exportHead">数据导出</h2>
+      </header>
+      <p class="cat-hint">导出全部在架书为 CSV(UTF-8 BOM,Excel 可直接打开)。包含阅读记录、系列、标识符、电子书格式与自定义字段;支持与书架相同的筛选参数,如 <code>/api/export.csv?status=done</code>。</p>
+      <div class="cat-actions"><a class="btn btn-primary btn-sm" href="/api/export.csv">导出 CSV</a></div>
     </section>
   </main>
 
@@ -123,8 +157,8 @@
   </div>
 
   <script defer src="/js/chrome.js?v=29"></script>
-  <script defer src="/js/common.js?v=18"></script>
+  <script defer src="/js/common.js?v=19"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-tags.js?v=3"></script>
+  <script defer src="/js/page-tags.js?v=5"></script>
 </body>
 </html>

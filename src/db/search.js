@@ -309,9 +309,11 @@ function fieldClause({ field, op, value }, columns) {
 }
 
 // 独立入参(status/tag/author)沿用改造前的 SQL,保证向后兼容与既有测试零变化。
+// 回收站过滤放在这里:plainSearch / structuredSearch / 空查询三条路径都会经过
+// legacy,一处生效,避免新增查询路径时漏掉 deleted_at。
 function legacyFilterClauses(status, tag, author) {
   const STATUSES = ['wish', 'reading', 'done'];
-  const clauses = [];
+  const clauses = [{ sql: 'b.deleted_at IS NULL', params: [] }];
   if (status && STATUSES.includes(status)) clauses.push({ sql: 'b.status = ?', params: [status] });
   if (tag) clauses.push({ sql: 'b.tags LIKE ?', params: [`%"${escapeLike(tag)}"%`] });
   if (author) clauses.push({ sql: 'b.author LIKE ?', params: [`%${escapeLike(author)}%`] });

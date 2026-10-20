@@ -6,6 +6,7 @@
 
 const shelf = {
   q: '', status: '', tag: '', author: '', sort: 'updated', books: [],
+  selectMode: false, selected: new Set(),
 };
 
 let fetchSeq = 0; // 请求序号:连续查询时只渲染最后一次的结果,避免旧响应覆盖新结果
@@ -23,6 +24,11 @@ async function fetchBooks() {
     const books = await api('/api/books?' + params.toString());
     if (seq !== fetchSeq) return;
     shelf.books = books;
+    // 刷新后把已不在当前结果里的书从选择集中剔除(避免对不可见的 id 批量操作)
+    if (shelf.selectMode) {
+      const visible = new Set(books.map((b) => b.id));
+      for (const id of [...shelf.selected]) if (!visible.has(id)) shelf.selected.delete(id);
+    }
   } catch (e) {
     if (seq !== fetchSeq) return;
     toast(e.message, true);
@@ -47,16 +53,20 @@ function renderGrid() {
     }
     $('#emptyAddBtn').classList.toggle('hidden', !!filtered);
     empty.classList.remove('hidden');
+    updateBulkBar();
     return;
   }
   empty.classList.add('hidden');
 
   for (const book of shelf.books) {
     const card = document.createElement('article');
-    card.className = 'book-card';
+    const selected = shelf.selected.has(book.id);
+    card.className = 'book-card' + (selected ? ' is-selected' : '');
+    card.dataset.id = book.id;
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
-    card.setAttribute('aria-label', `查看《${book.title}》详情`);
+    card.setAttribute('aria-label', shelf.selectMode ? `选择《${book.title}》` : `查看《${book.title}》详情`);
+    if (shelf.selectMode) card.setAttribute('aria-pressed', String(selected));
     if (book.summary) card.title = book.summary;   // 书架卡片悬停显示简介
 
     const date = book.status === 'done' && book.finish_date
@@ -66,6 +76,7 @@ function renderGrid() {
     card.innerHTML = `
       <div class="card-cover">
         ${coverHtml(book)}
+        ${shelf.selectMode ? `<span class="select-check" aria-hidden="true">${selected ? '✓' : ''}</span>` : ''}
         <span class="status-badge ${book.status}">${STATUS_LABEL[book.status]}</span>
         ${book.file_formats ? `<span class="card-file-badge" title="已有电子书文件: ${esc(book.file_formats)}">📁 ${esc(book.file_formats)}</span>` : ''}
       </div>
@@ -78,11 +89,109 @@ function renderGrid() {
         </div>
       </div>`;
 
-    card.addEventListener('click', () => openDetail(book.id));
+    card.addEventListener('click', () => {
+      if (shelf.selectMode) toggleSelected(book.id, card);
+      else openDetail(book.id);
+    });
     card.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(book.id); }
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      if (shelf.selectMode) toggleSelected(book.id, card);
+      else openDetail(book.id);
     });
     grid.appendChild(card);
+  }
+  updateBulkBar();
+}
+
+/* ============ 多选与批量编辑 ============ */
+function updateBulkBar() {
+  const bar = $('#bulkBar');
+  if (!bar) return;
+  const n = shelf.selected.size;
+  bar.classList.toggle('hidden', !shelf.selectMode || !shelf.books.length);
+  $('#bulkCount').textContent = `已选 ${n} 本`;
+  $('#bulkEditBtn').disabled = n === 0;
+  $('#bulkSaveBtn').textContent = `应用到 ${n} 本`;
+}
+
+function setSelectMode(on) {
+  shelf.selectMode = on;
+  shelf.selected.clear();
+  document.body.classList.toggle('select-mode', on);
+  const toggle = $('#selectToggle');
+  toggle.textContent = on ? '取消' : '选择';
+  toggle.setAttribute('aria-pressed', String(on));
+  if (!on) closeModals();
+  renderGrid();
+}
+
+function toggleSelected(id, card) {
+  if (shelf.selected.has(id)) shelf.selected.delete(id);
+  else shelf.selected.add(id);
+  const on = shelf.selected.has(id);
+  card.classList.toggle('is-selected', on);
+  card.setAttribute('aria-pressed', String(on));
+  const check = card.querySelector('.select-check');
+  if (check) check.textContent = on ? '✓' : '';
+  updateBulkBar();
+}
+
+function openBulkModal() {
+  if (!shelf.selected.size) return;
+  $('#bulkStatus').value = '';
+  syncCustomSelect($('#bulkStatus'));
+  ['bulkRating', 'bulkTagsAdd', 'bulkTagsRemove', 'bulkSeries',
+    'bulkSeriesIndex', 'bulkPublisher', 'bulkPubYear']
+    .forEach((id) => { $('#' + id).value = ''; });
+  $('#bulkError').textContent = '';
+  $('#bulkSaveBtn').disabled = false;
+  updateBulkBar();
+  openModal('#bulkModal');
+}
+
+async function applyBulkEdit() {
+  const errEl = $('#bulkError');
+  errEl.textContent = '';
+  const patch = {};
+
+  const status = $('#bulkStatus').value;
+  if (status) patch.status = status;
+  const tagsAdd = $('#bulkTagsAdd').value.trim();
+  if (tagsAdd) patch.tags_add = tagsAdd;
+  const tagsRemove = $('#bulkTagsRemove').value.trim();
+  if (tagsRemove) patch.tags_remove = tagsRemove;
+  const series = $('#bulkSeries').value.trim();
+  if (series) patch.series = series;
+  const seriesIndex = $('#bulkSeriesIndex').value.trim();
+  if (seriesIndex !== '') patch.series_index = seriesIndex;
+  const publisher = $('#bulkPublisher').value.trim();
+  if (publisher) patch.publisher = publisher;
+  const pubYear = $('#bulkPubYear').value.trim();
+  if (pubYear) patch.pub_year = pubYear;
+  const rating = $('#bulkRating').value.trim();
+  if (rating !== '') patch.rating = rating;
+
+  if (!Object.keys(patch).length) {
+    errEl.textContent = '至少选择一个要修改的字段';
+    return;
+  }
+
+  const btn = $('#bulkSaveBtn');
+  btn.disabled = true;
+  try {
+    const res = await api('/api/books/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [...shelf.selected], patch }),
+    });
+    closeModals();
+    toast(`已更新 ${res.updated} 本`);
+    invalidateSharedStats();
+    setSelectMode(false);
+    fetchBooks();
+  } catch (e) {
+    errEl.textContent = e.message;
+    btn.disabled = false;
   }
 }
 
@@ -151,6 +260,22 @@ function syncUrl() {
 }
 
 document.addEventListener('shelf-search', syncUrl);
+
+/* ============ 多选 / 批量编辑事件 ============ */
+$('#selectToggle').addEventListener('click', () => setSelectMode(!shelf.selectMode));
+$('#bulkCancelBtn').addEventListener('click', () => setSelectMode(false));
+$('#bulkEditBtn').addEventListener('click', openBulkModal);
+$('#bulkSaveBtn').addEventListener('click', applyBulkEdit);
+initCustomSelect($('#bulkStatus'));
+
+// 没有弹窗/搜索/菜单时,Esc 退出多选;有浮层时交给 common.js 逐层关闭
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !shelf.selectMode || e.defaultPrevented) return;
+  if (document.body.classList.contains('search-open')
+    || document.body.classList.contains('menu-open')
+    || document.body.classList.contains('mm-sub-open')) return;
+  setSelectMode(false);
+});
 
 /* ============ 启动 ============ */
 applyUrlParams();

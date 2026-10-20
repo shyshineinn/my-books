@@ -361,7 +361,163 @@ $('#fieldsDeletedList').addEventListener('click', (e) => {
   else if (btn.dataset.fact === 'purge') purgeField(col);
 });
 
+/* ============ 重复书籍(查重 / 合并,对标 calibre Merge book records) ============ */
+
+const dupState = { groups: [] };
+const DUP_REASON = { isbn: 'ISBN 相同', title: '书名相同', title_fuzzy: '书名高度相似' };
+
+function renderDuplicates() {
+  $('#dupsCount').textContent = `${dupState.groups.length} 组`;
+  const box = $('#dupsList');
+  if (!dupState.groups.length) {
+    box.innerHTML = '<p class="cat-empty-row">没有发现疑似重复书籍</p>';
+    return;
+  }
+  box.innerHTML = dupState.groups.map((g, gi) => {
+    const reason = DUP_REASON[g.reason] || '疑似重复';
+    const score = g.reason === 'title_fuzzy' ? ` · 相似度 ${Math.round(g.score * 100)}%` : '';
+    return `
+      <div class="dup-group" data-group="${gi}">
+        <div class="dup-head"><strong>${reason}</strong><span>${g.books.length} 本${score}</span></div>
+        <div class="dup-books">
+          ${g.books.map((b, bi) => `
+            <label class="dup-book">
+              <input type="radio" name="dupTarget${gi}" value="${b.id}" ${bi === 0 ? 'checked' : ''}>
+              <span class="dup-info">
+                <span class="dup-title">${esc(b.title)}</span>
+                <span class="dup-meta">${esc(b.author || '未知作者')} · ${STATUS_LABEL[b.status] || b.status}${b.pub_year ? ' · ' + esc(b.pub_year) : ''}${b.isbn ? ' · ISBN ' + esc(b.isbn) : ''}${b.file_formats ? ' · ' + esc(b.file_formats) : ''}</span>
+              </span>
+            </label>`).join('')}
+        </div>
+        <div class="dup-actions">
+          <button type="button" class="btn btn-danger-tint btn-sm" data-merge="${gi}">合并其余 ${g.books.length - 1} 本到所选</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function loadDuplicates() {
+  try {
+    const res = await api('/api/books/duplicates');
+    dupState.groups = res.groups || [];
+  } catch (e) {
+    toast(e.message, true);
+    dupState.groups = [];
+  }
+  renderDuplicates();
+}
+
+async function mergeDuplicateGroup(index) {
+  const group = dupState.groups[index];
+  if (!group) return;
+  const selected = document.querySelector(`input[name="dupTarget${index}"]:checked`);
+  if (!selected) return;
+  const targetId = Number(selected.value);
+  const target = group.books.find((b) => b.id === targetId);
+  const sourceIds = group.books.filter((b) => b.id !== targetId).map((b) => b.id);
+  if (!target || !sourceIds.length) return;
+  if (!confirm(`把其余 ${sourceIds.length} 本合并到《${target.title}》?\n来源记录会被永久删除,此操作不可恢复。`)) return;
+
+  try {
+    const res = await api('/api/books/merge', {
+      method: 'POST',
+      body: JSON.stringify({ targetId, sourceIds }),
+    });
+    toast(`已合并 ${res.merged} 本到《${target.title}》`);
+    invalidateSharedStats();
+    notifyBooksChanged();
+    await Promise.all([load(), loadFields(), loadDuplicates()]);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+$('#dupsList').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-merge]');
+  if (!btn) return;
+  mergeDuplicateGroup(Number(btn.dataset.merge));
+});
+$('#dupsRefresh').addEventListener('click', loadDuplicates);
+
+/* ============ 回收站(软删除的书籍,对标 calibre 最近删除) ============
+ * 数据仍在 books 表里,恢复 = 清墓碑;彻底删除才清磁盘文件与关联数据。
+ * 列表由 GET /api/books/trash 提供,days_left 由服务端按 14 天保留期计算。 */
+
+const trashState = { books: [], retentionDays: 14 };
+
+function renderTrash() {
+  $('#trashCount').textContent = `${trashState.books.length} 本`;
+  const box = $('#trashList');
+  if (!trashState.books.length) {
+    box.innerHTML = '<p class="cat-empty-row">回收站是空的</p>';
+    return;
+  }
+  box.innerHTML = trashState.books.map((b) => {
+    const deleted = String(b.deleted_at || '').slice(0, 10);
+    const left = b.days_left > 0 ? `剩余 ${b.days_left} 天` : '即将清理';
+    return `
+      <div class="cat-row trash-row" data-id="${b.id}">
+        <span class="trash-main">
+          <span class="cat-name">${esc(b.title)}</span>
+          ${b.author ? `<span class="trash-author">${esc(b.author)}</span>` : ''}
+        </span>
+        <span class="trash-meta">${deleted ? `删除于 ${esc(deleted)} · ` : ''}${left}</span>
+        <div class="cat-ops">
+          <button type="button" class="cat-op" data-tact="restore" aria-label="恢复《${esc(b.title)}》" title="恢复">↺</button>
+          <button type="button" class="cat-op danger" data-tact="purge" aria-label="彻底删除《${esc(b.title)}》" title="彻底删除(不可恢复)">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function loadTrash() {
+  try {
+    const res = await api('/api/books/trash');
+    trashState.books = res.books || [];
+    trashState.retentionDays = Number(res.retention_days) || 14;
+  } catch (e) {
+    toast(e.message, true);
+    trashState.books = [];
+  }
+  renderTrash();
+}
+
+async function restoreTrashBook(id) {
+  try {
+    await api(`/api/books/${id}/restore`, { method: 'POST' });
+    toast('已恢复');
+    invalidateSharedStats();
+    notifyBooksChanged();
+    await loadTrash();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+async function purgeTrashBook(id) {
+  const book = trashState.books.find((b) => String(b.id) === String(id));
+  if (!book) return;
+  if (!confirm(`彻底删除《${book.title}》?\n封面与电子书文件会一并删除,此操作不可恢复。`)) return;
+  try {
+    await api(`/api/books/${id}?purge=1`, { method: 'DELETE' });
+    toast('已彻底删除');
+    await loadTrash();
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+$('#trashList').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cat-op');
+  if (!btn) return;
+  const id = btn.closest('.cat-row').dataset.id;
+  if (btn.dataset.tact === 'restore') restoreTrashBook(id);
+  else if (btn.dataset.tact === 'purge') purgeTrashBook(id);
+});
+
 /* ---------- 启动 ---------- */
 initCollapsibleSections('.cat-col', '.cat-head');
 load();
 loadFields();
+loadDuplicates();
+loadTrash();

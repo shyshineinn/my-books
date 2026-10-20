@@ -124,19 +124,22 @@ function listByType(handleDb, type) {
   return handleDb.prepare(`
     SELECT i.book, i.value, b.title
     FROM book_identifiers i JOIN books b ON b.id = i.book
-    WHERE i.type = ? ORDER BY b.title COLLATE NOCASE
+    WHERE i.type = ? AND b.deleted_at IS NULL
+    ORDER BY b.title COLLATE NOCASE
   `).all(t);
 }
 
-// 找出"同一类型 + 同一取值"被多本书占用的冲突(数据体检用)
+// 找出"同一类型 + 同一取值"被多本书占用的冲突(数据体检用)。
+// 回收站里的书不参与:它们不占用在架书的标识符命名空间。
 function findDuplicates(handleDb) {
   return handleDb.prepare(`
-    SELECT type, value, COUNT(*) AS n, GROUP_CONCAT(book) AS books
-    FROM book_identifiers
-    WHERE value <> ''
-    GROUP BY type, value COLLATE NOCASE
+    SELECT i.type, i.value, COUNT(*) AS n, GROUP_CONCAT(i.book) AS books
+    FROM book_identifiers i
+    JOIN books b ON b.id = i.book AND b.deleted_at IS NULL
+    WHERE i.value <> ''
+    GROUP BY i.type, i.value COLLATE NOCASE
     HAVING n > 1
-    ORDER BY n DESC, type
+    ORDER BY n DESC, i.type
   `).all();
 }
 
@@ -149,11 +152,12 @@ function findDuplicates(handleDb) {
 function listIsbnIndex(handleDb) {
   const out = new Map();
   const rows = handleDb.prepare(`
-    SELECT id, title, isbn AS value FROM books WHERE isbn <> ''
+    SELECT id, title, isbn AS value FROM books
+    WHERE isbn <> '' AND deleted_at IS NULL
     UNION ALL
     SELECT b.id AS id, b.title AS title, i.value AS value
     FROM book_identifiers i JOIN books b ON b.id = i.book
-    WHERE i.type = 'isbn' AND i.value <> ''
+    WHERE i.type = 'isbn' AND i.value <> '' AND b.deleted_at IS NULL
   `).all();
   for (const r of rows) {
     const key = isbnKey(r.value);

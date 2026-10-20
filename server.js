@@ -17,7 +17,11 @@ const routesIsbn = require('./src/http/routes.isbn');
 const routesCategories = require('./src/http/routes.categories');
 const routesSavedSearches = require('./src/http/routes.savedSearches');
 const routesCustomFields = require('./src/http/routes.customFields');
+const routesExport = require('./src/http/routes.export');
 const { requireAdmin } = require('./src/http/middleware.auth');
+const { db } = require('./src/db/index');
+const books = require('./src/db/books');
+const { removeBookAssets } = require('./src/core/fs-utils');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -82,6 +86,7 @@ apiV1.use(routesIsbn);
 apiV1.use(routesCategories);
 apiV1.use(routesSavedSearches);
 apiV1.use(routesCustomFields);
+apiV1.use(routesExport);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
@@ -90,6 +95,7 @@ app.use(routesProxy);
 app.use(routesCategories);
 app.use(routesSavedSearches);
 app.use(routesCustomFields);
+app.use(routesExport);
 
 // Markdown 渲染库(浏览器版;marked v16+ 的 exports 限制子路径,需手动拼接包内路径)
 const MARKED_UMD = path.join(path.dirname(require.resolve('marked/package.json')), 'lib', 'marked.umd.js');
@@ -106,6 +112,24 @@ app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
   res.status(status).json({ error: '服务器内部错误,请稍后重试', code: 'INTERNAL' });
 });
+
+// 回收站过期清理(对标 calibre expire_old_trash):启动时一次 + 每 6 小时一次。
+// 数据库删除在 db 层完成,磁盘资产在提交后由这里清;失败只记日志,不影响服务。
+const TRASH_MAINTENANCE_INTERVAL_MS = 6 * 3600 * 1000;
+function runTrashMaintenance() {
+  try {
+    const purged = books.purgeExpired(db);
+    let failed = 0;
+    for (const item of purged) failed += removeBookAssets(item.assets);
+    if (purged.length) {
+      console.log(`[trash] 已清理 ${purged.length} 本过期书籍${failed ? `,${failed} 个文件未能移除` : ''}`);
+    }
+  } catch (err) {
+    console.error('[trash] 过期清理失败:', err.stack || err);
+  }
+}
+runTrashMaintenance();
+setInterval(runTrashMaintenance, TRASH_MAINTENANCE_INTERVAL_MS).unref();
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`My books 已启动: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);

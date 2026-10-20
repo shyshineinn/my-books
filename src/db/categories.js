@@ -82,18 +82,23 @@ function reindexAll(db) {
 
 /* ---------- 列表(带每本计数) ---------- */
 
+// 计数只算在架书:回收站里的书不应影响标签 / 作者的引用数
 function listTags(db) {
   return db.prepare(`
-    SELECT t.id, t.name, COUNT(bt.book) AS count
-    FROM tags t LEFT JOIN book_tags bt ON bt.tag = t.id
+    SELECT t.id, t.name, COUNT(b.id) AS count
+    FROM tags t
+    LEFT JOIN book_tags bt ON bt.tag = t.id
+    LEFT JOIN books b ON b.id = bt.book AND b.deleted_at IS NULL
     GROUP BY t.id ORDER BY count DESC, t.name COLLATE NOCASE
   `).all();
 }
 
 function listAuthors(db) {
   return db.prepare(`
-    SELECT a.id, a.name, COUNT(ba.book) AS count
-    FROM authors a LEFT JOIN book_authors ba ON ba.author = a.id
+    SELECT a.id, a.name, COUNT(b.id) AS count
+    FROM authors a
+    LEFT JOIN book_authors ba ON ba.author = a.id
+    LEFT JOIN books b ON b.id = ba.book AND b.deleted_at IS NULL
     GROUP BY a.id ORDER BY count DESC, a.name COLLATE NOCASE
   `).all();
 }

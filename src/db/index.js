@@ -402,8 +402,22 @@ function migrateV12(db, dataDir) {
   }
 }
 
+// v13:回收站(对标 calibre 的“最近删除”,保留 14 天)。
+//
+// calibre 的删除是“把书目录移到 .trash 再删数据库行”,恢复时从 OPF 重建
+// (db/backend.py:move_book_to_trash / move_book_from_trash)。本项目不能照搬:
+// 元数据真源是规范化后的 SQLite(标签/作者链接、自定义字段、标识符、阅读
+// 记录),书目录里没有自包含的 OPF;硬删行后这些关系无处可取。因此改用
+// 墓碑列保留整行与全部关联数据,恢复只需一条 UPDATE,查询层统一过滤。
+// 生命周期与 calibre 对齐:14 天保留、可恢复、可彻底删除。
+function migrateV13(db, dataDir) {
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+  if (!cols.includes('deleted_at')) db.exec('ALTER TABLE books ADD COLUMN deleted_at TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS books_deleted_idx ON books (deleted_at)');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

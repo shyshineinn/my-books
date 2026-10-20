@@ -41,13 +41,33 @@ function starHtml(rating) {
   return out;
 }
 
-function toast(msg, isError = false) {
+// action 可选:{ label, onClick } —— 用于删除后的「撤销」等短时操作。
+// 带操作时展示 6 秒,给用户留出点击时间。
+function toast(msg, isError = false, action = null) {
   const el = $('#toast');
-  el.textContent = msg;
+  el.textContent = '';
   el.classList.toggle('error', isError);
+
+  const text = document.createElement('span');
+  text.textContent = msg;
+  el.appendChild(text);
+
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => {
+      el.classList.add('hidden');
+      clearTimeout(toast._t);
+      action.onClick();
+    });
+    el.appendChild(btn);
+  }
+
   el.classList.remove('hidden');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add('hidden'), 2200);
+  toast._t = setTimeout(() => el.classList.add('hidden'), action ? 6000 : 2200);
 }
 
 // 数据变更后广播:当前页监听刷新,弹窗(编辑/删除)调用方无需关心页面差异
@@ -542,11 +562,24 @@ async function openDetail(id) {
 }
 
 async function deleteBook(id, title) {
-  if (!confirm(`确定要删除《${title}》吗?此操作不可恢复。`)) return;
+  if (!confirm(`将《${title}》移入回收站?可在「分类 → 回收站」恢复。`)) return;
   try {
-    await api('/api/books/' + id, { method: 'DELETE' });
+    const res = await api('/api/books/' + id, { method: 'DELETE' });
     closeModals();
-    toast('已删除');
+    const days = Number(res.retention_days) || 14;
+    toast(`《${title}》已移入回收站(${days} 天内可恢复)`, false, {
+      label: '撤销',
+      onClick: async () => {
+        try {
+          await api(`/api/books/${id}/restore`, { method: 'POST' });
+          toast('已恢复');
+          invalidateSharedStats();
+          notifyBooksChanged();
+        } catch (e) {
+          toast(e.message, true);
+        }
+      },
+    });
     invalidateSharedStats();
     notifyBooksChanged();
   } catch (e) {

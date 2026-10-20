@@ -228,6 +228,34 @@ function setValues(handleDb, bookId, values) {
   return touched;
 }
 
+// 合并书籍:目标字段为空时,用来源书的第一个非空原始值补齐。
+// 直接在值表层面复制,保留多值字段的 JSON 存储格式。
+function fillMissingValues(handleDb, targetId, sourceIds) {
+  const cols = listColumns(handleDb);
+  if (!cols.length || !sourceIds.length) return 0;
+
+  const get = handleDb.prepare('SELECT value FROM book_custom_values WHERE book = ? AND column_id = ?');
+  const upsert = handleDb.prepare(`
+    INSERT INTO book_custom_values (book, column_id, value, updated_at)
+    VALUES (@book, @column_id, @value, @ts)
+    ON CONFLICT(book, column_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `);
+  const ts = now();
+  let filled = 0;
+  for (const col of cols) {
+    const current = get.get(targetId, col.id);
+    if (current && current.value !== '') continue;
+    for (const sourceId of sourceIds) {
+      const src = get.get(sourceId, col.id);
+      if (!src || src.value === '') continue;
+      upsert.run({ book: targetId, column_id: col.id, value: src.value, ts });
+      filled += 1;
+      break;
+    }
+  }
+  return filled;
+}
+
 // 批量取多本书的值,返回 { bookId: { label: 展示文本 } }。
 // 列表页要给每本书渲染自定义字段时,避免 N+1 查询 —— 一次查完内存分组。
 function getValuesForBooks(handleDb, bookIds, { columns = null } = {}) {
@@ -272,6 +300,7 @@ module.exports = {
   purgeColumn,
   getValues,
   getRawValues,
+  fillMissingValues,
   setValues,
   getValuesForBooks,
   pruneOrphanValues,

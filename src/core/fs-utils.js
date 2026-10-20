@@ -13,6 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { UPLOAD_DIR, FILES_DIR } = require('./paths');
 
 // 同目录保证 rename 在同一文件系统上(跨盘 rename 会退化为拷贝,失去原子性)
 function atomicWrite(filePath, data) {
@@ -54,4 +55,17 @@ function removeUnderBase(baseDir, relPath) {
   return removeQuiet(abs);
 }
 
-module.exports = { atomicWrite, removeQuiet, removeUnderBase };
+// 彻底删除一本书时清理其磁盘资产:电子书在 FILES_DIR,封面在 UPLOAD_DIR。
+// 目录可注入,便于测试用临时目录验证;返回未能删除的文件数。
+function removeBookAssets(assets, { filesDir = FILES_DIR, uploadsDir = UPLOAD_DIR } = {}) {
+  let failed = 0;
+  for (const p of (assets && assets.ebookFiles) || []) {
+    if (!removeUnderBase(filesDir, p)) failed += 1;
+  }
+  for (const p of (assets && assets.coverFiles) || []) {
+    if (!removeUnderBase(uploadsDir, p)) failed += 1;
+  }
+  return failed;
+}
+
+module.exports = { atomicWrite, removeQuiet, removeUnderBase, removeBookAssets };

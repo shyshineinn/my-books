@@ -6,8 +6,13 @@
 const { db } = require('./index');
 const { computeStats } = require('../core/stats');
 
-function getStats() {
-  return computeStats(db.prepare('SELECT status, tags, finish_date, author, publisher FROM books').all());
+// handleDb 可选,便于测试用 openDb(临时目录) 隔离
+function getStats(handleDb = db) {
+  return computeStats(handleDb.prepare(`
+    SELECT status, tags, finish_date, author, publisher
+    FROM books
+    WHERE deleted_at IS NULL
+  `).all());
 }
 
 module.exports = { getStats };

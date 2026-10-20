@@ -43,6 +43,21 @@ function upsertFile(db, bookId, { format, path, size }) {
   return getFile(db, bookId, format);
 }
 
+// 合并书籍:把来源书独有格式的登记迁到目标书(目标已有的格式不覆盖)。
+// 只改数据库登记,不搬磁盘文件;来源书剩余的重复格式会随它被彻底删除。
+function moveFormatsToBook(db, sourceId, targetId) {
+  const files = listFiles(db, sourceId);
+  const ts = new Date().toISOString();
+  const upd = db.prepare('UPDATE book_files SET book = ?, updated_at = ? WHERE id = ?');
+  let moved = 0;
+  for (const f of files) {
+    if (getFile(db, targetId, f.format)) continue;
+    upd.run(targetId, ts, f.id);
+    moved += 1;
+  }
+  return moved;
+}
+
 // 删除登记(磁盘文件删除后调用);format 省略则清空该书全部登记
 function removeFile(db, bookId, format) {
   if (format) {
@@ -52,4 +67,4 @@ function removeFile(db, bookId, format) {
   return db.prepare('DELETE FROM book_files WHERE book = ?').run(bookId).changes;
 }
 
-module.exports = { listFiles, getFile, getFileById, upsertFile, removeFile };
+module.exports = { listFiles, getFile, getFileById, upsertFile, moveFormatsToBook, removeFile };

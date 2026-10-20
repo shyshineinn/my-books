@@ -42,9 +42,15 @@ if (integrity.integrity_check !== 'ok') {
 }
 
 // 2/3/4. 行级检查
-const rows = db.prepare('SELECT id, title, status, tags, read_logs, read_count, start_date, finish_date FROM books').all();
+// deleted_at 是 v13 新增列;检查脚本要能吃旧备份,旧库用空串占位
+const hasDeletedAt = db.prepare('PRAGMA table_info(books)').all().some((c) => c.name === 'deleted_at');
+const rows = db.prepare(`
+  SELECT id, title, status, tags, read_logs, read_count, start_date, finish_date,
+         ${hasDeletedAt ? 'deleted_at' : "'' AS deleted_at"}
+  FROM books
+`).all();
 for (const r of rows) {
-  const tag = `《${r.title}》(id=${r.id})`;
+  const tag = `《${r.title}》(id=${r.id}${r.deleted_at ? ',回收站' : ''})`;
 
   // JSON 字段
   let tags = null;
@@ -79,6 +85,11 @@ for (const r of rows) {
 
   // 状态枚举
   if (!['wish', 'reading', 'done'].includes(r.status)) problem(`${tag} status 非法: "${r.status}"`);
+
+  // 回收站墓碑:空 = 在架;否则必须是可解析的时间串
+  if (r.deleted_at && !Number.isFinite(Date.parse(r.deleted_at))) {
+    problem(`${tag} deleted_at 格式非法: "${r.deleted_at}"`);
+  }
 }
 
 /* ---------- 5. v12 数据模型检查(表不存在则整段跳过,兼容旧备份) ---------- */
@@ -180,6 +191,7 @@ if (hasTable('custom_columns')) {
 
 db.close();
 
-console.log(`检查完成: ${rows.length} 本书,发现 ${problems.length} 个问题`);
+const trashCount = rows.filter((r) => r.deleted_at).length;
+console.log(`检查完成: ${rows.length} 本书(其中回收站 ${trashCount} 本),发现 ${problems.length} 个问题`);
 for (const p of problems) console.log(`  [问题] ${p}`);
 process.exit(problems.length ? 1 : 0);

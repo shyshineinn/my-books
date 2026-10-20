@@ -11,10 +11,13 @@
 const express = require('express');
 
 const { parseBook, mergeUpdate } = require('../core/book');
+const { parseBulkRequest } = require('../core/bulk');
+const { parseMergeRequest } = require('../core/merge');
 const coreCustom = require('../core/custom_fields');
-const { removeUnderBase } = require('../core/fs-utils');
-const { UPLOAD_DIR, FILES_DIR } = require('../core/paths');
+const { removeBookAssets } = require('../core/fs-utils');
 const books = require('../db/books');
+const duplicatesRepo = require('../db/duplicates');
+const mergeRepo = require('../db/merge');
 const bookFiles = require('../db/book_files');
 const customFields = require('../db/custom_fields');
 const identifiersRepo = require('../db/identifiers');
@@ -101,17 +104,7 @@ router.get('/api/books', (req, res) => {
 // A3:系列列表(带计数与序号范围)—— 等价于 calibre 的 tag browser 系列分类。
 // 不建 series 值表,GROUP BY 即可(count / min / max 一次查出)。
 router.get('/api/series', (req, res) => {
-  const rows = db.prepare(`
-    SELECT series AS name,
-           COUNT(*) AS count,
-           MIN(series_index) AS min_index,
-           MAX(series_index) AS max_index
-    FROM books
-    WHERE series <> ''
-    GROUP BY series COLLATE NOCASE
-    ORDER BY series COLLATE NOCASE
-  `).all();
-  res.json(rows.map((r) => ({
+  res.json(books.listSeries(db).map((r) => ({
     name: r.name,
     count: r.count,
     // 0 表示"未指定序号",对外统一成 null,前端据此不显示 #
@@ -124,6 +117,33 @@ router.get('/api/series', (req, res) => {
 // A5:标识符冲突自检(同类型同值被多本书占用)—— 数据体检用,只读
 router.get('/api/identifiers/duplicates', (req, res) => {
   res.json(identifiersRepo.findDuplicates(db));
+});
+
+// 疑似重复书籍(只读扫描)。同样必须在 /api/books/:id 之前。
+router.get('/api/books/duplicates', (req, res) => {
+  res.json({ groups: duplicatesRepo.listDuplicateGroups(db) });
+});
+
+// 回收站列表。必须定义在 /api/books/:id 之前,否则 "trash" 会被当成 id 校验。
+router.get('/api/books/trash', (req, res) => {
+  res.json({
+    retention_days: books.TRASH_RETENTION_DAYS,
+    books: books.listTrash(db),
+  });
+});
+
+// 恢复:清墓碑。ISBN 在回收期间被别的在架书占用时返回 409。
+router.post('/api/books/:id/restore', (req, res) => {
+  const id = parseId(req.params.id);
+  if (id === null) return badId(res);
+  const result = books.restoreBook(db, id);
+  if (!result.ok) {
+    if (result.code === 'CONFLICT') {
+      return res.status(409).json({ error: result.error, code: 'CONFLICT' });
+    }
+    return notFound(res);
+  }
+  res.json({ ok: true });
 });
 
 router.get('/api/books/:id', (req, res) => {
@@ -144,6 +164,39 @@ router.post('/api/books', (req, res) => {
   res.status(201).json(withFiles(books.addBook(values, custom.values)));
 });
 
+// 批量编辑:body { ids: [...], patch: {...} }。只改 patch 里出现的字段;
+// 所有书在一个事务内更新,任一 id 不存在则整体不做(404)。
+router.post('/api/books/bulk', (req, res) => {
+  const { errors, ids, patch } = parseBulkRequest(req.body || {});
+  if (errors.length) return badBody(res, errors.join(';'));
+
+  const result = books.bulkUpdateBooks(db, ids, patch);
+  if (!result.ok) {
+    return res.status(404).json({ error: result.error, code: 'NOT_FOUND' });
+  }
+  res.json(result);
+});
+
+// 合并书籍:目标书保留标题/作者,其余字段/格式/标识符/自定义值合并;
+// 来源书永久删除(与 calibre Merge book records 同语义)。
+router.post('/api/books/merge', (req, res) => {
+  const parsed = parseMergeRequest(req.body || {});
+  if (parsed.error) return badBody(res, parsed.error);
+
+  const result = mergeRepo.mergeBooks(db, parsed.targetId, parsed.sourceIds);
+  if (!result.ok) {
+    const status = result.code === 'VALIDATION' ? 400 : 404;
+    return res.status(status).json({ error: result.error, code: result.code || 'NOT_FOUND' });
+  }
+
+  let failed = 0;
+  for (const item of result.assets) failed += removeBookAssets(item.assets);
+  if (failed) {
+    console.error(`[merge] 已合并到 id=${parsed.targetId},但有 ${failed} 个来源文件未能从磁盘移除`);
+  }
+  res.json({ ok: true, target: result.target, merged: result.merged });
+});
+
 router.put('/api/books/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (id === null) return badId(res);
@@ -161,29 +214,37 @@ router.put('/api/books/:id', (req, res) => {
   res.json(withFiles(books.updateBook(existing.id, merged, custom.values)));
 });
 
+// 删除:默认移入回收站(墓碑,14 天可恢复);?purge=1 才是彻底删除。
+// 彻底删除只允许回收站里的书,防止误把在架书直接抹掉。
 router.delete('/api/books/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (id === null) return badId(res);
 
-  // 先删记录,拿到它占用的磁盘资产(book_files 行会随外键级联消失,
-  // 顺序反了就再也对不上文件)。约定见 migrateV7 注释:登记在 db 层清,
-  // 磁盘文件由路由层删 —— 这里补上此前漏掉的那一半。
-  const { ok, assets } = books.deleteBook(id);
-  if (!ok) return notFound(res);
+  if (req.query.purge === '1') {
+    const result = books.purgeBook(db, id);
+    if (!result.ok) {
+      if (result.code === 'CONFLICT') {
+        return res.status(409).json({ error: result.error, code: 'CONFLICT' });
+      }
+      return notFound(res);
+    }
 
-  let failed = 0;
-  for (const p of assets.ebookFiles) {
-    if (!removeUnderBase(FILES_DIR, p)) failed += 1;
+    const failed = removeBookAssets(result.assets);
+    if (failed) {
+      // 记录已删、文件没删净:数据一致性没破,只是磁盘留垃圾。
+      // 不谎报失败,但要在日志里留痕,便于人工清理。
+      console.error(`[purge] 书 id=${id} 已彻底删除,但有 ${failed} 个文件未能从磁盘移除`);
+    }
+    return res.json({ ok: true, purged: true });
   }
-  for (const p of assets.coverFiles) {
-    if (!removeUnderBase(UPLOAD_DIR, p)) failed += 1;
-  }
-  if (failed) {
-    // 记录已删、文件没删净:数据一致性没破,只是磁盘留垃圾。
-    // 不谎报失败(书确实删了),但要在日志里留痕,便于人工清理。
-    console.error(`[delete] 书 id=${id} 已删除,但有 ${failed} 个文件未能从磁盘移除`);
-  }
-  res.json({ ok: true });
+
+  const deleted = books.softDeleteBook(db, id);
+  if (!deleted) return notFound(res);
+  res.json({
+    ok: true,
+    deleted_at: deleted.deleted_at,
+    retention_days: books.TRASH_RETENTION_DAYS,
+  });
 });
 
 module.exports = router;
