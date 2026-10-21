@@ -1,15 +1,18 @@
 package top.helloac.mybooks.ui.common
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -24,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -61,7 +65,7 @@ fun CoverImage(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 12.dp,
 ) {
-    val gradient = remember(title) { coverGradient(title) }
+    val gradient = coverGradient(title)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
@@ -70,7 +74,7 @@ fun CoverImage(
     ) {
         Text(
             text = title.trim().take(1).ifBlank { "书" },
-            color = Color.White.copy(alpha = 0.9f),
+            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.55f),
             fontSize = 28.sp,
             fontWeight = FontWeight.Medium,
         )
@@ -101,9 +105,9 @@ fun RefreshOnResume(onRefresh: () -> Unit) {
 fun StatusPill(status: BookStatus, modifier: Modifier = Modifier) {
     val colors = MiuixTheme.colorScheme
     val (background, content) = when (status) {
-        BookStatus.WISH -> colors.surfaceContainerHigh to colors.onSurfaceContainerHigh
-        BookStatus.READING -> colors.primary to colors.onPrimary
-        BookStatus.DONE -> colors.secondaryContainer to colors.onSecondaryContainer
+        BookStatus.WISH -> colors.secondaryContainer to colors.onSecondaryContainer
+        BookStatus.READING -> colors.primaryContainer to colors.onPrimaryContainer
+        BookStatus.DONE -> colors.tertiaryContainer to colors.onTertiaryContainer
     }
     Surface(
         modifier = modifier,
@@ -143,6 +147,50 @@ fun SectionHeader(
         modifier = modifier,
         insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
     )
+}
+
+@Composable
+fun TextTabRow(
+    tabs: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 14.sp,
+    spacing: Dp = 20.dp,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEachIndexed { index, label ->
+            val selected = index == selectedIndex
+            Surface(
+                onClick = { onSelected(index) },
+                color = Color.Transparent,
+                contentColor = if (selected) {
+                    MiuixTheme.colorScheme.primary
+                } else {
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                },
+            ) {
+                Text(
+                    text = label,
+                    color = if (selected) {
+                        MiuixTheme.colorScheme.primary
+                    } else {
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    },
+                    fontSize = fontSize,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -215,16 +263,18 @@ fun formatRating(value: Double): String =
 
 fun formatRating(value: Double?): String = value?.let { formatRating(it) } ?: ""
 
+@Composable
 private fun coverGradient(seed: String): List<Color> {
+    val colors = MiuixTheme.colorScheme
     val palettes = listOf(
-        listOf(Color(0xFF3A3A3A), Color(0xFF111111)),
-        listOf(Color(0xFF5A5A5A), Color(0xFF202020)),
-        listOf(Color(0xFF2E2E2E), Color(0xFF0A0A0A)),
-        listOf(Color(0xFF4A4A4A), Color(0xFF161616)),
-        listOf(Color(0xFF6A6A6A), Color(0xFF2A2A2A)),
-        listOf(Color(0xFF242424), Color(0xFF080808)),
-        listOf(Color(0xFF505050), Color(0xFF1C1C1C)),
-        listOf(Color(0xFF767676), Color(0xFF303030)),
+        listOf(colors.primaryContainer, colors.surfaceContainerHighest),
+        listOf(colors.secondaryContainer, colors.surfaceContainerHigh),
+        listOf(colors.tertiaryContainer, colors.surfaceContainerHighest),
+        listOf(colors.primaryContainer, colors.secondaryContainer),
+        listOf(colors.secondaryContainer, colors.surfaceContainerHighest),
+        listOf(colors.tertiaryContainer, colors.surfaceContainerHigh),
+        listOf(colors.surfaceContainerHigh, colors.primaryContainer),
+        listOf(colors.surfaceContainerHighest, colors.secondaryContainer),
     )
     val index = (seed.hashCode() and Int.MAX_VALUE) % palettes.size
     return palettes[index]

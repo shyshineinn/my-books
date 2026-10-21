@@ -1,7 +1,7 @@
 package top.helloac.mybooks.ui.main
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,12 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,8 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -42,16 +41,21 @@ import top.helloac.mybooks.ui.common.BookCover
 import top.helloac.mybooks.ui.common.EmptyView
 import top.helloac.mybooks.ui.common.ErrorView
 import top.helloac.mybooks.ui.common.LoadingView
-import top.helloac.mybooks.ui.common.RatingBadge
 import top.helloac.mybooks.ui.common.RefreshOnResume
-import top.helloac.mybooks.ui.common.StatusPill
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
+import top.yukonga.miuix.kmp.basic.FloatingToolbar
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.InputField
+import top.yukonga.miuix.kmp.basic.SearchBar
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.basic.Search
+import top.yukonga.miuix.kmp.icon.extended.Add
+import top.yukonga.miuix.kmp.icon.extended.Tune
+import top.yukonga.miuix.kmp.menu.OverlayIconCascadingDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val statusFilters = listOf(
@@ -66,15 +70,51 @@ fun ShelfTab(
     container: AppContainer,
     onOpenBook: (Int) -> Unit,
     refreshTick: Int = 0,
+    onAddBook: () -> Unit,
 ) {
     val repo = container.repository
     var query by rememberSaveable { mutableStateOf("") }
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var statusIndex by rememberSaveable { mutableIntStateOf(0) }
     var sortIndex by rememberSaveable { mutableIntStateOf(0) }
     var books by remember { mutableStateOf<List<Book>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
+    val filterEntries = remember(statusIndex, sortIndex) {
+        listOf(
+            DropdownEntry(
+                items = listOf(
+                    DropdownItem(
+                        text = "阅读状态",
+                        summary = statusFilters[statusIndex].second,
+                        children = statusFilters.mapIndexed { index, (_, label) ->
+                            DropdownItem(
+                                text = label,
+                                selected = index == statusIndex,
+                                onClick = { statusIndex = index },
+                            )
+                        },
+                    ),
+                ),
+            ),
+            DropdownEntry(
+                items = listOf(
+                    DropdownItem(
+                        text = "排序",
+                        summary = BooksRepository.sortOptions[sortIndex].second,
+                        children = BooksRepository.sortOptions.mapIndexed { index, (_, label) ->
+                            DropdownItem(
+                                text = label,
+                                selected = index == sortIndex,
+                                onClick = { sortIndex = index },
+                            )
+                        },
+                    ),
+                ),
+            ),
+        )
+    }
 
     RefreshOnResume { reloadKey++ }
 
@@ -97,78 +137,78 @@ fun ShelfTab(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            TextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = "搜索书名、作者或高级语法",
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                leadingIcon = {
-                    Icon(
-                        imageVector = MiuixIcons.Basic.Search,
-                        contentDescription = null,
-                        modifier = Modifier.padding(start = 12.dp, end = 8.dp),
+            Spacer(modifier = Modifier.height(8.dp))
+            SearchBar(
+                inputField = {
+                    InputField(
+                        query = query,
+                        onQueryChange = { query = it },
+                        onSearch = { searchExpanded = false },
+                        expanded = searchExpanded,
+                        onExpandedChange = { searchExpanded = it },
+                        label = "搜索书名、作者",
                     )
                 },
-            )
-            Spacer(Modifier.height(10.dp))
-            TabRow(
-                tabs = statusFilters.map { it.second },
-                selectedTabIndex = statusIndex,
-                onTabSelected = { statusIndex = it },
+                onExpandedChange = { searchExpanded = it },
+                modifier = Modifier.fillMaxWidth(),
+                insideMargin = DpSize(0.dp, 0.dp),
+                expanded = searchExpanded,
+                outsideEndAction = {
+                    TextButton(
+                        text = "取消",
+                        onClick = {
+                            searchExpanded = false
+                            query = ""
+                        },
+                        cornerRadius = 12.dp,
+                        minWidth = 48.dp,
+                        minHeight = 32.dp,
+                        insideMargin = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                },
+                content = {},
             )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                    .padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = "排序",
+                    text = "书架",
+                    style = MiuixTheme.textStyles.title2,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (loading && books.isEmpty()) "加载中…" else "共 ${books.size} 本",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     fontSize = 12.sp,
-                    modifier = Modifier.padding(end = 2.dp),
                 )
-                BooksRepository.sortOptions.forEachIndexed { index, (_, label) ->
-                    val selected = index == sortIndex
-                    Surface(
-                        onClick = { sortIndex = index },
-                        shape = CircleShape,
-                        color = if (selected) {
-                            MiuixTheme.colorScheme.primary
-                        } else {
-                            Color.Transparent
-                        },
-                        contentColor = if (selected) {
-                            MiuixTheme.colorScheme.onPrimary
-                        } else {
-                            MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        },
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (selected) {
-                                MiuixTheme.colorScheme.onPrimary
-                            } else {
-                                MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            },
-                            fontSize = 12.sp,
-                            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        )
-                    }
+                Spacer(Modifier.weight(1f))
+                OverlayIconCascadingDropdownMenu(
+                    entries = filterEntries,
+                    minWidth = 36.dp,
+                    minHeight = 36.dp,
+                    cornerRadius = 18.dp,
+                ) {
+                    Icon(
+                        imageVector = MiuixIcons.Tune,
+                        contentDescription = "筛选",
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
-            Text(
-                text = if (loading && books.isEmpty()) "加载中…" else "共 ${books.size} 本",
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
         }
 
         when {
@@ -176,11 +216,11 @@ fun ShelfTab(
             error != null && books.isEmpty() -> ErrorView(error!!, onRetry = { reloadKey++ })
             books.isEmpty() -> EmptyView("没有找到符合条件的书")
             else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 148.dp),
+                columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 96.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(books, key = { it.id }) { book ->
                     ShelfGridItem(
@@ -189,6 +229,25 @@ fun ShelfTab(
                         onClick = { onOpenBook(book.id) },
                     )
                 }
+            }
+        }
+        }
+        FloatingToolbar(
+            modifier = Modifier.align(Alignment.BottomEnd),
+            outSidePadding = PaddingValues(12.dp),
+        ) {
+            IconButton(
+                onClick = onAddBook,
+                minWidth = 56.dp,
+                minHeight = 56.dp,
+                cornerRadius = 28.dp,
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Add,
+                    contentDescription = "添加书籍",
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(26.dp),
+                )
             }
         }
     }
@@ -206,36 +265,67 @@ private fun ShelfGridItem(
         color = Color.Transparent,
     ) {
         Column {
-            BookCover(
-                book = book,
-                coverUrl = coverUrl,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(0.68f),
-            )
-            Spacer(Modifier.height(8.dp))
+            Box {
+                BookCover(
+                    book = book,
+                    coverUrl = coverUrl,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.68f),
+                    cornerRadius = 6.dp,
+                )
+                when (book.status) {
+                    BookStatus.DONE -> ShelfBadge(
+                        text = "读完",
+                        background = MiuixTheme.colorScheme.tertiaryContainer,
+                        content = MiuixTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp),
+                    )
+
+                    BookStatus.READING -> ShelfBadge(
+                        text = "在读",
+                        background = MiuixTheme.colorScheme.primary,
+                        content = MiuixTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp),
+                    )
+
+                    BookStatus.WISH -> Unit
+                }
+            }
             Text(
                 text = book.title,
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = FontWeight.Medium,
+                style = MiuixTheme.textStyles.body2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
             )
-            Text(
-                text = book.author ?: "未知作者",
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(5.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                StatusPill(book.status)
-                RatingBadge(book.rating)
-            }
         }
+    }
+}
+
+@Composable
+private fun ShelfBadge(
+    text: String,
+    background: Color,
+    content: Color,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(4.dp),
+        color = background,
+        contentColor = content,
+    ) {
+        Text(
+            text = text,
+            color = content,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+        )
     }
 }

@@ -31,8 +31,6 @@ fun MyBooksTheme(themeMode: Int, content: @Composable () -> Unit) {
                 2 -> ColorSchemeMode.Dark
                 else -> ColorSchemeMode.System
             },
-            lightColors = MonochromeLightColors,
-            darkColors = MonochromeDarkColors,
             isDark = dark,
         )
     }

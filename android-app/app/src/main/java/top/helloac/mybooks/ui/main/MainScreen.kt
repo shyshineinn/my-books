@@ -19,26 +19,24 @@ import top.helloac.mybooks.data.AppContainer
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
-import top.yukonga.miuix.kmp.icon.extended.Album
 import top.yukonga.miuix.kmp.icon.extended.Folder
-import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Months
 import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.icon.extended.TopDownloads
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private enum class MainTab(
     val label: String,
     val title: String,
     val icon: ImageVector,
 ) {
-    HOME("首页", "Mybooks", MiuixIcons.Home),
-    SHELF("书架", "书架", MiuixIcons.Album),
-    RANK("榜单", "榜单", MiuixIcons.TopDownloads),
+    SHELF("书架", "书架", ShelfBooksIcon),
+    RANK("榜单", "榜单", RankBarsIcon),
     STATS("统计", "阅读统计", MiuixIcons.Months),
     TAGS("分类", "标签与分类", MiuixIcons.Folder),
 }
@@ -50,8 +48,8 @@ fun MainScreen(
     onAddBook: () -> Unit,
     onSettings: () -> Unit,
 ) {
-    var selectedName by rememberSaveable { mutableStateOf(MainTab.HOME.name) }
-    val selected = MainTab.valueOf(selectedName)
+    var selectedName by rememberSaveable { mutableStateOf(MainTab.SHELF.name) }
+    val selected = MainTab.entries.firstOrNull { it.name == selectedName } ?: MainTab.SHELF
     val stateHolder = rememberSaveableStateHolder()
     var refreshTick by remember { mutableIntStateOf(0) }
 
@@ -61,27 +59,22 @@ fun MainScreen(
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
-                title = selected.title,
-                actions = {
-                    if (selected == MainTab.SHELF) {
-                        IconButton(onClick = onAddBook) {
-                            Icon(
-                                imageVector = MiuixIcons.Add,
-                                contentDescription = "添加书籍",
-                                modifier = Modifier.padding(2.dp),
-                            )
+            if (selected != MainTab.SHELF) {
+                SmallTopAppBar(
+                    title = selected.title,
+                    actions = {
+                        if (selected == MainTab.TAGS) {
+                            IconButton(onClick = onSettings) {
+                                Icon(
+                                    imageVector = MiuixIcons.Settings,
+                                    contentDescription = "设置",
+                                    modifier = Modifier.padding(2.dp),
+                                )
+                            }
                         }
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(
-                            imageVector = MiuixIcons.Settings,
-                            contentDescription = "设置",
-                            modifier = Modifier.padding(2.dp),
-                        )
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
         bottomBar = {
             NavigationBar {
@@ -91,6 +84,10 @@ fun MainScreen(
                         onClick = { selectedName = tab.name },
                         icon = tab.icon,
                         label = tab.label,
+                        colors = NavigationBarDefaults.navigationBarItemColors(
+                            unselectedContentColor = MiuixTheme.colorScheme.onSurface,
+                            selectedContentColor = MiuixTheme.colorScheme.primary,
+                        ),
                     )
                 }
             }
@@ -103,8 +100,12 @@ fun MainScreen(
         ) {
             stateHolder.SaveableStateProvider(selected.name) {
                 when (selected) {
-                    MainTab.HOME -> HomeTab(container, onOpenBook, refreshTick)
-                    MainTab.SHELF -> ShelfTab(container, onOpenBook, refreshTick)
+                    MainTab.SHELF -> ShelfTab(
+                        container = container,
+                        onOpenBook = onOpenBook,
+                        refreshTick = refreshTick,
+                        onAddBook = onAddBook,
+                    )
                     MainTab.RANK -> RankTab(container, onOpenBook, refreshTick)
                     MainTab.STATS -> StatsTab(container, refreshTick)
                     MainTab.TAGS -> CategoriesTab(container, refreshTick)

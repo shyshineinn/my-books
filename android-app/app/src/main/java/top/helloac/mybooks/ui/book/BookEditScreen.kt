@@ -39,6 +39,7 @@ import top.helloac.mybooks.ui.common.ErrorView
 import top.helloac.mybooks.ui.common.LoadingView
 import top.helloac.mybooks.ui.common.MetaText
 import top.helloac.mybooks.ui.common.SectionHeader
+import top.helloac.mybooks.ui.common.TextTabRow
 import top.helloac.mybooks.ui.common.formatRating
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -49,7 +50,6 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
-import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -306,10 +306,13 @@ private fun BookEditForm(
                     fontSize = 12.sp,
                     modifier = Modifier.padding(bottom = 6.dp),
                 )
-                TabRow(
+                TextTabRow(
                     tabs = BookStatus.entries.map { it.label },
-                    selectedTabIndex = BookStatus.entries.indexOf(state.status),
-                    onTabSelected = { state.selectStatus(BookStatus.entries[it]) },
+                    selectedIndex = BookStatus.entries.indexOf(state.status),
+                    onSelected = { state.selectStatus(BookStatus.entries[it]) },
+                    modifier = Modifier.padding(top = 2.dp),
+                    fontSize = 15.sp,
+                    spacing = 24.dp,
                 )
             }
         }

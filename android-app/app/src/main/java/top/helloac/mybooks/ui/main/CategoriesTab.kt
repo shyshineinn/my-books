@@ -32,10 +32,10 @@ import top.helloac.mybooks.ui.common.EmptyView
 import top.helloac.mybooks.ui.common.ErrorView
 import top.helloac.mybooks.ui.common.LoadingView
 import top.helloac.mybooks.ui.common.RefreshOnResume
+import top.helloac.mybooks.ui.common.TextTabRow
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -79,11 +79,13 @@ fun CategoriesTab(container: AppContainer, refreshTick: Int = 0) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(
+        TextTabRow(
             tabs = CategoryTab.entries.map { it.label },
-            selectedTabIndex = selectedIndex,
-            onTabSelected = { selectedIndex = it },
+            selectedIndex = selectedIndex,
+            onSelected = { selectedIndex = it },
             modifier = Modifier.padding(horizontal = 16.dp),
+            fontSize = 15.sp,
+            spacing = 28.dp,
         )
         when {
             loading -> LoadingView()
