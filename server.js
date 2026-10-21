@@ -54,17 +54,6 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // 电子书文件:GET 下载/阅读用(上传经 /api/* 走鉴权);原文件名不落盘
 app.use('/books-files', express.static(path.join(__dirname, 'books-files')));
 
-// Android 在线升级:APK 与 latest.json 放在 data/app-releases/。
-// 二进制不进 git,data/ 在服务器上持久存在 —— 部署代码不会覆盖它。
-// 清单与 APK 都加 no-cache,避免客户端/代理拿到旧版本。
-app.use('/app', express.static(path.join(__dirname, 'data', 'app-releases'), {
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.json') || filePath.endsWith('.apk')) {
-      res.setHeader('Cache-Control', 'no-cache');
-    }
-  },
-}));
-
 // 读书心得页:/notes/<书籍 id> —— 带路径参数,静态目录兜不住,显式路由。
 // 与 *.html 同一套 no-cache 策略;非法 id 直接回书架(旧 hash 深链也收敛到这里)。
 app.get('/notes/:id(\\d+)', (req, res) => {
