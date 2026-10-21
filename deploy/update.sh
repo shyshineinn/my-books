@@ -72,15 +72,6 @@ echo "    文件快照保留最近 10 份:$BACKUP_FILES"
 echo "==> 2/5 拉取最新代码"
 git pull --ff-only
 
-# —— Android 更新包:随代码入库,git pull 已把 APK 与清单放到 data/app-releases/ ——
-# server.js 的 /app 静态路由直接对外提供这两个文件,无需复制或重启。
-if [ -f data/app-releases/latest.json ]; then
-  echo "    App 更新包:"
-  ls -lh data/app-releases/my-books.apk 2>/dev/null || echo "    !! 缺少 my-books.apk" >&2
-  echo "    清单内容:"
-  cat data/app-releases/latest.json
-fi
-
 echo "==> 3/5 安装依赖"
 if [ -f package-lock.json ]; then
   npm ci --omit=dev
