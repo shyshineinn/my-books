@@ -49,6 +49,9 @@ data/admin-token
 calibre-master/
 .npm-cache/
 
+# Miuix 本地源码(includeBuild 使用,不入库)
+miuix-0.9.4/
+
 # 备份目录与捆绑文件(严禁入库)
 data/backup/
 *.bundle
