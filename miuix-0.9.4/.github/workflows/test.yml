@@ -1,0 +1,67 @@
+name: Build All Tests
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "README.md"
+      - "CLAUDE.md"
+      - "AGENTS.md"
+      - "docs/**"
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - "README.md"
+      - "CLAUDE.md"
+      - "AGENTS.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: "spotlessCheck macosArm64Test iosSimulatorArm64Test"
+            os: macos-latest
+          - target: "desktopTest"
+            os: ubuntu-latest
+          - target: "assembleAndroidTest"
+            os: ubuntu-latest
+          - target: "wasmJsBrowserTest"
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v7
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: "zulu"
+          java-version: "21"
+      - name: Build with Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+      - name: Cache Kotlin/Native toolchain
+        if: matrix.os == 'macos-latest'
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-konan-
+      - name: Run test
+        run: ./gradlew ${{ matrix.target }}
+      - name: Upload reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          path: |
+            **/build/reports/**

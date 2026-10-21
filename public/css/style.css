@@ -615,6 +615,9 @@ body.menu-open .menu-curtain {
 
 /* 桌面端不参与:二级面板只服务竖屏菜单 */
 @media (min-width: 820px) {
+  /* 旋转跨断点时全屏菜单立即退场,不依赖 422ms 收起动画走完 */
+  .mobile-menu,
+  .menu-curtain,
   .mobile-menu-sub { display: none; }
 }
 
@@ -4218,6 +4221,11 @@ main.page-home {
 @media (hover: none) {
   .book-card:hover .card-cover { transform: none; box-shadow: var(--cover-shadow); }
   .book-card:active .card-cover { transform: scale(0.98); }
+}
+
+/* 触屏平板横屏走桌面顶栏:图标命中区按 apple.com 实测为 30×44,视觉图标不变 */
+@media (hover: none) and (min-width: 820px) {
+  .topbar .topbar-actions .icon-btn { height: 44px; }
 }
 
 body.modal-open { overflow: hidden; }

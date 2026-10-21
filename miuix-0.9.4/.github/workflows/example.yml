@@ -1,0 +1,182 @@
+name: Build Example App
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "CLAUDE.md"
+      - "AGENTS.md"
+      - "docs/**"
+
+concurrency:
+  group: example-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos arm64
+            build-command: ./gradlew packageDmgNativeReleaseMacosArm64
+            artifact-path: example/macos/build/compose/binaries/main/native-macosArm64-release-dmg/*.dmg
+            artifact-name: Miuix-darwin-arm64-dmg.dmg
+            archive: false
+          - os: ubuntu-latest
+            platform: linux x64
+            build-command: ./gradlew createReleaseDistributable
+            artifact-path: example/desktop/build/compose/binaries/main-release/app/Miuix
+            artifact-name: Miuix-linux-x64-bin
+            archive: true
+          - os: ubuntu-24.04-arm
+            platform: linux arm64
+            build-command: ./gradlew createReleaseDistributable
+            artifact-path: example/desktop/build/compose/binaries/main-release/app/Miuix
+            artifact-name: Miuix-linux-arm64-bin
+            archive: true
+          - os: windows-latest
+            platform: windows x64
+            build-command: ./gradlew createReleaseDistributable
+            artifact-path: example/desktop/build/compose/binaries/main-release/app/Miuix
+            artifact-name: Miuix-windows-x64-exe
+            archive: true
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: "zulu"
+          java-version: "21"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+      - name: Cache Kotlin/Native toolchain
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-konan-
+      - name: Build ${{ matrix.platform }} platform
+        run: ${{ matrix.build-command }}
+      - name: Rename ${{ matrix.platform }} artifact
+        run: mv ${{ matrix.artifact-path }} ${{ matrix.artifact-name }}
+        shell: bash
+      - name: Upload Miuix ${{ matrix.platform }} artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-name }}
+          archive: ${{ matrix.archive }}
+  ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: "zulu"
+          java-version: "21"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-konan-
+      - name: Build unsigned iOS IPA
+        shell: bash
+        run: |
+          ./gradlew :example:shared:generateVersionInfo
+          xcodebuild archive \
+            -project example/ios/iosApp.xcodeproj \
+            -scheme 'example [ios]' \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Miuix.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM=""
+          APP="$RUNNER_TEMP/Miuix.xcarchive/Products/Applications/Miuix.app"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          ( cd "$RUNNER_TEMP" && zip -r -y "$GITHUB_WORKSPACE/Miuix-ios-arm64-unsigned.ipa" Payload )
+      - name: Upload unsigned iOS IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Miuix-ios-arm64-unsigned.ipa
+          path: Miuix-ios-arm64-unsigned.ipa
+          archive: false
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: "zulu"
+          java-version: "21"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+      - name: Decode android signing key
+        run: echo ${{ secrets.SIGNING_KEY }} | base64 -d > keystore.jks
+      - name: Build android universal platform
+        run: ./gradlew assembleRelease
+        env:
+          KEYSTORE_PATH: "../../keystore.jks"
+          KEYSTORE_PASS: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Rename android universal artifact
+        run: mv example/android/build/outputs/apk/release/*.apk Miuix-android-universal-apk.apk
+        shell: bash
+      - name: Upload Miuix android universal artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Miuix-android-universal-apk.apk
+          path: Miuix-android-universal-apk.apk
+          archive: false
+
+  post_telegram:
+    needs: [build, ios, android]
+    runs-on: ubuntu-latest
+    if: ${{ success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.ref_type != 'tag' }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Post to Telegram ci channel
+        env:
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          BOT_API_LINK: ${{ secrets.BOT_API_LINK }}
+        run: bash .github/scripts/post_telegram.sh

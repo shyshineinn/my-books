@@ -793,6 +793,13 @@ $('#menuBtn').addEventListener('click', () => {
   else openMobileMenu();
 });
 
+/* 平板/手机转横屏跨到桌面导航宽度时,apple.com 会自动收起全屏菜单并切到桌面导航。
+   否则汉堡与返回键都随窄屏规则隐藏,菜单会卡在全屏且无法滚动页面。 */
+const desktopNavMq = window.matchMedia('(min-width: 820px)');
+const closeMenuOnDesktop = (e) => { if (e.matches) closeMobileMenu(); };
+if (desktopNavMq.addEventListener) desktopNavMq.addEventListener('change', closeMenuOnDesktop);
+else desktopNavMq.addListener(closeMenuOnDesktop);
+
 // 一级项:有二级面板的展开面板,普通链接直接跳转
 $$('#mobileMenu .mm-links button[data-sub]').forEach((btn) => {
   btn.addEventListener('click', () => openMobileSubmenu(btn.dataset.sub));
@@ -1835,9 +1842,13 @@ function openSearchOverlay() {
   } else {
     searchFlyout.style.height = '';
   }
-  // 桌面自动聚焦输入框;竖屏不聚焦,避免一开搜索就弹软键盘
+  // 仅精确指针(桌面)自动聚焦输入框;触屏设备(含横屏平板)不聚焦,
+  // 避免一开搜索就弹软键盘 —— 与编辑弹窗的触屏判断保持一致
   setTimeout(() => {
-    if (isSearchOpen() && searchMq.matches) searchInput.focus({ preventScroll: true });
+    if (isSearchOpen() && searchMq.matches
+        && !window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+      searchInput.focus({ preventScroll: true });
+    }
   }, 30);
 }
 

@@ -819,9 +819,38 @@ function initNavFlyouts() {
     }, 100);
   }
 
+  /* 触屏平板横屏走桌面导航,但没有 hover:首次点按展开下拉(apple.com 同款),
+     已展开时再点才按链接进入页面。展开状态必须在 pointerdown 时记录 ——
+     focus 会先于 click 把面板打开,到 click 再判断就永远算“已展开”。 */
+  let lastTouchNav = null;
+  document.addEventListener('pointerdown', (e) => {
+    const trigger = e.target.closest('.view-switch a[data-flyout]');
+    lastTouchNav = trigger && e.pointerType !== 'mouse'
+      ? {
+          id: trigger.dataset.flyout,
+          wasOpen: activeId === trigger.dataset.flyout
+            && document.body.classList.contains('nav-flyout-open'),
+        }
+      : null;
+  }, true);
+  document.addEventListener('pointercancel', () => { lastTouchNav = null; }, true);
+  document.addEventListener('keydown', () => { lastTouchNav = null; }, true);
+
   triggers.forEach((t) => {
     t.addEventListener('focus', () => { if (mq.matches && !restoringFocus) open(t.dataset.flyout); });
-    t.addEventListener('click', () => close(false));
+    t.addEventListener('click', (e) => {
+      const touch = lastTouchNav;
+      lastTouchNav = null;
+      if (mq.matches && touch && touch.id === t.dataset.flyout) {
+        // 第一次点按只展开;已展开时放行默认跳转(apple.com 实测行为)
+        if (!touch.wasOpen) {
+          e.preventDefault();
+          open(t.dataset.flyout);
+        }
+        return;
+      }
+      close(false);
+    });
     t.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowDown' || !mq.matches) return;
       e.preventDefault();
