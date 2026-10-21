@@ -1,20 +1,16 @@
 package top.helloac.mybooks.ui.main
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +32,8 @@ import top.helloac.mybooks.ui.common.LoadingView
 import top.helloac.mybooks.ui.common.RefreshOnResume
 import top.helloac.mybooks.ui.common.SectionHeader
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -136,21 +133,15 @@ private fun StatsHero(stats: Stats) {
             if (stats.total > 0) {
                 Spacer(Modifier.height(14.dp))
                 val fraction = stats.done.toFloat() / stats.total.toFloat()
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.surfaceContainerHighest),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .clip(CircleShape)
-                            .background(MiuixTheme.colorScheme.primary),
-                    )
-                }
+                LinearProgressIndicator(
+                    progress = fraction.coerceIn(0f, 1f),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                        foregroundColor = MiuixTheme.colorScheme.primary,
+                        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+                    ),
+                    height = 6.dp,
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = "已读 ${(fraction * 100).toInt()}%",
@@ -195,6 +186,10 @@ private fun YearChart(byYear: Map<String, Int>) {
         return
     }
     val max = byYear.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val barColors = ProgressIndicatorDefaults.progressIndicatorColors(
+        foregroundColor = MiuixTheme.colorScheme.primary,
+        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         byYear.entries.sortedBy { it.key }.forEach { (year, count) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -204,21 +199,12 @@ private fun YearChart(byYear: Map<String, Int>) {
                     fontSize = 12.sp,
                     modifier = Modifier.width(44.dp),
                 )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(9.dp)
-                        .clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.surfaceContainerHighest),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((count.toFloat() / max).coerceIn(0.02f, 1f))
-                            .fillMaxHeight()
-                            .clip(CircleShape)
-                            .background(MiuixTheme.colorScheme.primary),
-                    )
-                }
+                LinearProgressIndicator(
+                    progress = (count.toFloat() / max).coerceIn(0.02f, 1f),
+                    modifier = Modifier.weight(1f),
+                    colors = barColors,
+                    height = 9.dp,
+                )
                 Text(
                     text = count.toString(),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -235,6 +221,10 @@ private fun YearChart(byYear: Map<String, Int>) {
 @Composable
 private fun CountBars(items: List<NamedCount>, unit: String) {
     val max = items.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
+    val barColors = ProgressIndicatorDefaults.progressIndicatorColors(
+        foregroundColor = MiuixTheme.colorScheme.primary,
+        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items.forEach { item ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -245,21 +235,12 @@ private fun CountBars(items: List<NamedCount>, unit: String) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.width(82.dp),
                 )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(7.dp)
-                        .clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.surfaceContainerHighest),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((item.count.toFloat() / max).coerceIn(0.02f, 1f))
-                            .fillMaxHeight()
-                            .clip(CircleShape)
-                            .background(MiuixTheme.colorScheme.secondary),
-                    )
-                }
+                LinearProgressIndicator(
+                    progress = (item.count.toFloat() / max).coerceIn(0.02f, 1f),
+                    modifier = Modifier.weight(1f),
+                    colors = barColors,
+                    height = 7.dp,
+                )
                 Text(
                     text = "${item.count}$unit",
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

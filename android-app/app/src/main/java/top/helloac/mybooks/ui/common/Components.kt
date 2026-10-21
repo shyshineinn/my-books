@@ -4,14 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -34,6 +32,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import top.helloac.mybooks.data.Book
 import top.helloac.mybooks.data.BookStatus
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -101,21 +101,22 @@ fun RefreshOnResume(onRefresh: () -> Unit) {
 fun StatusPill(status: BookStatus, modifier: Modifier = Modifier) {
     val colors = MiuixTheme.colorScheme
     val (background, content) = when (status) {
-        BookStatus.WISH -> colors.secondaryContainer to colors.onSecondaryContainer
-        BookStatus.READING -> colors.primaryContainer to colors.onPrimaryContainer
-        BookStatus.DONE -> colors.tertiaryContainer to colors.onTertiaryContainer
+        BookStatus.WISH -> colors.surfaceContainerHigh to colors.onSurfaceContainerHigh
+        BookStatus.READING -> colors.primary to colors.onPrimary
+        BookStatus.DONE -> colors.secondaryContainer to colors.onSecondaryContainer
     }
-    Box(
-        modifier = modifier
-            .clip(CircleShape)
-            .background(background)
-            .padding(horizontal = 9.dp, vertical = 3.dp),
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = background,
+        contentColor = content,
     ) {
         Text(
             text = status.label,
             color = content,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
         )
     }
 }
@@ -136,19 +137,12 @@ fun RatingBadge(rating: Double?, modifier: Modifier = Modifier) {
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
-    action: (@Composable () -> Unit)? = null,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MiuixTheme.textStyles.title4,
-            modifier = Modifier.weight(1f),
-        )
-        action?.invoke()
-    }
+    SmallTitle(
+        text = title,
+        modifier = modifier,
+        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+    )
 }
 
 @Composable
@@ -205,44 +199,6 @@ fun ErrorView(
 }
 
 @Composable
-fun TagRow(
-    tags: List<String>,
-    modifier: Modifier = Modifier,
-    max: Int = 6,
-) {
-    if (tags.isEmpty()) return
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        tags.take(max).forEach { tag ->
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(MiuixTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-            ) {
-                Text(
-                    text = tag,
-                    color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (tags.size > max) {
-            Text(
-                text = "+${tags.size - max}",
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                fontSize = 11.sp,
-            )
-        }
-    }
-}
-
-@Composable
 fun MetaText(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
@@ -254,21 +210,6 @@ fun MetaText(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-@Composable
-fun DotDivider(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(3.dp)
-            .clip(CircleShape)
-            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.5f)),
-    )
-}
-
-@Composable
-fun HorizontalGap(width: Dp = 8.dp) {
-    Spacer(Modifier.width(width))
-}
-
 fun formatRating(value: Double): String =
     if (value % 1.0 == 0.0) value.toInt().toString() else String.format(Locale.US, "%.1f", value)
 
@@ -276,14 +217,14 @@ fun formatRating(value: Double?): String = value?.let { formatRating(it) } ?: ""
 
 private fun coverGradient(seed: String): List<Color> {
     val palettes = listOf(
-        listOf(Color(0xFF3A6073), Color(0xFF16222A)),
-        listOf(Color(0xFF8E5B3A), Color(0xFF3E2723)),
-        listOf(Color(0xFF355C7D), Color(0xFF6C5B7B)),
-        listOf(Color(0xFF2C5364), Color(0xFF0F2027)),
-        listOf(Color(0xFFB2455A), Color(0xFF5B1F2A)),
-        listOf(Color(0xFF4B6F44), Color(0xFF1F3320)),
-        listOf(Color(0xFF6A5ACD), Color(0xFF2A2260)),
-        listOf(Color(0xFFB8860B), Color(0xFF4A3410)),
+        listOf(Color(0xFF3A3A3A), Color(0xFF111111)),
+        listOf(Color(0xFF5A5A5A), Color(0xFF202020)),
+        listOf(Color(0xFF2E2E2E), Color(0xFF0A0A0A)),
+        listOf(Color(0xFF4A4A4A), Color(0xFF161616)),
+        listOf(Color(0xFF6A6A6A), Color(0xFF2A2A2A)),
+        listOf(Color(0xFF242424), Color(0xFF080808)),
+        listOf(Color(0xFF505050), Color(0xFF1C1C1C)),
+        listOf(Color(0xFF767676), Color(0xFF303030)),
     )
     val index = (seed.hashCode() and Int.MAX_VALUE) % palettes.size
     return palettes[index]

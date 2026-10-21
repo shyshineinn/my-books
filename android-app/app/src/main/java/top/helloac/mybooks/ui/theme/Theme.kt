@@ -3,9 +3,7 @@ package top.helloac.mybooks.ui.theme
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -13,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
@@ -28,10 +27,12 @@ fun MyBooksTheme(themeMode: Int, content: @Composable () -> Unit) {
     val controller = remember(themeMode, dark) {
         ThemeController(
             colorSchemeMode = when (themeMode) {
-                1 -> ColorSchemeMode.MonetLight
-                2 -> ColorSchemeMode.MonetDark
-                else -> ColorSchemeMode.MonetSystem
+                1 -> ColorSchemeMode.Light
+                2 -> ColorSchemeMode.Dark
+                else -> ColorSchemeMode.System
             },
+            lightColors = MonochromeLightColors,
+            darkColors = MonochromeDarkColors,
             isDark = dark,
         )
     }
@@ -48,10 +49,10 @@ fun MyBooksTheme(themeMode: Int, content: @Composable () -> Unit) {
     }
 
     MiuixTheme(controller = controller) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MiuixTheme.colorScheme.background),
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MiuixTheme.colorScheme.background,
+            contentColor = MiuixTheme.colorScheme.onBackground,
         ) {
             content()
         }

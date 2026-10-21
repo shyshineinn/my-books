@@ -1,6 +1,5 @@
 package top.helloac.mybooks.ui.main
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +34,7 @@ import top.helloac.mybooks.ui.common.LoadingView
 import top.helloac.mybooks.ui.common.RefreshOnResume
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -178,18 +177,22 @@ private fun SeriesList(items: List<Series>) {
 
 @Composable
 private fun CategoryAvatar(name: String) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(MiuixTheme.colorScheme.secondaryContainer),
-        contentAlignment = Alignment.Center,
+    Surface(
+        modifier = Modifier.size(32.dp),
+        shape = CircleShape,
+        color = MiuixTheme.colorScheme.secondaryContainer,
+        contentColor = MiuixTheme.colorScheme.onSecondaryContainer,
     ) {
-        Text(
-            text = name.trim().take(1).ifBlank { "·" },
-            color = MiuixTheme.colorScheme.onSecondaryContainer,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = name.trim().take(1).ifBlank { "·" },
+                color = MiuixTheme.colorScheme.onSecondaryContainer,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }

@@ -251,10 +251,7 @@ private fun PrimaryButton(
     Button(
         onClick = onClick,
         modifier = modifier,
-        colors = ButtonDefaults.buttonColors(
-            color = MiuixTheme.colorScheme.primary,
-            contentColor = MiuixTheme.colorScheme.onPrimary,
-        ),
+        colors = ButtonDefaults.buttonColorsPrimary(),
     ) {
         Text(text)
     }

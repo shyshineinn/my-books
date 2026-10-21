@@ -47,6 +47,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -107,6 +109,7 @@ fun BookEditScreen(
     var loading by remember { mutableStateOf(bookId != null) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableStateOf(0) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(bookId, reloadKey) {
         if (bookId != null && initial == null) {
@@ -135,6 +138,7 @@ fun BookEditScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         val loaded = initial
         when {
@@ -149,6 +153,7 @@ fun BookEditScreen(
                 container = container,
                 bookId = bookId,
                 initial = loaded,
+                snackbarHostState = snackbarHostState,
                 onSaved = onSaved,
                 modifier = Modifier
                     .fillMaxSize()
@@ -163,6 +168,7 @@ private fun BookEditForm(
     container: AppContainer,
     bookId: Int?,
     initial: BookDraft,
+    snackbarHostState: SnackbarHostState,
     onSaved: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -170,14 +176,16 @@ private fun BookEditForm(
     val scope = rememberCoroutineScope()
     val state = remember(initial) { EditState(initial) }
     var saving by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
+
+    fun showMessage(text: String) {
+        scope.launch { snackbarHostState.showSnackbar(text) }
+    }
 
     fun save() {
         if (saving) return
-        message = null
         val title = state.title.trim()
         if (title.isEmpty()) {
-            message = "书名不能为空"
+            showMessage("书名不能为空")
             return
         }
         val rating = state.ratingText.trim().let {
@@ -186,7 +194,7 @@ private fun BookEditForm(
             } else {
                 val parsed = it.toDoubleOrNull()
                 if (parsed == null || parsed < 0.0 || parsed > 10.0) {
-                    message = "评分应为 0–10 的数字"
+                    showMessage("评分应为 0–10 的数字")
                     return
                 }
                 parsed
@@ -198,7 +206,7 @@ private fun BookEditForm(
             } else {
                 val parsed = it.toDoubleOrNull()
                 if (parsed == null || parsed < 0.0) {
-                    message = "系列序号应为非负数字"
+                    showMessage("系列序号应为非负数字")
                     return
                 }
                 parsed
@@ -207,15 +215,15 @@ private fun BookEditForm(
         val dateRe = Regex("""^\d{4}-\d{2}-\d{2}$""")
         state.readLogs.forEachIndexed { index, log ->
             if (log.start.isNotBlank() && !dateRe.matches(log.start)) {
-                message = "第 ${index + 1} 条记录的开始日期格式应为 YYYY-MM-DD"
+                showMessage("第 ${index + 1} 条记录的开始日期格式应为 YYYY-MM-DD")
                 return
             }
             if (log.finish.isNotBlank() && !dateRe.matches(log.finish)) {
-                message = "第 ${index + 1} 条记录的读完日期格式应为 YYYY-MM-DD"
+                showMessage("第 ${index + 1} 条记录的读完日期格式应为 YYYY-MM-DD")
                 return
             }
             if (log.start.isNotBlank() && log.finish.isNotBlank() && log.finish < log.start) {
-                message = "第 ${index + 1} 条记录的读完日期不能早于开始日期"
+                showMessage("第 ${index + 1} 条记录的读完日期不能早于开始日期")
                 return
             }
         }
@@ -244,7 +252,7 @@ private fun BookEditForm(
                 onSaved()
             }.onFailure {
                 saving = false
-                message = it.message ?: "保存失败"
+                showMessage(it.message ?: "保存失败")
             }
         }
     }
@@ -446,15 +454,6 @@ private fun BookEditForm(
         item("add-log") {
             AddReadLogCard { log -> state.readLogs.add(log) }
         }
-        if (message != null) {
-            item("message") {
-                Text(
-                    text = message!!,
-                    color = MiuixTheme.colorScheme.primary,
-                    fontSize = 13.sp,
-                )
-            }
-        }
         item("save") {
             Button(
                 onClick = { save() },
@@ -462,10 +461,7 @@ private fun BookEditForm(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    color = MiuixTheme.colorScheme.primary,
-                    contentColor = MiuixTheme.colorScheme.onPrimary,
-                ),
+                colors = ButtonDefaults.buttonColorsPrimary(),
             ) {
                 Text(if (saving) "保存中…" else "保存")
             }

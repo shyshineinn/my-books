@@ -3,10 +3,8 @@ package top.helloac.mybooks.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,28 +17,30 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import top.helloac.mybooks.data.AppContainer
 import top.helloac.mybooks.ui.common.MetaText
 import top.helloac.mybooks.ui.common.SectionHeader
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.TabRow
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.preference.RadioButtonPreference
 
 @Composable
 fun SettingsScreen(
@@ -50,13 +50,14 @@ fun SettingsScreen(
     val settings = container.settingsStore.settings
     var baseUrl by remember { mutableStateOf(settings.value.baseUrl) }
     var themeMode by remember { mutableIntStateOf(settings.value.themeMode) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var notesRepo by remember { mutableStateOf<String?>(null) }
     var testing by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         runCatching { container.repository.serverSettings() }
-            .onSuccess { if (!it.notesRepo.isNullOrBlank()) message = "心得仓库：${it.notesRepo}" }
+            .onSuccess { if (!it.notesRepo.isNullOrBlank()) notesRepo = it.notesRepo }
     }
 
     Scaffold(
@@ -70,6 +71,7 @@ fun SettingsScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -92,6 +94,16 @@ fun SettingsScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
             }
+            if (notesRepo != null) {
+                item("notes-repo") {
+                    notesRepo?.let {
+                        MetaText(
+                            text = "心得仓库：$it",
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
             item("actions") {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
@@ -100,13 +112,10 @@ fun SettingsScreen(
                                 settings.value.copy(baseUrl = baseUrl),
                             )
                             baseUrl = container.settingsStore.settings.value.baseUrl
-                            message = "已保存"
+                            scope.launch { snackbarHostState.showSnackbar("已保存") }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            color = MiuixTheme.colorScheme.primary,
-                            contentColor = MiuixTheme.colorScheme.onPrimary,
-                        ),
+                        colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
                         Text("保存")
                     }
@@ -115,23 +124,17 @@ fun SettingsScreen(
                         onClick = {
                             if (testing) return@TextButton
                             testing = true
-                            message = null
                             scope.launch {
-                                runCatching { container.repository.stats() }
-                                    .onSuccess { message = "连接成功：${it.total} 本藏书" }
-                                    .onFailure { message = it.message ?: "连接失败" }
-                                testing = false
+                                try {
+                                    val stats = container.repository.stats()
+                                    snackbarHostState.showSnackbar("连接成功：${stats.total} 本藏书")
+                                } catch (e: Exception) {
+                                    snackbarHostState.showSnackbar(e.message ?: "连接失败")
+                                } finally {
+                                    testing = false
+                                }
                             }
                         },
-                    )
-                }
-            }
-            if (message != null) {
-                item("message") {
-                    Text(
-                        text = message!!,
-                        color = MiuixTheme.colorScheme.primary,
-                        fontSize = 13.sp,
                     )
                 }
             }
@@ -139,35 +142,47 @@ fun SettingsScreen(
                 SectionHeader("外观")
             }
             item("theme") {
-                TabRow(
-                    tabs = listOf("跟随系统", "浅色", "深色"),
-                    selectedTabIndex = themeMode,
-                    onTabSelected = {
-                        themeMode = it
-                        container.settingsStore.saveThemeMode(it)
-                    },
-                )
+                Card(
+                    cornerRadius = 16.dp,
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    val modes = listOf(
+                        "跟随系统" to 0,
+                        "浅色" to 1,
+                        "深色" to 2,
+                    )
+                    modes.forEachIndexed { index, (label, mode) ->
+                        RadioButtonPreference(
+                            title = label,
+                            selected = themeMode == mode,
+                            onClick = {
+                                themeMode = mode
+                                container.settingsStore.saveThemeMode(mode)
+                            },
+                        )
+                        if (index < modes.lastIndex) {
+                            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
+                        }
+                    }
+                }
             }
             item("update-title") {
                 SectionHeader("更新")
             }
             item("update") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Card(
+                    cornerRadius = 16.dp,
+                    insideMargin = PaddingValues(0.dp),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "当前版本 v${container.updateManager.currentVersionName}",
-                            style = MiuixTheme.textStyles.body1,
-                        )
-                        MetaText("启动时自动检查更新，12 小时内最多一次")
-                    }
-                    TextButton(
-                        text = "检查更新",
-                        onClick = { container.updateManager.check(manual = true) },
+                    BasicComponent(
+                        title = "当前版本 v${container.updateManager.currentVersionName}",
+                        summary = "启动时自动检查更新",
+                        endActions = {
+                            TextButton(
+                                text = "检查更新",
+                                onClick = { container.updateManager.check(manual = true) },
+                            )
+                        },
                     )
                 }
             }

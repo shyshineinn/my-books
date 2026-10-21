@@ -1,6 +1,5 @@
 package top.helloac.mybooks.ui.main
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -41,6 +40,7 @@ import top.helloac.mybooks.ui.common.SectionHeader
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 @Composable
 fun RankTab(
@@ -147,11 +147,11 @@ private fun RereadRow(
     onOpenBook: (Int) -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpenBook(book.id) },
+        modifier = Modifier.fillMaxWidth(),
         cornerRadius = 16.dp,
         insideMargin = PaddingValues(12.dp),
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = { onOpenBook(book.id) },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

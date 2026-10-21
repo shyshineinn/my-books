@@ -36,7 +36,7 @@ private enum class MainTab(
     val title: String,
     val icon: ImageVector,
 ) {
-    HOME("首页", "我的书", MiuixIcons.Home),
+    HOME("首页", "Mybooks", MiuixIcons.Home),
     SHELF("书架", "书架", MiuixIcons.Album),
     RANK("榜单", "榜单", MiuixIcons.TopDownloads),
     STATS("统计", "阅读统计", MiuixIcons.Months),

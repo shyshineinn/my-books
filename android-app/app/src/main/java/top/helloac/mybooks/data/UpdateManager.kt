@@ -205,7 +205,7 @@ class UpdateManager(
     private fun launchInstaller(file: File, manifest: UpdateManifest, force: Boolean) {
         if (!context.packageManager.canRequestPackageInstalls()) {
             _state.value = UpdateState.Failed(
-                "请允许“我的书”安装未知来源应用，然后返回重试",
+                "请允许“Mybooks”安装未知来源应用，然后返回重试",
                 manifest,
                 file,
                 force,

@@ -1,6 +1,5 @@
 package top.helloac.mybooks.ui.main
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +41,7 @@ import top.helloac.mybooks.ui.common.LoadingView
 import top.helloac.mybooks.ui.common.RefreshOnResume
 import top.helloac.mybooks.ui.common.SectionHeader
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -211,31 +212,33 @@ private fun HomeBookCard(
     coverUrl: String?,
     onOpenBook: (Int) -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .width(104.dp)
-            .clickable { onOpenBook(book.id) },
+    Surface(
+        onClick = { onOpenBook(book.id) },
+        modifier = Modifier.width(104.dp),
+        color = Color.Transparent,
     ) {
-        BookCover(
-            book = book,
-            coverUrl = coverUrl,
-            modifier = Modifier
-                .width(104.dp)
-                .aspectRatio(0.68f),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = book.title,
-            style = MiuixTheme.textStyles.body2,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = book.author ?: "未知作者",
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column {
+            BookCover(
+                book = book,
+                coverUrl = coverUrl,
+                modifier = Modifier
+                    .width(104.dp)
+                    .aspectRatio(0.68f),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = book.title,
+                style = MiuixTheme.textStyles.body2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = book.author ?: "未知作者",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

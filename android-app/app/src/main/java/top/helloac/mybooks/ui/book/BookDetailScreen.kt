@@ -3,10 +3,7 @@ package top.helloac.mybooks.ui.book
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -22,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,20 +45,24 @@ import top.helloac.mybooks.data.ReadLog
 import top.helloac.mybooks.ui.common.BookCover
 import top.helloac.mybooks.ui.common.ErrorView
 import top.helloac.mybooks.ui.common.LoadingView
-import top.helloac.mybooks.ui.common.MetaText
 import top.helloac.mybooks.ui.common.RatingBadge
 import top.helloac.mybooks.ui.common.RefreshOnResume
 import top.helloac.mybooks.ui.common.SectionHeader
 import top.helloac.mybooks.ui.common.StatusPill
 import top.helloac.mybooks.ui.common.formatRating
 import java.util.Locale
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -68,6 +70,7 @@ import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -86,7 +89,7 @@ fun BookDetailScreen(
     var reloadKey by remember { mutableIntStateOf(0) }
     var showDelete by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     RefreshOnResume { reloadKey++ }
 
@@ -125,6 +128,7 @@ fun BookDetailScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         val current = book
         when {
@@ -153,7 +157,7 @@ fun BookDetailScreen(
                         )
                     }
                     item("meta") {
-                        BookMetaCard(current, repo, context)
+                        BookMetaCard(current)
                     }
                     if (current.tags.isNotEmpty()) {
                         item("tags") {
@@ -226,12 +230,11 @@ fun BookDetailScreen(
                             Card(
                                 modifier = Modifier.padding(horizontal = 16.dp),
                                 cornerRadius = 18.dp,
-                                insideMargin = PaddingValues(16.dp),
+                                insideMargin = PaddingValues(0.dp),
                             ) {
-                                InfoRow(
-                                    label = "读书心得",
-                                    value = "打开链接",
-                                    highlight = true,
+                                ArrowPreference(
+                                    title = "读书心得",
+                                    summary = "打开链接",
                                     onClick = {
                                         repo.absoluteUrl(current.notesUrl)?.let { openUrl(context, it) }
                                     },
@@ -247,26 +250,19 @@ fun BookDetailScreen(
                             Card(
                                 modifier = Modifier.padding(horizontal = 16.dp),
                                 cornerRadius = 18.dp,
-                                insideMargin = PaddingValues(16.dp),
+                                insideMargin = PaddingValues(0.dp),
                             ) {
-                                current.files.forEach { file ->
+                                current.files.forEachIndexed { index, file ->
                                     FileRow(file) {
                                         repo.absoluteUrl("/books-files/${file.path}")?.let {
                                             openUrl(context, it)
                                         }
                                     }
+                                    if (index < current.files.lastIndex) {
+                                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
+                                    }
                                 }
                             }
-                        }
-                    }
-                    if (message != null) {
-                        item("message") {
-                            Text(
-                                text = message!!,
-                                color = MiuixTheme.colorScheme.primary,
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                            )
                         }
                     }
                 }
@@ -301,7 +297,8 @@ fun BookDetailScreen(
                                 .onFailure {
                                     deleting = false
                                     showDelete = false
-                                    message = it.message ?: "删除失败"
+                                    val text = it.message ?: "删除失败"
+                                    scope.launch { snackbarHostState.showSnackbar(text) }
                                 }
                         }
                     },
@@ -331,14 +328,20 @@ private fun BookHeader(
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        BookCover(
-            book = book,
-            coverUrl = coverUrl,
+        Surface(
+            onClick = onOpenBookCover,
             modifier = Modifier
                 .width(116.dp)
-                .height(170.dp)
-                .clickable(onClick = onOpenBookCover),
-        )
+                .height(170.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = Color.Transparent,
+        ) {
+            BookCover(
+                book = book,
+                coverUrl = coverUrl,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         Spacer(Modifier.size(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -385,8 +388,6 @@ private fun BookHeader(
 @Composable
 private fun BookMetaCard(
     book: Book,
-    repo: top.helloac.mybooks.data.BooksRepository,
-    context: Context,
 ) {
     Card(
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -400,11 +401,6 @@ private fun BookMetaCard(
         if (book.startDate != null) InfoRow("开始日期", book.startDate)
         if (book.finishDate != null) InfoRow("读完日期", book.finishDate)
         if (book.createdAt != null) InfoRow("加入时间", book.createdAt.take(10))
-        if (!book.notesUrl.isNullOrBlank()) {
-            InfoRow("心得链接", "打开", highlight = true) {
-                repo.absoluteUrl(book.notesUrl)?.let { openUrl(context, it) }
-            }
-        }
     }
 }
 
@@ -412,13 +408,10 @@ private fun BookMetaCard(
 private fun InfoRow(
     label: String,
     value: String,
-    highlight: Boolean = false,
-    onClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 5.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -430,7 +423,7 @@ private fun InfoRow(
         )
         Text(
             text = value,
-            color = if (highlight) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+            color = MiuixTheme.colorScheme.onSurface,
             fontSize = 13.sp,
             modifier = Modifier.weight(1f),
         )
@@ -452,24 +445,26 @@ private fun IdentifierRow(identifier: Identifier, onOpen: (String) -> Unit) {
             fontSize = 13.sp,
             modifier = Modifier.width(86.dp),
         )
-        Text(
-            text = identifier.value,
-            color = if (target != null) {
-                MiuixTheme.colorScheme.primary
-            } else {
-                MiuixTheme.colorScheme.onSurface
-            },
-            fontSize = 13.sp,
-            modifier = Modifier
-                .weight(1f)
-                .then(
-                    if (target != null) {
-                        Modifier.clickable { onOpen(target) }
-                    } else {
-                        Modifier
-                    },
-                ),
-        )
+        if (target != null) {
+            Surface(
+                onClick = { onOpen(target) },
+                modifier = Modifier.weight(1f),
+                color = Color.Transparent,
+            ) {
+                Text(
+                    text = identifier.value,
+                    color = MiuixTheme.colorScheme.primary,
+                    fontSize = 13.sp,
+                )
+            }
+        } else {
+            Text(
+                text = identifier.value,
+                color = MiuixTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -499,26 +494,13 @@ private fun ReadLogRow(index: Int, log: ReadLog) {
 
 @Composable
 private fun FileRow(file: BookFile, onDownload: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = file.format,
-            style = MiuixTheme.textStyles.body1,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.width(64.dp),
-        )
-        Text(
-            text = formatSize(file.size),
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            fontSize = 12.sp,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(text = "下载", onClick = onDownload)
-    }
+    BasicComponent(
+        title = file.format,
+        summary = formatSize(file.size),
+        endActions = {
+            TextButton(text = "下载", onClick = onDownload)
+        },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -529,16 +511,16 @@ private fun TagFlow(tags: List<String>) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         tags.forEach { tag ->
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(MiuixTheme.colorScheme.secondaryContainer)
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            Surface(
+                shape = CircleShape,
+                color = MiuixTheme.colorScheme.secondaryContainer,
+                contentColor = MiuixTheme.colorScheme.onSecondaryContainer,
             ) {
                 Text(
                     text = tag,
                     color = MiuixTheme.colorScheme.onSecondaryContainer,
                     fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }

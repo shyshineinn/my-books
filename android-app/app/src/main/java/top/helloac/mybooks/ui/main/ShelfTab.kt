@@ -1,10 +1,7 @@
 package top.helloac.mybooks.ui.main
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,7 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -50,6 +46,7 @@ import top.helloac.mybooks.ui.common.RatingBadge
 import top.helloac.mybooks.ui.common.RefreshOnResume
 import top.helloac.mybooks.ui.common.StatusPill
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -138,28 +135,30 @@ fun ShelfTab(
                 )
                 BooksRepository.sortOptions.forEachIndexed { index, (_, label) ->
                     val selected = index == sortIndex
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(
-                                if (selected) {
-                                    MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                } else {
-                                    Color.Transparent
-                                },
-                            )
-                            .clickable { sortIndex = index }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    Surface(
+                        onClick = { sortIndex = index },
+                        shape = CircleShape,
+                        color = if (selected) {
+                            MiuixTheme.colorScheme.primary
+                        } else {
+                            Color.Transparent
+                        },
+                        contentColor = if (selected) {
+                            MiuixTheme.colorScheme.onPrimary
+                        } else {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        },
                     ) {
                         Text(
                             text = label,
                             color = if (selected) {
-                                MiuixTheme.colorScheme.primary
+                                MiuixTheme.colorScheme.onPrimary
                             } else {
                                 MiuixTheme.colorScheme.onSurfaceVariantSummary
                             },
                             fontSize = 12.sp,
                             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         )
                     }
                 }
@@ -201,40 +200,42 @@ private fun ShelfGridItem(
     coverUrl: String?,
     onClick: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.Transparent,
     ) {
-        BookCover(
-            book = book,
-            coverUrl = coverUrl,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.68f),
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = book.title,
-            style = MiuixTheme.textStyles.body1,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = book.author ?: "未知作者",
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(5.dp))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            StatusPill(book.status)
-            RatingBadge(book.rating)
+        Column {
+            BookCover(
+                book = book,
+                coverUrl = coverUrl,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.68f),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = book.title,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = book.author ?: "未知作者",
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(5.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                StatusPill(book.status)
+                RatingBadge(book.rating)
+            }
         }
     }
 }
