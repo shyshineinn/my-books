@@ -59,8 +59,8 @@ lumina-main/
 data/backup/
 *.bundle
 
-# Android 更新包与版本清单(二进制,部署时单独上传到服务器 data/app-releases/)
-data/app-releases/
+# Android 更新包与版本清单:已入库,服务器通过 deploy/update.sh 拉取
+# (发布流程:本地 publish-app.js 生成后随代码提交)
 
 # �����¼ Cookie(����,�Ͻ����)
 data/douban-cookie

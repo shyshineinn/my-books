@@ -1,0 +1,16 @@
+{
+  "versionCode": 4,
+  "versionName": "0.3.1",
+  "apkUrl": "/app/my-books.apk",
+  "sha256": "e2149c74c446098e1dd4445b406dc398aac38d920d2121e0a7c540604016d255",
+  "size": 9522057,
+  "changelog": [
+    "界面全面升级为 Miuix 组件与配色",
+    "书架全新改版：3 列网格、级联筛选菜单",
+    "悬浮添加按钮，自定义书架/榜单图标",
+    "应用更名 Mybooks，更换应用图标",
+    "移除首页，启动直达书架"
+  ],
+  "force": false,
+  "minSupportedVersionCode": 1
+}
