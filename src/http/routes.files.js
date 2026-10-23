@@ -77,6 +77,7 @@ router.post('/api/books/:id/file', upload.single('file'), (err, req, res, next) 
   const replaced = bookFiles.getFile(db, id, v.format);
   const saved = bookFiles.upsertFile(db, id, { format: v.format, path: filename, size: v.size });
   if (replaced && replaced.path !== filename) removeFileQuiet(replaced.path);
+  books.touchBook(id, db);
 
   res.status(201).json({ file: { id: saved.id, format: saved.format, path: saved.path, size: saved.size } });
 });
@@ -110,6 +111,7 @@ router.delete('/api/books/:id/file', (req, res) => {
 
   removeFileQuiet(existing.path);
   bookFiles.removeFile(db, id, format);
+  books.touchBook(id, db);
   res.json({ ok: true });
 });
 

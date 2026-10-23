@@ -9,6 +9,7 @@ const express = require('express');
 const path = require('node:path');
 
 const routesBooks = require('./src/http/routes.books');
+const routesNotes = require('./src/http/routes.notes');
 const routesMisc = require('./src/http/routes.misc');
 const routesProxy = require('./src/http/routes.proxy');
 const routesFiles = require('./src/http/routes.files');
@@ -24,6 +25,7 @@ const { requireAdmin } = require('./src/http/middleware.auth');
 const { attachVlScope } = require('./src/http/middleware.vl');
 const { db } = require('./src/db/index');
 const books = require('./src/db/books');
+const notes = require('./src/db/notes');
 const { removeBookAssets } = require('./src/core/fs-utils');
 
 const app = express();
@@ -87,6 +89,7 @@ apiV1.use((req, res, next) => {
   next();
 });
 apiV1.use(routesBooks);
+apiV1.use(routesNotes);
 apiV1.use(routesMisc);
 apiV1.use(routesProxy);
 apiV1.use(routesFiles);
@@ -101,6 +104,7 @@ apiV1.use(routesImport);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
+app.use(routesNotes);
 app.use(routesMisc);
 app.use(routesProxy);
 app.use(routesCategories);
@@ -133,9 +137,12 @@ function runTrashMaintenance() {
   try {
     const purged = books.purgeExpired(db);
     let failed = 0;
-    for (const item of purged) failed += removeBookAssets(item.assets);
+    for (const item of purged) {
+      failed += removeBookAssets(item.assets);
+      if (!notes.removeNote(item.id)) failed += 1;
+    }
     if (purged.length) {
-      console.log(`[trash] 已清理 ${purged.length} 本过期书籍${failed ? `,${failed} 个文件未能移除` : ''}`);
+      console.log(`[trash] 已清理 ${purged.length} 本过期书籍${failed ? `,${failed} 个文件/心得未能移除` : ''}`);
     }
   } catch (err) {
     console.error('[trash] 过期清理失败:', err.stack || err);

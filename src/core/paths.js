@@ -18,4 +18,5 @@ module.exports = {
   DATA_DIR: path.join(ROOT, 'data'),
   UPLOAD_DIR: path.join(ROOT, 'uploads'),        // 封面图片
   FILES_DIR: path.join(ROOT, 'books-files'),     // 电子书正文
+  NOTES_DIR: path.join(ROOT, 'notes-files'),     // 读书心得 Markdown
 };

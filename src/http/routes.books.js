@@ -21,6 +21,7 @@ const mergeRepo = require('../db/merge');
 const bookFiles = require('../db/book_files');
 const customFields = require('../db/custom_fields');
 const identifiersRepo = require('../db/identifiers');
+const notesRepo = require('../db/notes');
 const coreSeries = require('../core/series');
 const coreIdent = require('../core/identifiers');
 const { db } = require('../db/index');
@@ -39,6 +40,7 @@ function withFiles(row) {
     id: f.id, format: f.format, path: f.path, size: f.size,
   }));
   const ids = identifiersRepo.getIdentifiers(db, row.id);
+  const note = notesRepo.statNote(row.id);
   return {
     ...row,
     files,
@@ -46,6 +48,9 @@ function withFiles(row) {
     identifiers: ids,
     identifier_list: coreIdent.toDisplayList(ids),
     series_label: coreSeries.seriesLabel(row.series, row.series_index),
+    has_notes: !!note,
+    notes_size: note ? note.size : 0,
+    notes_updated_at: note ? note.updated_at : null,
     // custom:自定义字段的**原始值**(label → 字符串/数组),供表单回填;
     // custom_display:展示文本,供列表与详情直接渲染。两者分开是因为
     // 表单要能继续编辑(多值字段得拿到数组),展示只要成品字符串。
@@ -193,10 +198,57 @@ router.post('/api/books/merge', (req, res) => {
 
   let failed = 0;
   for (const item of result.assets) failed += removeBookAssets(item.assets);
+  for (const sourceId of parsed.sourceIds) {
+    if (!notesRepo.removeNote(sourceId)) failed += 1;
+  }
   if (failed) {
-    console.error(`[merge] 已合并到 id=${parsed.targetId},但有 ${failed} 个来源文件未能从磁盘移除`);
+    console.error(`[merge] 已合并到 id=${parsed.targetId},但有 ${failed} 个来源文件/心得未能从磁盘移除`);
   }
   res.json({ ok: true, target: result.target, merged: result.merged });
+});
+
+// 局部更新:只改请求体出现的字段。PUT 是整书语义(省略 status/tags 会被默认值重置),
+// PATCH 必须先拼出完整 body 再走 parseBook,未提供的字段保留旧值。
+// expected_updated_at / If-Match 用于防止 App 用旧快照覆盖网页端刚做的修改。
+router.patch('/api/books/:id', (req, res) => {
+  const id = parseId(req.params.id);
+  if (id === null) return badId(res);
+  const existing = books.getBook(id);
+  if (!existing) return notFound(res);
+
+  const { expected_updated_at, ...patch } = req.body || {};
+  const expected = String(
+    expected_updated_at || req.get('If-Match')?.replace(/^"|"$/g, '') || ''
+  ).trim();
+  if (expected && expected !== String(existing.updated_at || '')) {
+    return res.status(409).json({
+      error: '书籍已在服务器更新,请重新加载后再保存',
+      code: 'CONFLICT',
+      current: withFiles(existing),
+    });
+  }
+
+  let existingTags = [];
+  try { existingTags = JSON.parse(existing.tags || '[]'); } catch { existingTags = []; }
+  let existingLogs = [];
+  try { existingLogs = JSON.parse(existing.read_logs || '[]'); } catch { existingLogs = []; }
+
+  const fullBody = {
+    ...existing,
+    tags: Array.isArray(existingTags) ? existingTags : [],
+    read_logs: Array.isArray(existingLogs) ? existingLogs : [],
+    identifiers: identifiersRepo.getIdentifiers(db, id),
+    ...patch,
+  };
+  const { errors, values } = parseBook(fullBody);
+  if (errors.length) return badBody(res, errors.join(';'));
+
+  const custom = parseCustom(req.body);
+  if (!custom.ok) return badBody(res, custom.errors.join(';'));
+
+  const updated = books.updateBook(id, values, custom.values);
+  if (!updated) return notFound(res);
+  res.json(withFiles(updated));
 });
 
 router.put('/api/books/:id', (req, res) => {
@@ -231,11 +283,12 @@ router.delete('/api/books/:id', (req, res) => {
       return notFound(res);
     }
 
-    const failed = removeBookAssets(result.assets);
+    let failed = removeBookAssets(result.assets);
+    if (!notesRepo.removeNote(id)) failed += 1;
     if (failed) {
       // 记录已删、文件没删净:数据一致性没破,只是磁盘留垃圾。
       // 不谎报失败,但要在日志里留痕,便于人工清理。
-      console.error(`[purge] 书 id=${id} 已彻底删除,但有 ${failed} 个文件未能从磁盘移除`);
+      console.error(`[purge] 书 id=${id} 已彻底删除,但有 ${failed} 个文件/心得未能从磁盘移除`);
     }
     return res.json({ ok: true, purged: true });
   }

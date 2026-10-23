@@ -285,6 +285,11 @@ function hardDeleteBook(handleDb, id) {
   return assets;
 }
 
+// 仅刷新书目级 updated_at:心得/文件等附属资产变化时,让客户端知道要重新拉详情。
+function touchBook(id, handleDb = db) {
+  return handleDb.prepare('UPDATE books SET updated_at = ? WHERE id = ?').run(now(), id).changes;
+}
+
 function purgeBook(handleDb, id) {
   const row = handleDb.prepare('SELECT id, deleted_at FROM books WHERE id = ?').get(id);
   if (!row) return { ok: false, code: 'NOT_FOUND' };
@@ -391,6 +396,7 @@ module.exports = {
   getBook,
   addBook,
   updateBook,
+  touchBook,
   enrichBook,
   bulkUpdateBooks,
   hardDeleteBook,

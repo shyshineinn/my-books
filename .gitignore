@@ -12,6 +12,8 @@ data/*.backup-*
 uploads/
 # 电子书文件(体积大,严禁入库;与 uploads/ 同类)
 books-files/
+# 读书心得正文(用户数据,严禁入库;与 uploads/ 同类)
+notes-files/
 
 # 日志
 logs/

@@ -2708,12 +2708,51 @@ body.select-mode .toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
 
 /* ============ 读书心得子页面 ============ */
 .notes-page-head {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 20px;
   margin-bottom: 24px;
 }
+
+.notes-edit-btn { position: absolute; top: 0; right: 0; }
+
+.notes-source {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.notes-editor {
+  display: block;
+  width: 100%;
+  min-height: 360px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.notes-editor:focus {
+  outline: none;
+  border-color: var(--ink-3);
+}
+
+.notes-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.notes-editor-error { margin-top: 8px; }
 
 .notes-book { display: flex; gap: 18px; align-items: center; min-width: 0; }
 

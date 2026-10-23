@@ -1,0 +1,25 @@
+{
+  "update": {
+    "latest_version_name": "16.1-mybooks",
+    "latest_version_code": 1601,
+    "download_url": "https://helloac.top/Mybooks-universal.apk",
+    "title": "发现新版本",
+    "message": "建议更新到最新版本以获得更好的体验。",
+    "changelog_items": [
+      "服务器书库直接融合进书架",
+      "封面与图书信息展示优化",
+      "修复若干问题"
+    ],
+    "force_update_below_version_code": 0
+  },
+  "notice": {
+    "id": "mybooks-2026-10",
+    "enabled": false,
+    "min_version_code": 0,
+    "max_version_code": 999999,
+    "title": "公告",
+    "message": ""
+  },
+  "terms_version": 0,
+  "privacy_version": 0
+}

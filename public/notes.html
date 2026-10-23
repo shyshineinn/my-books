@@ -11,13 +11,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=104">
+  <link rel="stylesheet" href="/css/style.css?v=105">
 </head>
 <!-- 读书心得独立成页(/notes/:id):Markdown 渲染库只在这里加载 -->
 <body data-page="notes">
   <main>
     <div class="notes-page-head">
       <button type="button" id="notesBack" class="btn btn-ghost">返回</button>
+      <button type="button" id="notesEditBtn" class="btn btn-ghost notes-edit-btn" hidden>编辑心得</button>
       <div class="notes-book">
         <div class="notes-book-cover" id="notesCover"></div>
         <div class="notes-book-info">
@@ -34,6 +35,6 @@
   <script defer src="/js/scanner.js?v=2"></script>
   <script defer src="/vendor/marked.umd.js"></script>
   <script defer src="/vendor/purify.min.js"></script>
-  <script defer src="/js/page-notes.js?v=1"></script>
+  <script defer src="/js/page-notes.js?v=2"></script>
 </body>
 </html>
