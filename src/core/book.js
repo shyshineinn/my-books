@@ -153,7 +153,6 @@ function parseBook(body) {
       start_date: startDate,
       finish_date: finishDate,
       cover: String(body.cover || '').trim(),
-      notes_url: String(body.notes_url || '').trim(),
       read_count: readCount,
       read_logs: JSON.stringify(readLogs),
       // 豆瓣元数据字段(v4 列;可选,由前端"从豆瓣填充"或 API 传入)
@@ -189,7 +188,6 @@ function mergeUpdate(existing, values, body) {
   }
   // 书名变了要重算排序键(前端正常会传 title,但脚本可能只改标题_sort 之外的东西)
   if (!('title' in body)) merged.title_sort = existing.title_sort;
-  if (!('notes_url' in body)) merged.notes_url = existing.notes_url;
   if (!('cover' in body)) merged.cover = existing.cover;
   if (!('read_count' in body)) merged.read_count = existing.read_count;
   if (!('read_logs' in body)) merged.read_logs = existing.read_logs;

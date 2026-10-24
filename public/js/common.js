@@ -17,7 +17,6 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 const STATUS_LABEL = { wish: '想读', reading: '在读', done: '已读' };
 
 const state = {
-  settings: { notesRepo: '', notesBranch: 'main' },
   customColumns: [],       // 自定义字段定义(启动时拉取,见 loadCustomColumns)
   customStamp: null,       // 上次拉取时的跨页版本戳
 };
@@ -504,7 +503,7 @@ function customFieldsDetailHtml(book) {
 }
 
 async function openDetail(id) {
-  await settingsReady;   // 心得入口文案依赖 settings,首屏未加载完时先等
+  await bootReady;   // 自定义字段定义要先备好,详情弹窗才渲染得出自定义字段行
   let book;
   try {
     book = await api('/api/books/' + id);
@@ -519,7 +518,6 @@ async function openDetail(id) {
   const legacyDates = !logs.length && (book.start_date || book.finish_date)
     ? [book.start_date ? `开始于 ${book.start_date}` : '', book.finish_date ? `读完于 ${book.finish_date}` : ''].filter(Boolean)
     : [];
-  const autoNotes = !book.notes_url && !!state.settings.notesRepo;
 
   // 出版信息(豆瓣抓取落库的字段;此前只入库不展示)
   const pubBits = [book.publisher, book.pub_year].filter(Boolean);
@@ -549,7 +547,7 @@ async function openDetail(id) {
         <a class="detail-file-link" href="/books-files/${esc(f.path)}" download="《${esc(book.title)}》.${esc(f.format.toLowerCase())}" title="下载 ${esc(f.format)} 文件(${fileSizeText(f.size)})">
           <span class="ebook-tag">.${esc(f.format)}</span><span>${fileSizeText(f.size)}</span> ⬇
         </a>`).join('')}</div></div>` : ''}
-      <button type="button" class="notes-entry" id="detailNotesEntry" title="${autoNotes ? '自动匹配《' + esc(book.title) + '》.md' : '打开读书心得'}">读书心得</button>
+      <button type="button" class="notes-entry" id="detailNotesEntry" title="打开读书心得">读书心得</button>
       <div class="detail-actions">
         <button type="button" class="btn btn-ghost" id="detailEdit">✎ 编辑</button>
         <button type="button" class="btn btn-danger-tint" id="detailDelete">删除</button>
@@ -592,41 +590,6 @@ async function deleteBook(id, title) {
     toast(e.message, true);
   }
 }
-
-/* ============ 设置(心得仓库) ============ */
-async function loadSettings() {
-  try {
-    state.settings = await api('/api/settings');
-  } catch { /* 保持默认 */ }
-}
-
-function openSettingsModal() {
-  closeModals();
-  $('#sRepo').value = state.settings.notesRepo || '';
-  $('#sBranch').value = state.settings.notesBranch || 'main';
-  $('#settingsError').textContent = '';
-  openModal('#settingsModal');
-}
-
-$('#settingsBtn').addEventListener('click', openSettingsModal);
-
-$('#settingsSave').addEventListener('click', async () => {
-  const errEl = $('#settingsError');
-  errEl.textContent = '';
-  try {
-    state.settings = await api('/api/settings', {
-      method: 'PUT',
-      body: JSON.stringify({ notesRepo: $('#sRepo').value, notesBranch: $('#sBranch').value }),
-    });
-    closeModals();
-    toast(state.settings.notesRepo
-      ? '心得仓库已保存,详情页将按《书名》.md 自动获取心得'
-      : '已清空心得仓库配置');
-    notifyBooksChanged();   // 心得自动匹配影响详情弹窗文案,当前页刷新
-  } catch (e) {
-    errEl.textContent = e.message;
-  }
-});
 
 /* ============ 移动端全屏菜单 ============ */
 const mobileMenu = $('#mobileMenu');
@@ -823,11 +786,6 @@ mmBackBtn.addEventListener('click', () => {
   closeMobileSubmenu(true);
 });
 
-$('#mmSettings').addEventListener('click', () => {
-  closeMobileMenu();
-  openSettingsModal();
-});
-
 /* ============ 添加 / 编辑表单 ============ */
 let formStatus = 'wish';
 
@@ -865,7 +823,7 @@ function setStatus(s) {
 async function openBookModal(book) {
   // 自定义字段控件要按最新定义生成。定义可能还没拉完(首屏),或已被
   // /tags 页改过(跨页戳失效)—— 这里统一 await 一次,避免"字段偶尔不显示"。
-  await settingsReady;
+  await bootReady;
   await loadCustomColumns();
 
   // **防数据丢失**:表单提交时会把每个自定义字段的当前值发回服务端,
@@ -2103,13 +2061,10 @@ function goBack() {
 })();
 
 /* ============ 启动 ============ */
-// settingsReady:settings 首屏拉取的 Promise。详情弹窗/心得页的心得文案依赖
-// state.settings.notesRepo,用户操作可能早于首屏请求返回,先 await 再判定。
-const settingsReady = (async () => {
-  await loadSettings();
-  // 自定义字段定义:必须早于任何一次 openBookModal 完成,否则编辑弹窗里
-  // renderCustomFieldInputs 会拿到空数组(表现为"字段偶尔不显示")。
-  // 与 settingsReady 同一思路:先备好,由调用方 await。
+// bootReady:首屏数据备好的 Promise。自定义字段定义必须早于任何一次
+// openBookModal 完成,否则编辑弹窗里 renderCustomFieldInputs 会拿到空数组
+// (表现为"字段偶尔不显示")。用户操作可能早于首屏请求返回,先 await 再渲染。
+const bootReady = (async () => {
   await loadCustomColumns();
   // 标签建议(datalist):编辑弹窗打开前备好,失败静默(不影响其它功能)
   sharedStats().then((data) => {

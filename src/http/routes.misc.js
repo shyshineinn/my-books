@@ -1,5 +1,5 @@
 /* ============================================================
- * 设置 / 统计 / 上传路由(HTTP 适配层)
+ * 上传 / 统计路由(HTTP 适配层)
  * ============================================================ */
 
 const express = require('express');
@@ -7,7 +7,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const settings = require('../db/settings');
 const stats = require('../db/stats');
 const { db } = require('../db/index');
 const { atomicWrite } = require('../core/fs-utils');
@@ -17,17 +16,6 @@ const router = express.Router();
 
 // 封面上传目录(与电子书目录同为磁盘资产,位置定义见 core/paths.js)
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-// 全局设置:心得仓库
-router.get('/api/settings', (req, res) => {
-  res.json(settings.getSettings());
-});
-
-router.put('/api/settings', (req, res) => {
-  const result = settings.saveSettings(req.body.notesRepo, req.body.notesBranch);
-  if (!result.ok) return res.status(400).json({ error: result.error, code: 'VALIDATION' });
-  res.json({ notesRepo: result.notesRepo, notesBranch: result.notesBranch });
-});
 
 // 封面上传(base64);MIME 白名单 + 5MB 上限 + 随机文件名
 router.post('/api/upload', (req, res) => {

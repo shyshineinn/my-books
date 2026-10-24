@@ -21,10 +21,12 @@ test('全新库:迁移一次到位,schema 完整、user_version = 迁移总数',
   const db = openDb(dir);
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, migrations.length);
   const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
-  for (const col of ['id', 'title', 'author', 'status', 'summary', 'tags', 'start_date', 'finish_date', 'cover', 'notes_url', 'read_count', 'read_logs', 'created_at', 'updated_at']) {
+  for (const col of ['id', 'title', 'author', 'status', 'summary', 'tags', 'start_date', 'finish_date', 'cover', 'read_count', 'read_logs', 'created_at', 'updated_at']) {
     assert.ok(cols.includes(col), `缺少列 ${col}`);
   }
-  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='settings'").get(), 'settings 表应存在');
+  // v15:心得链接机制下线 —— notes_url 列与 settings 表都不该再存在
+  assert.ok(!cols.includes('notes_url'), 'notes_url 列应已删除');
+  assert.ok(!db.prepare("SELECT name FROM sqlite_master WHERE name='settings'").get(), 'settings 表应已删除');
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -78,7 +80,7 @@ test('旧库升级:user_version=0 的老库补齐列且数据保留', () => {
   assert.equal(rows.length, 3);                       // 原有数据不丢
   assert.equal(rows[0].title, '旧书甲');
   const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
-  assert.ok(cols.includes('notes_url'));              // 缺的列补上了
+  assert.ok(!cols.includes('notes_url'));             // v15 下线:心得链接列删掉了
   assert.ok(!cols.includes('review'));                // 下线列删掉了
   // 注意:书架非空,不应再写种子数据
   db.close();

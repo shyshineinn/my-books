@@ -1,9 +1,9 @@
 /* ============================================================
- * 全站外壳(Chrome):顶栏 / 移动端菜单 / 三个弹窗 / Toast / 页脚
+ * 全站外壳(Chrome):顶栏 / 移动端菜单 / 弹窗 / Toast / 页脚
  *
  * 为什么用 JS 注入,而不是每个页面各写一份 HTML:
  *   拆成多页后,首页 / 书架 / 榜单 / 统计 / 心得 五个文档共用同一套
- *   导航与弹窗(添加编辑、详情、设置)。写进 HTML 就是五份副本,
+ *   导航与弹窗(添加编辑、详情)。写进 HTML 就是五份副本,
  *   改一处要同步五处 —— 本项目已被 ?v= 版本号这类"手工同步"坑过。
  *   单一来源的代价是"没有 JS 就没有导航",而页面内容本来就全靠 JS
  *   渲染(书架/榜单/统计都是接口数据),这个代价与现状一致。
@@ -255,9 +255,6 @@ function headerHtml(current) {
             <path d="M16.3 16.3 22 22"></path>
           </svg>
         </button>
-        <button type="button" id="settingsBtn" class="icon-btn" title="设置心得仓库" aria-label="设置">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0 1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        </button>
         <button type="button" id="addBtn" class="icon-btn" title="添加书籍" aria-label="添加书籍">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="1.75" y="1.75" width="20.5" height="20.5" rx="6.35"></rect>
@@ -485,10 +482,6 @@ function overlaysHtml() {
               </div>
             </div>
           </div>
-          <div class="field field-full">
-            <label>读书心得</label>
-            <p class="field-hint">在右上角 ⚙ 配置 GitHub 仓库后,把 .md 文件按书名(如 三体.md)放入仓库即可自动关联,详情页点"读书心得"查看</p>
-          </div>
           <!-- 其它标识符(A5):除 ISBN / 豆瓣 id 外可加任意类型。
                行由 common.js 动态增删;类型名自由填(如 goodreads / doi)。 -->
           <div class="field field-full">
@@ -523,35 +516,7 @@ function overlaysHtml() {
     </div>
   </div>
 
-  <!-- 设置弹窗 -->
-  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
-    <div class="modal-box settings-box">
-      <div class="modal-head">
-        <h2>设置</h2>
-        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
-      </div>
-      <div class="form-grid">
-        <div class="field field-full">
-          <label for="sRepo">心得仓库(GitHub)</label>
-          <input type="text" id="sRepo" placeholder="例如:yourname/reading-notes">
-          <p class="field-hint">把读书心得放进这个 GitHub 公开仓库：心得按书名命名（如 三体.md）放根目录。保存后详情页将按《书名》自动获取心得；留空则不获取。</p>
-        </div>
-        <div class="field">
-          <label for="sBranch">分支</label>
-          <input type="text" id="sBranch" placeholder="main">
-        </div>
-      </div>
-      <div class="form-foot">
-        <span id="settingsError" class="form-error"></span>
-        <div class="form-foot-btns">
-          <button type="button" class="btn btn-ghost" data-close>取消</button>
-          <button type="button" class="btn btn-primary" id="settingsSave">保存</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 按 ISBN 批量添加弹窗(对标 calibre 的 Add from ISBN 对话框):
+  <!-- 按 ISBN 批量添加弹窗(对标 calibre 的 Add books from ISBN 对话框):
        多行 ISBN → 服务器逐条校验/查重/抓元数据/建档,结果按条列出。
        查不到的条目给「手动录入」入口,而不是像 calibre 那样建空标题占位记录。 -->
   <div id="isbnBatchModal" class="modal hidden" role="dialog" aria-modal="true">
@@ -591,9 +556,6 @@ function overlaysHtml() {
   <div id="menuCurtain" class="menu-curtain"></div>
   <div id="mobileMenu" class="mobile-menu" role="dialog" aria-modal="true" tabindex="-1">
     <nav class="mm-links" aria-label="主导航">${mobileNavHtml(currentPage)}</nav>
-    <div class="mm-foot">
-      <button type="button" id="mmSettings">⚙ 设置心得仓库</button>
-    </div>
   </div>
   ${mobileSubmenusHtml()}
 

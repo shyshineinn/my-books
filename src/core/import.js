@@ -67,7 +67,6 @@ const HEADER_MAP = {
   series_index: 'series_index', 系列序号: 'series_index',
   tags: 'tags', 标签: 'tags',
   summary: 'summary', 简介: 'summary',
-  notes_url: 'notes_url',
   cover: 'cover', 封面: 'cover',
   start_date: 'start_date', 开始日期: 'start_date',
   finish_date: 'finish_date', 读完日期: 'finish_date',

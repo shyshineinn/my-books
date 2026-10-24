@@ -19,7 +19,7 @@ const FIXED_HEADERS = [
   'status', 'status_label', 'tags', 'series', 'series_index', 'rating',
   'publisher', 'pub_year', 'isbn', 'douban_id',
   'start_date', 'finish_date', 'read_count', 'read_logs',
-  'summary', 'notes_url', 'cover', 'uuid',
+  'summary', 'cover', 'uuid',
   'file_formats', 'identifiers', 'created_at', 'updated_at',
 ];
 
@@ -77,7 +77,6 @@ function buildCatalog(handleDb, query = {}) {
       r.read_count,
       r.read_logs || '[]',
       r.summary,
-      r.notes_url,
       r.cover,
       r.uuid,
       (fileMap.get(r.id) || []).join(', '),

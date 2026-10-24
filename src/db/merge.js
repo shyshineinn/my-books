@@ -64,7 +64,6 @@ function mergeBooks(handleDb, targetId, rawSourceIds) {
       start_date: fields.start_date,
       finish_date: fields.finish_date,
       cover: fields.cover,
-      notes_url: fields.notes_url,
       read_count: fields.read_count,
       read_logs: fields.read_logs,
       publisher: fields.publisher,

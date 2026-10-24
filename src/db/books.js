@@ -66,8 +66,8 @@ function addBook(values, customValues = null, handleDb = db) {
     // Unknown named parameter),不像某些驱动会忽略。
     const { identifiers: idMap, ...cols } = values;
     const result = handleDb.prepare(`
-      INSERT INTO books (title, title_sort, author, author_sort, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, series, series_index, uuid, created_at, updated_at)
-      VALUES (@title, @title_sort, @author, @author_sort, @status, @summary, @tags, @start_date, @finish_date, @cover, @notes_url, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @series, @series_index, @uuid, @ts, @ts)
+      INSERT INTO books (title, title_sort, author, author_sort, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, series, series_index, uuid, created_at, updated_at)
+      VALUES (@title, @title_sort, @author, @author_sort, @status, @summary, @tags, @start_date, @finish_date, @cover, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @series, @series_index, @uuid, @ts, @ts)
     `).run({ ...cols, uuid: crypto.randomUUID(), ts });
     const created = getBook(result.lastInsertRowid, handleDb);
     categories.syncBookTags(handleDb, created.id, categories.parseTagNames(created.tags));
@@ -94,7 +94,7 @@ function updateBook(id, merged, customValues = null, handleDb = db) {
     handleDb.prepare(`
       UPDATE books SET title = @title, title_sort = @title_sort, author = @author, author_sort = @author_sort, status = @status,
         summary = @summary, tags = @tags, start_date = @start_date, finish_date = @finish_date,
-        cover = @cover, notes_url = @notes_url, read_count = @read_count, read_logs = @read_logs,
+        cover = @cover, read_count = @read_count, read_logs = @read_logs,
         publisher = @publisher, pub_year = @pub_year, isbn = @isbn, rating = @rating, douban_id = @douban_id,
         series = @series, series_index = @series_index,
         updated_at = @ts

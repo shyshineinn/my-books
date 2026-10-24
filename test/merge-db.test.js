@@ -41,14 +41,14 @@ function freshDb() {
 function makeBook(db, opts = {}) {
   const ts = '2026-01-02T03:04:05.000Z';
   const r = db.prepare(`
-    INSERT INTO books (title, author, status, tags, cover, summary, notes_url,
+    INSERT INTO books (title, author, status, tags, cover, summary,
       read_count, read_logs, publisher, pub_year, rating, series, series_index,
       isbn, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     opts.title || '书', opts.author || '', opts.status || 'wish',
     JSON.stringify(opts.tags || []), opts.cover || '', opts.summary || '',
-    opts.notesUrl || '', opts.readCount || 0, JSON.stringify(opts.readLogs || []),
+    opts.readCount || 0, JSON.stringify(opts.readLogs || []),
     opts.publisher || '', opts.pubYear || '', opts.rating || 0,
     opts.series || '', opts.seriesIndex || 0, opts.isbn || '', ts, ts,
   );
@@ -80,12 +80,12 @@ test('mergeBooks:合并字段/标签/记录/自定义值/标识符/文件,永久
 
   const target = makeBook(db, {
     title: '目标书', author: '作者', status: 'reading', tags: ['科幻'],
-    cover: '', summary: '', notesUrl: '', publisher: '', pubYear: '', rating: 0,
+    cover: '', summary: '', publisher: '', pubYear: '', rating: 0,
     series: '', seriesIndex: 0, readLogs: [], formats: ['EPUB'],
   });
   const source = makeBook(db, {
     title: '来源书', author: '作者', status: 'done', tags: ['小说', '科幻'],
-    cover: '/uploads/s.png', summary: '来源简介', notesUrl: '/notes/s',
+    cover: '/uploads/s.png', summary: '来源简介',
     publisher: '来源社', pubYear: '2002', rating: 9,
     series: '基地', seriesIndex: 2,
     readLogs: [{ start: '2025-01-01', finish: '2025-01-05' }],
@@ -113,7 +113,6 @@ test('mergeBooks:合并字段/标签/记录/自定义值/标识符/文件,永久
   assert.equal(row.series_index, 2);
   assert.equal(row.cover, '/uploads/s.png');
   assert.equal(row.summary, '来源简介');
-  assert.equal(row.notes_url, '/notes/s');
   assert.equal(row.isbn, '9787536692930', '目标无 ISBN 时用来源');
 
   assert.equal(customFields.getValues(db, target).mood, '震撼');

@@ -151,14 +151,13 @@ test('空起止的记录条目被过滤', () => {
 
 test('mergeUpdate:未提供的字段保留数据库旧值', () => {
   const existing = {
-    summary: '旧简介', notes_url: 'https://old/x.md', cover: '/uploads/a.png',
+    summary: '旧简介', cover: '/uploads/a.png',
     read_count: 3, read_logs: '[{"start":"2020-01-01","finish":"2020-02-01"}]',
   };
   const { values } = parseBook({ title: '新书名', author: '新作者', status: 'reading' });
   const merged = mergeUpdate(existing, values, { title: '新书名', author: '新作者', status: 'reading' });
 
   assert.equal(merged.summary, '旧简介');
-  assert.equal(merged.notes_url, 'https://old/x.md');
   assert.equal(merged.cover, '/uploads/a.png');
   assert.equal(merged.read_count, 3);
   assert.equal(merged.read_logs, existing.read_logs);

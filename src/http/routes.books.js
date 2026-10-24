@@ -59,17 +59,20 @@ function withFiles(row) {
   };
 }
 
-// 列表接口给每本书附 custom_display 与系列展示串(批量一次查完,避免 N+1)
+// 列表接口给每本书附 custom_display、系列展示串与"有没有心得"(批量一次查完,避免 N+1)
 function withCustomDisplay(rows) {
   if (!rows.length) return rows;
   const cols = customFields.listColumns(db);
   const map = cols.length
     ? customFields.getValuesForBooks(db, rows.map((r) => r.id), { columns: cols })
     : {};
+  // 心得存在磁盘上(notes-files/{id}.md):一次 readdir 拿到全部有心得的 id
+  const noteIds = new Set(notesRepo.listNoteIds());
   return rows.map((r) => ({
     ...r,
     custom_display: map[r.id] || {},
     series_label: coreSeries.seriesLabel(r.series, r.series_index),
+    has_notes: noteIds.has(r.id),
   }));
 }
 

@@ -78,10 +78,27 @@ function removeNote(id) {
   return removeUnderBase(NOTES_DIR, `${Number(id)}.md`);
 }
 
+// 批量:哪些书有心得文件。
+// 一次 readdir 拿到全部 id,避免书架列表逐本 stat(N+1 次系统调用)。
+function listNoteIds() {
+  try {
+    const ids = [];
+    for (const name of fs.readdirSync(NOTES_DIR)) {
+      if (!name.endsWith('.md')) continue;
+      const n = Number(name.slice(0, -3));
+      if (Number.isSafeInteger(n) && n > 0) ids.push(n);
+    }
+    return ids;
+  } catch {
+    return [];   // 目录还不存在(还没建过心得)时没有心得
+  }
+}
+
 module.exports = {
   MAX_NOTE_BYTES,
   statNote,
   readNote,
   writeNote,
   removeNote,
+  listNoteIds,
 };

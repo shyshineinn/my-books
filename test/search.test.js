@@ -29,8 +29,8 @@ function setup(list) {
   db.exec('DELETE FROM books');
   db.exec("INSERT INTO books_fts(books_fts) VALUES('delete-all')");
   const ins = db.prepare(
-    `INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, created_at, updated_at)
-     VALUES (@title, @author, @status, @summary, @tags, '', '', '', '', 0, '[]', '2024-01-01T00:00:00.000Z', '2024-01-01T00:00:00.000Z')`
+    `INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, created_at, updated_at)
+     VALUES (@title, @author, @status, @summary, @tags, '', '', '', 0, '[]', '2024-01-01T00:00:00.000Z', '2024-01-01T00:00:00.000Z')`
   );
   for (const b of list) {
     ins.run({ ...b });

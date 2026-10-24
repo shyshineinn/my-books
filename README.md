@@ -47,7 +47,7 @@
 
 ### 记录字段与阅读记录
 
-- **字段**:书名(必填)、作者、状态(想读 / 在读 / 已读)、图书简介(≤1000 字)、分类标签、封面、心得链接、豆瓣元数据(出版社 / 出版年 / ISBN / 评分 / 条目 id)
+- **字段**:书名(必填)、作者、状态(想读 / 在读 / 已读)、图书简介(≤1000 字)、分类标签、封面、豆瓣元数据(出版社 / 出版年 / ISBN / 评分 / 条目 id)
 - **自定义字段**(2026-10-15 新增,对标 calibre 的自定义列):在 `/tags` 页可自行增删字段,
   **不必改代码、不必发版**。支持 9 种类型:单行文本(可多值)、长文本、整数、小数、评分(0~10)、
   日期、是/否、枚举(受控选项)、系列。建好后出现在书籍编辑弹窗里,并可用 `#字段名:值` 参与检索。
@@ -58,12 +58,14 @@
   - 前端状态联动:切「已读」自动补最近一次记录的读完日期;切「在读」自动新增一条今天开读的记录
 - 兼容旧数据:没有阅读记录但有起止日期的书,编辑时自动迁移为一条记录
 
-### 读书心得(GitHub 仓库)
+### 读书心得(服务器存储)
 
-- 右上角 ⚙ 设置一个 **GitHub 公开仓库**(格式 `owner/repo`,可选分支,默认 `main`)
-- 心得写成 `.md` 按**书名**命名(如 `三体.md`)放仓库根目录,详情页/心得页自动获取并渲染 Markdown
-- 也可在编辑书籍里为单本书填写完整的 GitHub 文件链接(优先级高于按书名自动匹配)
-- 服务端代理拉取(raw.githubusercontent.com),内存缓存 5 分钟;渲染前经 **DOMPurify** 消毒
+- 心得正文存在**服务器本地** `notes-files/{id}.md`,与书籍一一对应
+- 接口:`GET /api/books/:id/notes`(读,公开)、`PUT /api/books/:id/notes`(写,需口令)、
+  `DELETE /api/books/:id/notes`(删,需口令)
+- 页面内可直接编辑并保存;写请求带 `expected_updated_at`,服务器上已被别处改过则回 409
+  (前端提示"是否用当前内容覆盖"),避免两处编辑互相吞掉对方的修改
+- 渲染前经 **DOMPurify** 消毒;随书删除时心得文件一并清理
 
 ### 封面
 
@@ -160,7 +162,7 @@ ISBN 是书的「身份证」:扫码或手输条码数字即可精确取元数�
 - 查询参数与 `/api/books` 完全一致(`q` / `status` / `tag` / `author` / `vl` / `sort`),所以可以只导出当前筛选,
   例如 `/api/export.csv?status=done&tag=科幻`
 - 固定列包含:书名/排序键、作者/排序键、状态(原值 + 中文标签)、标签、系列与序号、评分、出版信息、
-  ISBN/豆瓣 ID、阅读日期与 `read_logs`、简介、心得链接、封面、uuid、电子书格式、全部标识符、创建/更新时间
+  ISBN/豆瓣 ID、阅读日期与 `read_logs`、简介、封面、uuid、电子书格式、全部标识符、创建/更新时间
 - 每个**自定义字段**自动追加一列,列名为 `#label`;回收站中的书**不导出**
 - 文件为 **UTF-8 BOM + CRLF**,Excel / WPS 打开中文不乱码;字段按 RFC 4180 转义,
   以 `= + - @` 开头的单元格会加单引号前缀,避免 CSV 公式注入
@@ -288,7 +290,6 @@ npm start     # 启动服务
 
 管理令牌二选一:`ADMIN_TOKEN` 环境变量,或单行文本文件 `data/admin-token`(推荐,
 该文件已在 .gitignore 中;生成:`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`)。
-心得仓库设置存在数据库 `settings` 表里,通过界面修改。
 
 ---
 
@@ -314,11 +315,11 @@ npm start     # 启动服务
 
 ```
         浏览器(MPA:原生 JS,无构建;public/ 静态文件)
-            │  fetch /api/*(JSON)          fetch /api/notes、/api/img-proxy
+            │  fetch /api/*(JSON)          fetch /api/img-proxy
             ▼                                        │
    ┌─────────────────────┐   301 跳 HTTPS             ▼
    │  Nginx 443(TLS 终结 │  ← 80 端口只留 ACME 路径   │
-   │  gzip / 安全响应头    │                    回源外网(GitHub raw / 图床)
+   │  gzip / 安全响应头    │                    回源外网(图床)
    │  写接口 Basic 口令    │
    │  client_max_body 100m│
    └──────────┬──────────┘
@@ -393,7 +394,7 @@ npm start     # 启动服务
   `listTags` / `listAuthors` 支持 `scopeIds`,作用域外的分类**不出现**而不是计数为 0
 - `saved_searches.js`:保存的搜索 + **虚拟书库**(`is_virtual` 标记,同名大小写不敏感唯一);
   `getVirtualByName` / `listVirtual` 供 `vl:` 谓词与 `/api/virtual-libraries` 使用
-- `book_files.js` / `settings.js` / `stats.js`(`getStats` 同样吃 `scopeIds`)
+- `book_files.js` / `stats.js`(`getStats` 同样吃 `scopeIds`)
 
 **`src/http/` HTTP 适配(解析请求 → 调 db → 组响应,不写规则与 SQL)**
 
@@ -405,13 +406,14 @@ npm start     # 启动服务
   批量添加(`/api/books/from-isbn`)
 - `metadata-sources.js`:元数据源网络层 —— 豆瓣(反爬 UA / Cookie / 限速 / 按 ISBN 短链直查)与
   Open Library 兜底;组合入口 `lookupIsbn()` 让扫码回填与批量导入共用同一条取数链路
-- `routes.misc.js`:设置 / 上传(MIME 白名单 + 5MB + 随机文件名)/ 统计路由
+- `routes.misc.js`:上传(MIME 白名单 + 5MB + 随机文件名)/ 统计路由
+- `routes.notes.js`:读书心得读写(`GET` / `PUT` / `DELETE /api/books/:id/notes`),
+  正文存 `notes-files/{id}.md`;写带 `expected_updated_at` 防并发覆盖
 - `middleware.auth.js`:写接口鉴权(Bearer token、恒时比较、失败限速)
 - `middleware.vl.js`:`?vl=名字` → 解析成书 id 集合挂到 `req.vlScope`,列表 / 分类 / 统计 /
   系列 / 查重 / 导出共用同一份作用域;名字不存在或循环引用返回 `400 VALIDATION`,
   多个 `?vl=` 取交集。**客户端自己传的 `scopeIds` 一律丢弃**,作用域只能由服务端解析
-- `routes.proxy.js`:两个出站代理,原样保留缓存与超时:
-  - `/api/notes`:仅接受 `github.com` 与 `raw/gist.githubusercontent.com` 链接;短文件名解析到设置里的仓库;`AbortSignal.timeout(30s)`;缓存 5 分钟
+- `routes.proxy.js`:出站代理(外链封面图片),保留缓存与超时:
   - `/api/img-proxy`:SSRF 防护(内网地址黑名单)、仅 http/https、`content-type` 必须为 `image/*`、≤5MB、15s 超时 + 失败自动重试一次;缓存 1 小时并给浏览器 `Cache-Control: public, max-age=3600`
 
 **`server.js` 薄入口**
@@ -505,7 +507,6 @@ npm start     # 启动服务
 | `tags` | TEXT | JSON 数组,如 `["小说","科幻"]`(展示缓存,由 `book_tags` 重算) |
 | `start_date` / `finish_date` | TEXT | `YYYY-MM-DD`;**由 `read_logs` 自动推导**,无记录时保留表单兜底值 |
 | `cover` | TEXT | 封面地址(`/uploads/...` 相对路径或外链);空则前端生成占位封面 |
-| `notes_url` | TEXT | 心得 Markdown 链接;空且已配置仓库时按《书名》.md 自动匹配 |
 | `read_count` | INTEGER | 读过次数;**有记录时 = `read_logs` 中 `finish` 非空的条数** |
 | `read_logs` | TEXT | JSON 数组 `[{start, finish}]`,每行一次阅读 |
 | `publisher` / `pub_year` / `isbn` / `rating` / `douban_id` | TEXT/REAL | 豆瓣抓取的元数据;`rating` 为 **10 分制**(可含小数) |
@@ -559,8 +560,6 @@ npm start     # 启动服务
 > 性能服务的。本项目有一条更重要的不变量 —— **schema 只由 `src/db/index.js` 的 `migrations` 数组定义**。
 > 运行时 DDL 会让"库的结构"取决于"用户的操作历史",备份 / 恢复 / 自检都失去确定性。
 > 单张值表 + 约束实现同样的语义,代价是值表宽一点,收益是 schema 恒定可推演。
-
-`settings` 表:`key TEXT PRIMARY KEY, value TEXT`;现用键:`notes_repo`、`notes_branch`。
 
 `saved_searches` 表(v10):`name UNIQUE COLLATE NOCASE` + `query`(原始语法串)+ `sort`;
 v14 追加 `is_virtual INTEGER NOT NULL DEFAULT 0 CHECK (is_virtual IN (0,1))` —— 为 1 时这条
@@ -622,7 +621,7 @@ v14 追加 `is_virtual INTEGER NOT NULL DEFAULT 0 CHECK (is_virtual IN (0,1))` �
 | 写接口鉴权 | **双层**:外圈 Nginx `limit_except GET HEAD + auth_basic`(浏览器弹框);里圈应用内 `src/http/middleware.auth.js` —— 非 GET/HEAD 的 `/api/*` 要求 `Authorization: Bearer <token>` 或 `X-Admin-Token` 头,恒时比较防时序侧信道;**未配置 token 时写接口一律 503(fail closed)**。读接口公开。命令行调用:`curl -H "Authorization: Bearer <token>" -X POST …` |
 | 网络暴露 | 生产 Node 只绑 `127.0.0.1:3002`;云安全组不放行应用端口 |
 | XSS | 所有 HTML 插值经 `esc()` 转义;Markdown 渲染结果经 `DOMPurify.sanitize()` |
-| SSRF | `/api/img-proxy` 内网地址黑名单(localhost、127/8、10/8、172.16/12、192.168/16、169.254/16、IPv6 回环/ULA/链路本地、0/8);`/api/notes` 仅允许 GitHub 三个域名 |
+| SSRF | `/api/img-proxy` 内网地址黑名单(localhost、127/8、10/8、172.16/12、192.168/16、169.254/16、IPv6 回环/ULA/链路本地、0/8) |
 | 上传 | MIME 白名单(png/jpeg/gif/webp)+ 5MB 上限 + `时间戳-随机hex` 文件名,不透传原始文件名 |
 | 传输 | TLS 1.2/1.3(免费 DV 单域名证书,不做 www);HTTP 80 一律 301 到 HTTPS |
 | 响应头 | Nginx 统一加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin` |
@@ -672,7 +671,7 @@ my-books/
 │   │   ├── catalog.js                # CSV 导出的字段组装(固定列 + 自定义字段 + 标识符 + 文件)
 │   │   ├── duplicates.js             # 重复书籍扫描(在架书 + 文件格式)
 │   │   ├── merge.js                  # 合并事务:字段/格式/自定义值/标识符 + 永久删除来源
-│   │   ├── settings.js / stats.js    # 设置读写 / 统计查询入口
+│   │   ├── stats.js                  # 统计查询入口
 │   ├── http/                         # HTTP 适配层(解析请求 → 调 db → 组响应)
 │   │   ├── middleware.auth.js        # 写接口应用内鉴权(Bearer token,恒时比较,失败限速)
 │   │   ├── middleware.vl.js          # ?vl=名字 → req.vlScope(书 id 集合;多名字取交集;失效 400)
@@ -685,8 +684,9 @@ my-books/
 │   │   ├── routes.metadata.js        # 豆瓣元数据检索
 │   │   ├── metadata-sources.js       # 元数据源网络层:豆瓣按 ISBN 直查/搜索 + Open Library 兜底(组合入口 lookupIsbn)
 │   │   ├── routes.isbn.js            # ISBN 校验查重 / 按 ISBN 查元数据 / 批量添加
-│   │   ├── routes.misc.js            # 设置 / 封面上传 / 统计
-│   │   ├── routes.proxy.js           # notes / img-proxy 出站代理(缓存 + SSRF 防护)
+│   │   ├── routes.misc.js            # 封面上传 / 统计
+│   │   ├── routes.notes.js           # 读书心得读写(notes-files/{id}.md)
+│   │   ├── routes.proxy.js           # img-proxy 出站代理(缓存 + SSRF 防护)
 │   │   └── lru.js                    # 有上限的内存缓存
 ├── test/                             # node:test 用例(npm test,35 个文件 442 条)
 │   ├── custom-fields.test.js         # 自定义字段:规则 / 落库 / 检索 / 软删除 / 事务
@@ -766,9 +766,9 @@ my-books/
 | GET | `/api/virtual-libraries` | 虚拟书库列表 `{ id, name, query, sort, count }`;`count` 是当前命中本数,名字失效 / 循环引用时为 `null`(不整套报错) |
 | POST / PUT / DELETE | `/api/saved-searches` `/api/saved-searches/:id` | 保存的搜索增改删;体可带 `isVirtual`(PUT 省略时保持原值);**写需口令** |
 | POST | `/api/upload` | 上传封面;JSON 体 `{ data: "data:image/png;base64,…" }`,≤5MB,返回 `{ url }` |
-| GET | `/api/settings` | 读心得仓库设置 `{ notesRepo, notesBranch }` |
-| PUT | `/api/settings` | 保存心得仓库;`notesRepo` 自动去掉 `https://github.com/` 前缀与 `.git` 后缀 |
-| GET | `/api/notes?url=` | 代理拉取 GitHub 上的心得 Markdown(内存缓存 5 分钟);`url` 可为完整 GitHub 链接或按书名短文件名 |
+| GET | `/api/books/:id/notes` | 读单本书的读书心得 `{ has_notes, content, size, updated_at }`;**读接口公开** |
+| PUT | `/api/books/:id/notes` | 写读书心得;体 `{ content, expected_updated_at? }`;`expected_updated_at` 与服务器现值不符回 `409 CONFLICT`;**写需口令** |
+| DELETE | `/api/books/:id/notes` | 删除读书心得;**写需口令** |
 | GET | `/api/img-proxy?url=` | 外链封面图片代理:同源化供 Canvas 取色(SSRF 防护,缓存 1 小时,失败重试一次) |
 | GET | `/api/stats?vl=` | 统计数据 `{ total, byStatus, byYear, topTags }`(topTags 至多 12 个);`vl=` 时只统计书库内的书 |
 | GET | `/api/metadata/search?q=` | 豆瓣元数据检索(书名或 ISBN),返回最多 5 个候选 |

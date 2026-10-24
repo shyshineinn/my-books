@@ -35,14 +35,14 @@ test('mergeStatus:done > reading > wish', () => {
 test('mergeFields:标签/记录合并,空字段由来源补,目标已有值优先', () => {
   const target = {
     status: 'reading', tags: '["科幻"]', read_logs: '[]',
-    cover: '/uploads/t.png', summary: '目标简介', notes_url: '/notes/t',
+    cover: '/uploads/t.png', summary: '目标简介',
     publisher: '目标社', pub_year: '2001', rating: 8,
     series: '', series_index: 0,
   };
   const source = {
     status: 'done', tags: '["小说"]',
     read_logs: '[{"start":"2025-01-01","finish":"2025-01-05"}]',
-    cover: '/uploads/s.png', summary: '来源简介', notes_url: '/notes/s',
+    cover: '/uploads/s.png', summary: '来源简介',
     publisher: '来源社', pub_year: '2002', rating: 9,
     series: '基地', series_index: 2,
   };
@@ -54,7 +54,6 @@ test('mergeFields:标签/记录合并,空字段由来源补,目标已有值优�
   assert.equal(merged.finish_date, '2025-01-05');
   assert.equal(merged.cover, '/uploads/t.png', '目标封面优先');
   assert.equal(merged.summary, '目标简介', '目标简介优先');
-  assert.equal(merged.notes_url, '/notes/t');
   assert.equal(merged.publisher, '目标社');
   assert.equal(merged.pub_year, '2001');
   assert.equal(merged.rating, 8, '目标评分优先');
@@ -64,12 +63,12 @@ test('mergeFields:标签/记录合并,空字段由来源补,目标已有值优�
 
 test('mergeFields:目标为空时用来源补;目标 done 无记录时补今天读完', () => {
   const target = {
-    status: 'wish', tags: '[]', read_logs: '[]', cover: '', summary: '', notes_url: '',
+    status: 'wish', tags: '[]', read_logs: '[]', cover: '', summary: '',
     publisher: '', pub_year: '', rating: 0, series: '', series_index: 0,
   };
   const source = {
     status: 'done', tags: '["小说"]', read_logs: '[]', cover: '/uploads/s.png',
-    summary: '来源简介', notes_url: '', publisher: '来源社', pub_year: '2002',
+    summary: '来源简介', publisher: '来源社', pub_year: '2002',
     rating: 9, series: '', series_index: 0,
   };
   const merged = mergeFields(target, [source]);

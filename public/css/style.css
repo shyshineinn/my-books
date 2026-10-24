@@ -409,19 +409,6 @@ body.menu-open .menu-curtain {
   transition: none;
 }
 
-.mm-foot { margin-top: auto; padding: 12px 48px 40px; }
-
-#mmSettings {
-  border: 0;
-  background: none;
-  font-size: 14px;
-  color: rgba(29, 29, 31, 0.72);
-  padding: 10px 0;
-  transition: color 0.2s var(--ease);
-}
-
-#mmSettings:hover { color: var(--ink); }
-
 /* ============ 竖屏二级菜单(apple.com 移动端子菜单 1:1) ============
    一级列表之上再压一层不透明 #fafafc 面板,淡入 300ms;
    主列表原样留在下面,返回时上层淡出即回到一级,不重播级联入场。
@@ -632,8 +619,7 @@ body.menu-open .menu-curtain {
     flex-wrap: nowrap;
     min-height: 48px;
   }
-  .view-switch,
-  #settingsBtn { display: none; }
+  .view-switch { display: none; }
   #searchBtn { display: inline-flex; }   /* 搜索独立成一级入口,与「添加书籍」平级 */
   .mobile-menu-btn { display: inline-flex; }
   /* 搜索/添加与汉堡统一 48×48 命中区:三个图标中心等距 48px;
@@ -2717,14 +2703,6 @@ body.select-mode .toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
 }
 
 .notes-edit-btn { position: absolute; top: 0; right: 0; }
-
-.notes-source {
-  margin-left: 8px;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--ink-3);
-  letter-spacing: 0.02em;
-}
 
 .notes-editor {
   display: block;

@@ -97,7 +97,6 @@ function mergeFields(target, sources) {
     read_count: derived.read_count,
     cover: target.cover || firstNonEmpty(sources.map((s) => s.cover)),
     summary: target.summary || firstNonEmpty(sources.map((s) => s.summary)),
-    notes_url: target.notes_url || firstNonEmpty(sources.map((s) => s.notes_url)),
     publisher: target.publisher || firstNonEmpty(sources.map((s) => s.publisher)),
     pub_year: target.pub_year || firstNonEmpty(sources.map((s) => s.pub_year)),
     rating: Number(target.rating) || sourceRating,

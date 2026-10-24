@@ -65,7 +65,7 @@ const LABEL_MAX_LEN = 40;
 // 不该因为升级而被判定为非法。保留字只在**新建字段**时校验,不影响存量字段。
 const RESERVED_LABELS = new Set([
   'id', 'title', 'author', 'authors', 'author_sort', 'status', 'summary',
-  'tags', 'tag', 'start_date', 'finish_date', 'cover', 'notes_url',
+  'tags', 'tag', 'start_date', 'finish_date', 'cover',
   'read_count', 'read_logs', 'created_at', 'updated_at',
   'publisher', 'pub_year', 'pubyear', 'isbn', 'rating', 'douban_id',
   'format', 'formats', 'file', 'files', 'q', 'sort', 'all', 'search', 'vl',

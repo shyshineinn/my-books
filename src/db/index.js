@@ -427,8 +427,21 @@ function migrateV14(db, dataDir) {
   }
 }
 
+// v15:读书心得改为**服务器存储**(notes-files/{id}.md),下线 GitHub 链接机制。
+//     · books.notes_url 列删除 —— 它存的是"GitHub 上的 md 文件链接",
+//       心得正文如今由 notes-files/{id}.md 承载(见 src/db/notes.js),
+//       这个链接字段再无读写方,留着只会让人误以为心得还在 GitHub 上。
+//     · settings 表删除 —— 它只为心得仓库(notes_repo / notes_branch)存在,
+//       仓库配置随 /api/settings 端点一起下线。
+//     回退只需把这两样加回来(数据本身在 notes-files/ 里,不依赖 schema)。
+function migrateV15(db, dataDir) {
+  const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
+  if (cols.includes('notes_url')) db.exec('ALTER TABLE books DROP COLUMN notes_url');
+  db.exec('DROP TABLE IF EXISTS settings');
+}
+
 // 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
@@ -474,8 +487,8 @@ function openDb(dataDir = DATA_DIR) {
   // 种子数据:仅当这是一个全新的库文件(与书架当前是否为空无关)
   if (isNewLibrary) {
     const insert = db.prepare(`
-      INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, notes_url, read_count, read_logs, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?)
+      INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)
     `);
     const nowTs = now();
     for (const b of samples) {
@@ -518,15 +531,4 @@ function inTransaction(handleDb, fn) {
 // 默认实例:应用主库。测试通过 openDb(tempDir) 建隔离实例,不经此路径
 const db = openDb(DATA_DIR);
 
-function getSetting(key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : '';
-}
-
-function setSetting(key, value) {
-  db.prepare(
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, String(value));
-}
-
-module.exports = { db, now, getSetting, setSetting, openDb, runMigrations, migrations, inTransaction };
+module.exports = { db, now, openDb, runMigrations, migrations, inTransaction };

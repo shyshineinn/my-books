@@ -100,7 +100,7 @@ function renderGrid() {
         <div class="card-title">${esc(book.title)}</div>
         ${book.author ? `<div class="card-author">${esc(book.author)}</div>` : ''}
         <div class="card-meta">
-          ${book.notes_url ? '<span class="has-notes" title="这本书有读书心得">✎ 心得</span>' : ''}
+          ${book.has_notes ? '<span class="has-notes" title="这本书有读书心得">✎ 心得</span>' : ''}
           ${date ? `<span class="card-date">${esc(date)}</span>` : ''}
         </div>
       </div>`;
