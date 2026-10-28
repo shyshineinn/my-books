@@ -23,6 +23,7 @@ const routesEnrich = require('./src/http/routes.enrich');
 const routesImport = require('./src/http/routes.import');
 const { requireAdmin, requireLibraryAccess } = require('./src/http/middleware.auth');
 const routesAuth = require('./src/http/routes.auth');
+const routesSync = require('./src/http/routes.sync');
 const { UPLOAD_DIR, FILES_DIR } = require('./src/core/paths');
 const { attachVlScope } = require('./src/http/middleware.vl');
 const { db } = require('./src/db/index');
@@ -99,6 +100,7 @@ apiV1.use((req, res, next) => {
   next();
 });
 apiV1.use(routesBooks);
+apiV1.use(routesSync);
 apiV1.use(routesNotes);
 apiV1.use(routesMisc);
 apiV1.use(routesProxy);
@@ -114,6 +116,7 @@ apiV1.use(routesImport);
 app.use('/api/v1', apiV1);
 
 app.use(routesBooks);
+app.use(routesSync);
 app.use(routesNotes);
 app.use(routesMisc);
 app.use(routesProxy);

@@ -22,8 +22,40 @@ const bookFiles = require('../db/book_files');
 const { validateEbookFile, ebookFileName } = require('../core/ebook');
 const { removeUnderBase } = require('../core/fs-utils');
 const { FILES_DIR } = require('../core/paths');
+const { fileDigest } = require('../core/file-digest');
 
 const router = express.Router();
+
+// 强 ETag 与 SHA-256 绑定同一份正文；If-Range 不匹配时 sendFile 返回完整 200。
+router.get('/api/books/:id/files/:fileId/content', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id), fileId = Number(req.params.fileId);
+    if (!Number.isSafeInteger(id) || id < 1 || !Number.isSafeInteger(fileId) || fileId < 1) {
+      return res.status(400).json({ code: 'VALIDATION', error: '书籍或文件 id 无效' });
+    }
+    const book = books.getBook(id);
+    const file = bookFiles.getFileById(db, fileId);
+    if (!book || !file || file.book !== id) return res.status(404).json({ code: 'NOT_FOUND', error: '正文不存在' });
+    if (req.query.uuid !== undefined && req.query.uuid !== book.uuid) {
+      return res.status(409).json({ code: 'IDENTITY_CHANGED', error: '书籍身份已变化' });
+    }
+    const base = await fs.promises.realpath(FILES_DIR);
+    const target = await fs.promises.realpath(path.resolve(base, file.path));
+    if (!target.startsWith(base + path.sep)) return res.status(400).json({ code: 'VALIDATION', error: '正文路径无效' });
+    const digest = await fileDigest(target);
+    if (bookFiles.getFileById(db, fileId)?.path !== file.path) {
+      return res.status(409).json({ code: 'FILE_CHANGED', error: '正文已更新，请重试下载' });
+    }
+    res.set({ ETag: `"sha256-${digest.sha256}"`, 'X-Content-SHA256': digest.sha256,
+      'Cache-Control': 'private, no-store', 'Accept-Ranges': 'bytes' });
+    res.sendFile(target, { etag: false, acceptRanges: true, cacheControl: false }, (error) => {
+      if (error) next(error);
+    });
+  } catch (error) {
+    if (error.code === 'ENOENT') return res.status(404).json({ code: 'NOT_FOUND', error: '正文不存在' });
+    next(error);
+  }
+});
 
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 

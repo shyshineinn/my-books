@@ -5,7 +5,8 @@
 - 后端与网页：[shyshineinn/my-books](https://github.com/shyshineinn/my-books)。
 - 安卓改版：[shyshineinn/Mybooks](https://github.com/shyshineinn/Mybooks)，基于 Huangder 的 Lumi。
 - 系统定位：单管理员、多设备，默认私有书库。不是多人账号系统。
-- 当前能力与限制见 README、自部署指南和同步协议；不要把 WebDAV 的阅读数据同步描述成自建后端已有能力。
+- Web 定位为完整的书库管理后台，后续继续增强批量操作、元数据、附件、同步/设备与备份管理，不建设网页阅读器。
+- 当前自建后端支持安卓阅读数据同步、书目增量与正文续传；与 WebDAV 是独立能力，具体范围见同步协议。
 
 ## 源码与署名
 

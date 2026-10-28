@@ -40,6 +40,9 @@
 | GET | `/api/books/trash` | 回收站 |
 | POST | `/api/books/:id/restore` | 恢复回收站书目 |
 | GET | `/api/sync/books` | 完整同步视图，拒绝筛选和分页参数 |
+| GET | `/api/sync/changes?cursor=...` | 协议 3 增量视图；首次省略游标 |
+| GET | `/api/sync/reading/:id` | 安卓阅读数据与独立版本，始终要求会话 |
+| PUT | `/api/sync/reading/:id` | 条件提交阅读数据，旧版本返回 409 |
 
 新客户端对书目的 PATCH、PUT、DELETE 应携带读取时的 `expected_uuid` 和
 `expected_revision`，不要用手机时间决定谁覆盖谁。PATCH 示例：
@@ -54,7 +57,18 @@
 
 同步应使用 `/api/sync/books` 的完整视图和明确删除记录，不能用 `/api/books` 的
 筛选结果推断删除。响应验证、书库身份与删除事件语义见 [同步协议](SYNC_PROTOCOL.md)。
-当前没有增量游标、阅读位置或标注同步 API。
+新客户端优先使用协议 3；增量为空不能推断删除。无效游标返回 `410 CURSOR_RESET`，
+重新获取完整视图后继续做书库身份与版本检查。Web 端定位为管理端，阅读数据接口服务安卓多设备。
+
+阅读数据 PUT 请求：
+
+```json
+{"library_id":"library-from-sync","expected_uuid":"book-uuid","expected_revision":0,"data":{"positions":[],"bookmarks":[],"notes":[],"reading_records":[],"tombstones":[]}}
+```
+
+成功响应包含 `book_id`、`book_uuid`、阅读 `revision` 与实际保存的 `data`。
+阅读版本独立于书目版本；冲突响应的 `current` 是阅读数据，不是书目详情。
+负载字段、删除与合并语义见 [同步协议](SYNC_PROTOCOL.md)。
 
 ## 附件与心得
 
@@ -64,12 +78,15 @@
 | POST | `/api/books/:id/file` | multipart 字段 `file`，上传电子书，单文件上限 80 MiB |
 | DELETE | `/api/books/:id/file?format=EPUB` | 按格式删除该书的附件 |
 | GET | `/books-files/:path` | 下载文件列表给出的相对路径 |
+| GET | `/api/books/:id/files/:fileId/content?uuid=...` | 强 ETag、SHA-256 和 Range/If-Range 正文续传 |
 | GET | `/api/books/:id/notes` | 返回 `has_notes`、`content`、`size`、`updated_at` |
 | PUT | `/api/books/:id/notes` | JSON 的 `content` 与可选的 `expected_updated_at` 保存心得 |
 | DELETE | `/api/books/:id/notes` | 删除心得 |
 
 文件上传与心得写入有各自的请求规则，不应假定书目的版本条件自动适用于全部写接口。
 下载仍要发送认证；不要在反代中把附件目录改成绕过应用的公开静态目录。
+新客户端下载使用详情文件项的 `download_url`，不得将设备令牌拼入 URL。
+206 必须核对 Content-Range 与验证器；文件替换导致 200 时应重新写入，不能追加旧片段。
 
 ## 错误处理
 

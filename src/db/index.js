@@ -486,8 +486,46 @@ function migrateV16(db) {
   }
 }
 
+// v17:单调变更日志与安卓阅读数据。检查点随机值可识别备份恢复后的序号复用。
+function migrateV17(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_changes (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      book_id INTEGER NOT NULL, uuid TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('book','reading')),
+      checkpoint TEXT NOT NULL DEFAULT (lower(hex(randomblob(16))))
+    );
+    CREATE INDEX IF NOT EXISTS sync_changes_book_idx ON sync_changes(book_id, seq);
+    CREATE TABLE IF NOT EXISTS mobile_reading_state (
+      book_id INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+      book_uuid TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0),
+      data TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    INSERT INTO sync_changes(book_id, uuid, kind) SELECT id, uuid, 'book' FROM books b
+      WHERE NOT EXISTS(SELECT 1 FROM sync_changes c WHERE c.book_id=b.id AND c.kind='book');
+    INSERT INTO sync_changes(book_id, uuid, kind) SELECT id, uuid, 'book' FROM book_deletions
+      WHERE id NOT IN (SELECT id FROM books) AND NOT EXISTS(SELECT 1 FROM sync_changes c WHERE c.book_id=book_deletions.id AND c.kind='book');
+    CREATE TRIGGER IF NOT EXISTS books_sync_insert AFTER INSERT ON books BEGIN
+      INSERT INTO sync_changes(book_id,uuid,kind) VALUES(NEW.id,NEW.uuid,'book');
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_sync_update AFTER UPDATE ON books
+      WHEN NEW.revision != OLD.revision OR NEW.deleted_at IS NOT OLD.deleted_at BEGIN
+      INSERT INTO sync_changes(book_id,uuid,kind) VALUES(NEW.id,NEW.uuid,'book');
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_sync_delete AFTER DELETE ON books BEGIN
+      INSERT INTO sync_changes(book_id,uuid,kind) VALUES(OLD.id,OLD.uuid,'book');
+    END;
+    CREATE TRIGGER IF NOT EXISTS mobile_reading_sync_insert AFTER INSERT ON mobile_reading_state BEGIN
+      INSERT INTO sync_changes(book_id,uuid,kind) VALUES(NEW.book_id,NEW.book_uuid,'reading');
+    END;
+    CREATE TRIGGER IF NOT EXISTS mobile_reading_sync_update AFTER UPDATE ON mobile_reading_state BEGIN
+      INSERT INTO sync_changes(book_id,uuid,kind) VALUES(NEW.book_id,NEW.book_uuid,'reading');
+    END;
+  `);
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

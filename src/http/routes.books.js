@@ -40,6 +40,7 @@ function withFiles(row) {
   if (!row) return row;
   const files = bookFiles.listFiles(db, row.id).map((f) => ({
     id: f.id, format: f.format, path: f.path, size: f.size,
+    download_url: `/api/books/${row.id}/files/${f.id}/content?uuid=${encodeURIComponent(row.uuid)}`,
   }));
   const ids = identifiersRepo.getIdentifiers(db, row.id);
   const note = notesRepo.statNote(row.id);
