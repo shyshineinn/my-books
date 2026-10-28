@@ -42,6 +42,34 @@ test('全新私有部署：初始化、网页 cookie、安卓 Bearer、文件保
     assert.deepEqual(await (await fetch(base + '/api/books', { headers })).json(), []);
     const cookie = login.headers.get('set-cookie').split(';')[0];
     assert.equal((await fetch(base + '/api/books', { headers: { Cookie: cookie } })).status, 200);
+    const created = await (await fetch(base + '/api/books', { method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '版本检查' }) })).json();
+    assert.ok(created.revision > 0);
+    assert.equal((await fetch(base + '/api/sync/books?q=filtered', { headers })).status, 400);
+    const snapshot = await (await fetch(base + '/api/v1/sync/books', { headers })).json();
+    assert.equal(snapshot.sync_version, 2);
+    assert.equal(snapshot.complete, true);
+    assert.equal(snapshot.books[0].revision, created.revision);
+    const changed = await (await fetch(base + '/api/books/' + created.id, { method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '修改后', expected_revision: created.revision, expected_uuid: created.uuid }) })).json();
+    assert.ok(changed.revision > created.revision);
+    for (const method of ['PATCH', 'PUT', 'DELETE']) {
+      const stale = await fetch(base + '/api/books/' + created.id, { method,
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: '旧修改', expected_revision: created.revision, expected_uuid: created.uuid }) });
+      assert.equal(stale.status, 409, method + ' 必须拒绝旧版本');
+      assert.equal((await stale.json()).current.revision, changed.revision);
+    }
+    const deleted = await fetch(base + '/api/books/' + created.id, { method: 'DELETE',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expected_revision: changed.revision, expected_uuid: created.uuid }) });
+    assert.equal(deleted.status, 200);
+    const deletedSnapshot = await (await fetch(base + '/api/sync/books', { headers })).json();
+    assert.equal(deletedSnapshot.books.length, 0);
+    assert.equal(deletedSnapshot.deleted[0].uuid, created.uuid);
+    assert.equal((await fetch(base + '/api/books/' + created.id + '/restore', { method: 'POST', headers })).status, 200);
+    assert.equal((await (await fetch(base + '/api/sync/books', { headers })).json()).deleted.length, 0);
     const file = await fetch(base + '/books-files/fixture.txt', { headers });
     assert.match(file.headers.get('cache-control'), /no-store/);
     assert.equal(await file.text(), 'private file');

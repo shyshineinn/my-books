@@ -25,6 +25,8 @@ const notesRepo = require('../db/notes');
 const coreSeries = require('../core/series');
 const coreIdent = require('../core/identifiers');
 const { db } = require('../db/index');
+const { getBookSnapshot } = require('../db/sync');
+const { checkBookPrecondition } = require('../core/revision');
 
 const router = express.Router();
 
@@ -95,6 +97,13 @@ function parseId(raw) {
 const badId = (res) => res.status(400).json({ error: '书籍 id 应为正整数', code: 'VALIDATION' });
 const notFound = (res) => res.status(404).json({ error: '书籍不存在', code: 'NOT_FOUND' });
 const badBody = (res, msg) => res.status(400).json({ error: msg, code: 'VALIDATION' });
+
+router.get('/api/sync/books', (req, res) => {
+  if (Object.keys(req.query).length) return badBody(res, '同步接口不接受筛选或分页参数');
+  res.set('Cache-Control', 'private, no-store');
+  const snapshot = getBookSnapshot(db);
+  res.json({ ...snapshot, books: withCustomDisplay(snapshot.books) });
+});
 
 router.get('/api/books', (req, res) => {
   try {
@@ -219,17 +228,10 @@ router.patch('/api/books/:id', (req, res) => {
   const existing = books.getBook(id);
   if (!existing) return notFound(res);
 
-  const { expected_updated_at, ...patch } = req.body || {};
-  const expected = String(
-    expected_updated_at || req.get('If-Match')?.replace(/^"|"$/g, '') || ''
-  ).trim();
-  if (expected && expected !== String(existing.updated_at || '')) {
-    return res.status(409).json({
-      error: '书籍已在服务器更新,请重新加载后再保存',
-      code: 'CONFLICT',
-      current: withFiles(existing),
-    });
-  }
+  const { expected_updated_at, expected_revision, expected_uuid, ...patch } = req.body || {};
+  const condition = checkBookPrecondition(existing, req.body || {}, req.get('If-Match'));
+  if (!condition.ok) return res.status(condition.code === 'VALIDATION' ? 400 : 409)
+    .json({ ...condition, current: withFiles(existing) });
 
   let existingTags = [];
   try { existingTags = JSON.parse(existing.tags || '[]'); } catch { existingTags = []; }
@@ -259,6 +261,9 @@ router.put('/api/books/:id', (req, res) => {
   if (id === null) return badId(res);
   const existing = books.getBook(id);
   if (!existing) return notFound(res);
+  const condition = checkBookPrecondition(existing, req.body || {}, req.get('If-Match'));
+  if (!condition.ok) return res.status(condition.code === 'VALIDATION' ? 400 : 409)
+    .json({ ...condition, current: withFiles(existing) });
 
   const { errors, values } = parseBook(req.body);
   if (errors.length) return badBody(res, errors.join(';'));
@@ -276,6 +281,11 @@ router.put('/api/books/:id', (req, res) => {
 router.delete('/api/books/:id', (req, res) => {
   const id = parseId(req.params.id);
   if (id === null) return badId(res);
+  const existing = books.getBook(id, db, { includeDeleted: true });
+  if (!existing) return notFound(res);
+  const condition = checkBookPrecondition(existing, req.body || {}, req.get('If-Match'));
+  if (!condition.ok) return res.status(condition.code === 'VALIDATION' ? 400 : 409)
+    .json({ ...condition, current: withFiles(existing) });
 
   if (req.query.purge === '1') {
     const result = books.purgeBook(db, id);

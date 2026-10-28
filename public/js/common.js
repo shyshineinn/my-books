@@ -17,6 +17,7 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 const STATUS_LABEL = { wish: '想读', reading: '在读', done: '已读' };
 
 const state = {
+  editPrecondition: null,
   customColumns: [],       // 自定义字段定义(启动时拉取,见 loadCustomColumns)
   customStamp: null,       // 上次拉取时的跨页版本戳
 };
@@ -825,6 +826,10 @@ async function openBookModal(book) {
   // 「按 ISBN 批量添加」只在新增时出现(编辑单本时没有意义)
   $('#isbnBatchBtn').hidden = !!book;
   $('#bookId').value = book ? book.id : '';
+  state.editPrecondition = book ? {
+    id: String(book.id), expected_revision: book.revision,
+    expected_uuid: book.uuid, expected_updated_at: book.updated_at,
+  } : null;
   $('#fTitle').value = book ? book.title : '';
   $('#fAuthor').value = book ? book.author : '';
   $('#fTags').value = book ? JSON.parse(book.tags).join(', ') : '';
@@ -1650,6 +1655,10 @@ $('#bookForm').addEventListener('submit', async (e) => {
   saveBtn.disabled = true;
   try {
     if (id) {
+      if (state.editPrecondition?.id === String(id)) {
+        const { id: _bookId, ...condition } = state.editPrecondition;
+        Object.assign(payload, condition);
+      }
       await api('/api/books/' + id, { method: 'PUT', body: JSON.stringify(payload) });
       toast('已保存修改');
     } else {

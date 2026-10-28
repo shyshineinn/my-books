@@ -440,8 +440,54 @@ function migrateV15(db, dataDir) {
   db.exec('DROP TABLE IF EXISTS settings');
 }
 
-// 迁移注册表:顺序即版本。v1 = 基线;以后新 schema 变更追加 v2、v3……
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15];
+// v16:书目版本与持久删除记录。触发器覆盖批量操作、分类、文件、自定义字段等写入路径。
+function migrateV16(db) {
+  if (!db.prepare('PRAGMA table_info(books)').all().some((column) => column.name === 'revision')) {
+    db.exec('ALTER TABLE books ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0)');
+  }
+  const crypto = require('node:crypto');
+  for (const row of db.prepare("SELECT id FROM books WHERE uuid = ''").all()) {
+    db.prepare('UPDATE books SET uuid = ? WHERE id = ?').run(crypto.randomUUID(), row.id);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS book_deletions (
+      id INTEGER PRIMARY KEY, uuid TEXT NOT NULL,
+      revision INTEGER NOT NULL, deleted_at TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO book_deletions SELECT id, uuid, revision, deleted_at FROM books WHERE deleted_at IS NOT NULL;
+    CREATE TRIGGER IF NOT EXISTS books_revision AFTER UPDATE ON books WHEN NEW.revision = OLD.revision BEGIN
+      UPDATE books SET revision = OLD.revision + 1,
+        updated_at = CASE WHEN NEW.updated_at = OLD.updated_at THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE NEW.updated_at END
+        WHERE id = NEW.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_soft_delete_event AFTER UPDATE OF deleted_at ON books WHEN NEW.deleted_at IS NOT NULL BEGIN
+      INSERT INTO book_deletions(id, uuid, revision, deleted_at)
+        VALUES(NEW.id, NEW.uuid, MAX(NEW.revision, OLD.revision + 1), NEW.deleted_at)
+        ON CONFLICT(id) DO UPDATE SET uuid=excluded.uuid, revision=excluded.revision, deleted_at=excluded.deleted_at;
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_restore_event AFTER UPDATE OF deleted_at ON books WHEN NEW.deleted_at IS NULL BEGIN
+      DELETE FROM book_deletions WHERE id=NEW.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS books_hard_delete_event AFTER DELETE ON books BEGIN
+      INSERT INTO book_deletions(id, uuid, revision, deleted_at)
+        VALUES(OLD.id, OLD.uuid, OLD.revision + 1, COALESCE(OLD.deleted_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))
+        ON CONFLICT(id) DO UPDATE SET uuid=excluded.uuid, revision=excluded.revision, deleted_at=excluded.deleted_at;
+    END;
+  `);
+  db.prepare("INSERT OR IGNORE INTO sync_metadata(key, value) VALUES('library_id', ?)").run(crypto.randomUUID());
+  for (const table of ['book_files', 'book_identifiers', 'book_custom_values']) {
+    for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
+      const ids = operation === 'UPDATE' ? 'OLD.book, NEW.book' : operation === 'DELETE' ? 'OLD.book' : 'NEW.book';
+      db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_revision_${operation.toLowerCase()} AFTER ${operation} ON ${table} BEGIN
+        UPDATE books SET revision=revision+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id IN (${ids});
+      END;`);
+    }
+  }
+}
+
+// 迁移注册表:顺序即版本，历史迁移保持不变。
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
@@ -487,12 +533,12 @@ function openDb(dataDir = DATA_DIR, { seedDemo = process.env.MYBOOKS_SEED_DEMO =
   // 种子数据:仅当这是一个全新的库文件(与书架当前是否为空无关)
   if (isNewLibrary && seedDemo) {
     const insert = db.prepare(`
-      INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)
+      INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, created_at, updated_at, uuid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)
     `);
     const nowTs = now();
     for (const b of samples) {
-      insert.run(b.title, b.author, b.status, b.summary || '', JSON.stringify(b.tags), b.start_date, b.finish_date, b.read_count, JSON.stringify(b.read_logs || []), nowTs, nowTs);
+      insert.run(b.title, b.author, b.status, b.summary || '', JSON.stringify(b.tags), b.start_date, b.finish_date, b.read_count, JSON.stringify(b.read_logs || []), nowTs, nowTs, require('node:crypto').randomUUID());
     }
     // 种子走裸 INSERT,绕过了 books.js 的 addBook 同步路径,故此处显式补两步:
     //   · rebuildAll:按种子的 tags/author 建归一化链接与缓存(含 author_sort)

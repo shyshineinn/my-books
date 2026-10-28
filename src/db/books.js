@@ -76,7 +76,7 @@ function addBook(values, customValues = null, handleDb = db) {
     // 标识符:isbn/douban 双写进 book_identifiers,其余类型也在这一步落库
     if (idMap) identifiers.setIdentifiers(handleDb, created.id, idMap);
     search.indexBook(handleDb, created); // 同步全文索引
-    return created;
+    return getBook(created.id, handleDb);
   });
 }
 
@@ -108,7 +108,7 @@ function updateBook(id, merged, customValues = null, handleDb = db) {
     // 传了对象才按"未出现的类型保持不动"处理(见 db/identifiers.js 注释)
     if (idMap) identifiers.setIdentifiers(handleDb, id, idMap);
     search.updateBookIndex(handleDb, id, oldRow, updated);
-    return updated;
+    return getBook(id, handleDb);
   });
 }
 
