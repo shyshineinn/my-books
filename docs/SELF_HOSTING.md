@@ -15,7 +15,7 @@ docker compose exec my-books npm run setup
 ```
 
 按提示创建管理员（密码至少 12 字符），访问 `http://localhost:3000/login`。
-安卓端在「设置 → 第三方服务 → My books → 配置服务器」输入同一账号。
+安卓端在「设置 → 第三方服务 → Mybooks → 配置服务器」输入同一账号。
 局域网或公网访问应通过反向代理提供 HTTPS，并设置 `MYBOOKS_PUBLIC_URL` 为实际外部地址；
 默认只绑定宿主机回环地址。反代不在宿主机上时，按网络结构显式调整端口绑定。
 
@@ -41,7 +41,8 @@ PowerShell 可用 `Copy-Item .env.example .env`。
 已有 `.env` 时保留自己的配置，不要用示例覆盖。
 不使用配置文件时，可以设置系统环境变量后执行 `npm run setup` / `npm start`。
 可用 `MYBOOKS_STORAGE_DIR` 指定持久化根目录，目录下分别为
-`data/`、`uploads/`、`books-files/`、`notes-files/`。
+`data/`、`uploads/`、`books-files/`、`notes-files/`。头像、字体、阅读背景等同步资源位于
+`data/mobile-state-assets/`，与数据库一起持久化及备份。
 未指定时沿用项目目录，不迁移或覆盖现有文件。
 新库默认不添加示例书；仅当显式 `MYBOOKS_SEED_DEMO=true` 且库文件不存在时播种。
 
@@ -59,7 +60,7 @@ PowerShell 可用 `Copy-Item .env.example .env`。
 ## 现有站点升级
 
 - 先保存数据库一致性备份及上述所有目录，再更新代码。
-- 本批数据库升级为 v17；先更新后端再安装新版安卓。阅读数据与增量日志保存在同一数据库中。
+- 本批数据库升级为 v18；先更新后端再安装新版安卓。阅读数据、便携设置/书架状态与增量日志保存在同一数据库中。
 - 代理应透传 Range/If-Range、ETag 与 X-Content-SHA256；旧接口仍可完整下载。
 - 现有 `ADMIN_TOKEN` 和 `data/admin-token` 仍有效，可在网页登录页交换为独立设备会话。
 - **未配置管理员或旧令牌时，写入会被拒绝**，不再依赖 Nginx 是否保护写接口。
@@ -72,7 +73,7 @@ PowerShell 可用 `Copy-Item .env.example .env`。
 
 ## 数据保护与验证
 
-备份必须包含数据库的一致性快照、附件、心得与 `data/auth.json`。
+备份必须包含数据库的一致性快照、附件、心得、`data/mobile-state-assets/` 与 `data/auth.json`。
 授权文件含密码哈希及设备令牌摘要，备份也应私有保存。
 恢复到新的存储目录后验证登录、书目、文件下载和心得；不能只验证数据库能打开。
 跨越数据结构升级回退时，应同时恢复匹配版本的数据库与程序。

@@ -36,7 +36,9 @@ function getSyncChanges(db, cursor) {
       LEFT JOIN mobile_reading_state r ON r.book_id=b.id AND r.book_uuid=b.uuid
       WHERE b.deleted_at IS NULL AND (${changed('b', 'reading')} OR ${changed('b', 'book')}) ORDER BY b.id`).all();
     const result = { sync_version: 3, complete: full, library_id: library, books, deleted, reading,
-      reading_sync: true, cursor: Buffer.from(JSON.stringify({ library_id: library, seq: high, checkpoint: last?.checkpoint || '' })).toString('base64url') };
+      reading_sync: true, portable_sync: true,
+      portable_revision: db.prepare('SELECT revision FROM mobile_portable_state WHERE id=1').get()?.revision || 0,
+      cursor: Buffer.from(JSON.stringify({ library_id: library, seq: high, checkpoint: last?.checkpoint || '' })).toString('base64url') };
     if (ownTransaction) db.exec('COMMIT');
     return result;
   } catch (error) {

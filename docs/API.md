@@ -43,6 +43,10 @@
 | GET | `/api/sync/changes?cursor=...` | 协议 3 增量视图；首次省略游标 |
 | GET | `/api/sync/reading/:id` | 安卓阅读数据与独立版本，始终要求会话 |
 | PUT | `/api/sync/reading/:id` | 条件提交阅读数据，旧版本返回 409 |
+| GET | `/api/sync/state` | 私有资料、设置与书架快照及独立版本 |
+| PUT | `/api/sync/state` | 使用 `library_id`、`expected_revision`、`data` 条件提交快照 |
+| PUT | `/api/sync/state/assets/:sha256.ext` | 二进制上传同步资源，最多 64 MiB，校验内容 SHA-256 |
+| GET/HEAD | `/api/sync/state/assets/:sha256.ext` | 私有资源，支持强 ETag、SHA-256 与 Range/If-Range |
 
 新客户端对书目的 PATCH、PUT、DELETE 应携带读取时的 `expected_uuid` 和
 `expected_revision`，不要用手机时间决定谁覆盖谁。PATCH 示例：
@@ -69,6 +73,11 @@
 成功响应包含 `book_id`、`book_uuid`、阅读 `revision` 与实际保存的 `data`。
 阅读版本独立于书目版本；冲突响应的 `current` 是阅读数据，不是书目详情。
 负载字段、删除与合并语义见 [同步协议](SYNC_PROTOCOL.md)。
+
+便携快照最多 8 MiB，先上传资源，再条件提交引用它的状态；响应为 `library_id`、`revision`、`data`。
+版本冲突返回 `409 CONFLICT` 及 `current`，客户端重新合并后提交。所有 `/api/sync/state` 接口始终要求设备会话，
+公开书库模式也不会公开个人资料。协议 3 增量头的 `portable_sync` 与 `portable_revision` 声明能力及当前状态版本。
+书籍身份通过 `data.bookIdentities` 的 `mybooks-ID → UUID` 对照校验；逐本阅读内容继续走阅读接口，禁止混入便携快照。
 
 ## 附件与心得
 

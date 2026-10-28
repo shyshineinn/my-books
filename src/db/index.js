@@ -524,8 +524,22 @@ function migrateV17(db) {
   `);
 }
 
+// v18:与安卓可移植快照相同的个人资料、设置和书架状态；资源始终由会话保护。
+function migrateV18(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mobile_portable_state (
+      id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL CHECK(revision>0),
+      data TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS mobile_portable_assets (
+      file_name TEXT PRIMARY KEY, sha256 TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
