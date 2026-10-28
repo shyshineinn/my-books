@@ -74,11 +74,8 @@ function notifyBooksChanged() {
   document.dispatchEvent(new Event('books-changed'));
 }
 
-/* ============ 管理令牌(写操作鉴权) ============
- * 服务端对非 GET/HEAD 的 /api/* 要求 Bearer token(应用内鉴权,不依赖 Nginx)。
- * token 首次输入后存 localStorage;401 时清除并重新询问。GET 不需要。
- * 令牌输入用系统 prompt()(用户指定):桌面与主流手机浏览器均支持。
- * 注意:prompt 返回 null 表示取消;空串表示"确定但没填",两者都按取消处理。 */
+/* 网页使用 HttpOnly 设备会话；只兼容读取已有的本地管理员令牌。
+ * 凭据失效时进入账号页，不再通过弹窗保存新的管理员令牌。 */
 const TOKEN_KEY = 'mybooks.adminToken';
 
 function adminToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
@@ -90,13 +87,6 @@ function authHeaders() {
 
 function forgetToken() { localStorage.removeItem(TOKEN_KEY); }
 
-// 系统弹框询问令牌;取消返回 null
-function askForToken() {
-  const v = prompt('请输入管理令牌(服务器 data/admin-token 的内容):');
-  const t = String(v ?? '').trim();
-  return t ? t : null;
-}
-
 async function api(url, options = {}) {
   const doFetch = () => fetch(url, {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -105,16 +95,11 @@ async function api(url, options = {}) {
 
   let res = await doFetch();
 
-  // 401:令牌缺失/失效 → 清掉旧的,系统弹框问一次,重试原请求
+  // 401:会话缺失或失效，清理旧令牌并跳转登录。
   if (res.status === 401) {
     forgetToken();
-    const t = askForToken();   // prompt 是同步的,无需 await
-    if (t === null) {
-      const data0 = await res.json().catch(() => ({}));
-      throw new Error(data0.error || '需要管理令牌');
-    }
-    localStorage.setItem(TOKEN_KEY, t);
-    res = await doFetch();
+    location.assign('/login?next=' + encodeURIComponent(location.pathname + location.search));
+    throw new Error('请先登录图书服务器');
   }
 
   // 重试后仍 401:令牌错误,清掉避免下次自动带上废 token
@@ -1047,10 +1032,8 @@ async function handleEbookUpload(file) {
     } catch (err) {
       if (err.status === 401) {
         forgetToken();
-        const t = askForToken();
-        if (t === null) throw new Error('需要管理令牌');
-        localStorage.setItem(TOKEN_KEY, t);
-        await uploadEbookWithProgress(bookId, file, { Authorization: 'Bearer ' + t });
+        location.assign('/login?next=' + encodeURIComponent(location.pathname + location.search));
+        throw new Error('请先登录图书服务器，再重新选择文件上传');
       } else {
         throw err;
       }

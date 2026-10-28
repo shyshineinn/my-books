@@ -46,6 +46,9 @@ public/__*.html
 
 # ��������(����д�ӿڼ�Ȩ,�Ͻ����)
 data/admin-token
+data/auth.json
+data/auth.json.*
+.tmp-client/
 
 # calibre 参考源码(只读借鉴,严禁入库)
 calibre-master/

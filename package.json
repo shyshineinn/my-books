@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/"
+    "test": "node scripts/test.js",
+    "setup": "node scripts/setup-admin.js"
   },
   "engines": {
     "node": ">=22.5.0"

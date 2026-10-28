@@ -18,7 +18,7 @@ function tempDir() {
 
 test('全新库:迁移一次到位,schema 完整、user_version = 迁移总数', () => {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, migrations.length);
   const cols = db.prepare('PRAGMA table_info(books)').all().map((c) => c.name);
   for (const col of ['id', 'title', 'author', 'status', 'summary', 'tags', 'start_date', 'finish_date', 'cover', 'read_count', 'read_logs', 'created_at', 'updated_at']) {
@@ -33,7 +33,7 @@ test('全新库:迁移一次到位,schema 完整、user_version = 迁移总数',
 
 test('全新库:书架为空时写入 17 本种子数据', () => {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM books').get().n, 17);
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
@@ -41,7 +41,7 @@ test('全新库:书架为空时写入 17 本种子数据', () => {
 
 test('幂等:已到最新版本的库重跑迁移 0 步', () => {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   const r = runMigrations(db, dir);
   assert.deepEqual(r, { from: migrations.length, to: migrations.length, ran: 0 });
   db.close();
@@ -74,7 +74,7 @@ test('旧库升级:user_version=0 的老库补齐列且数据保留', () => {
   `);
   legacy.close();
 
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, migrations.length);
   const rows = db.prepare('SELECT title FROM books ORDER BY id').all();
   assert.equal(rows.length, 3);                       // 原有数据不丢
@@ -89,7 +89,7 @@ test('旧库升级:user_version=0 的老库补齐列且数据保留', () => {
 
 test('v8:存量 5 分制评分折算为 10 分制(×2,封顶 10;0 分不动)', () => {
   const dir = tempDir();
-  const db = openDb(dir); // 一次到位到最新版
+  const db = openDb(dir, { seedDemo: true }); // 一次到位到最新版
   const ins = db.prepare("INSERT INTO books (title, status, tags, rating, created_at, updated_at) VALUES (?, 'done', '[]', ?, '2024-01-01', '2024-01-01')");
   ins.run('旧五星书甲', 4.5);  // → 9.0
   ins.run('旧五星书乙', 5);    // → 10(封顶)
@@ -107,7 +107,7 @@ test('v8:存量 5 分制评分折算为 10 分制(×2,封顶 10;0 分不动)', (
 
 test('失败回滚:迁移抛异常时 user_version 与半成品变更全部回退', () => {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   const before = db.prepare('PRAGMA user_version').get().user_version;
 
   migrations.push(function migrateVX_fail(db2) {

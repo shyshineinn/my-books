@@ -27,7 +27,8 @@ const { parseSearchPage, parseBookPage, mapToBook } = require('../core/douban');
 const { authorKeysFromEdition, mapOpenLibraryBook } = require('../core/openlibrary');
 const { isbnKey } = require('../core/isbn');
 
-const COOKIE_FILE = path.join(__dirname, '..', '..', 'data', 'douban-cookie');
+const { DATA_DIR } = require('../core/paths');
+const COOKIE_FILE = path.join(DATA_DIR, 'douban-cookie');
 const DOUBAN_SEARCH_URL = 'https://www.douban.com/search?cat=1001&q=';
 const DOUBAN_BOOK_URL = 'https://book.douban.com/subject/';
 const DOUBAN_ISBN_URL = 'https://book.douban.com/isbn/';

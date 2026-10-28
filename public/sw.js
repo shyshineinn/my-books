@@ -4,16 +4,15 @@
  * 缓存策略(与 API 缓存头正交:只管"端上"的体验):
  *   · App Shell(HTML/CSS/JS/图标/字体):cache-first,版本号失效
  *     —— 页面版本升级靠 CACHE_VERSION 变更 + 旧缓存清理
- *   · API(GET /api/*):network-first,失败回退缓存
- *     —— 书架数据优先新鲜,断网时展示上次内容(PWA 的核心价值)
- *   · 封面图片(/uploads/*、外链封面):cache-first,上限 60 张
+ *   · API、上传图片与电子书直连网络，避免退出后暴露旧账号缓存
+ *   · 应用图标:cache-first,上限 60 张
  *   · POST/PUT/DELETE 永不缓存
  *
  * 版本管理:CACHE_VERSION 改动(css/js 的 ?v= 递增)后,
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v107';
+const CACHE_VERSION = 'v108';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -25,8 +24,8 @@ const IMG_LIMIT = 60;
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
   '/css/style.css?v=106',
-  '/js/chrome.js?v=33',
-  '/js/common.js?v=25',
+  '/js/chrome.js?v=34',
+  '/js/common.js?v=26',
   '/js/scanner.js?v=2',
   '/js/page-home.js?v=2',
   '/js/page-shelf.js?v=16',
@@ -84,6 +83,7 @@ async function trimImageCache() {
  * SW 处理失败 → 阅读器拿到空响应 → PDF 永远空白(且 console 无报错)。
  */
 function isCacheable(res) {
+  if (/no-store|private/i.test(res.headers.get('Cache-Control') || '')) return false;
   // 只缓存完整的 200;206/部分响应一律不缓存
   if (!res || res.status !== 200) return false;
   // 明确带 Content-Range 的响应也排除(防御性)
@@ -109,38 +109,16 @@ self.addEventListener('fetch', (event) => {
 
   // 只处理同源 GET(外链/POST/PUT/DELETE 直接放行)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // 授权与用户数据不经过离线缓存，退出或切换账号后不能回退到旧数据。
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/') ||
+      url.pathname.startsWith('/books-files/') || /^\/login(?:\.html)?$/.test(url.pathname)) return;
 
   // Range 请求(断点/分块读取,如 pdf.js 读 PDF、视频拖动)一律不拦截:
   // 交给浏览器直连,避免 206 引发的缓存异常
   if (req.headers.has('range')) return;
 
-  // 电子书文件不拦截:单本可达 80MB,不适合放 Cache API;
-  // 且 pdf.js 会按 Range 分块取,交给网络层最稳妥
-  if (url.pathname.startsWith('/books-files/')) return;
-
-  // API:network-first —— 在线时拿最新,离线回退缓存
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          putCacheQuietly(API_CACHE, req, res);
-          return res;
-        })
-        .catch(() =>
-          caches.match(req).then((cached) =>
-            cached ||
-            new Response(JSON.stringify({ error: '当前离线,显示的是缓存数据', code: 'OFFLINE' }), {
-              status: 503,
-              headers: { 'Content-Type': 'application/json' },
-            })
-          )
-        )
-    );
-    return;
-  }
-
-  // 封面图片:cache-first
-  if (url.pathname.startsWith('/uploads/') || url.pathname.startsWith('/icon-')) {
+  // 应用图标:cache-first。用户封面已在上方排除。
+  if (url.pathname.startsWith('/icon-')) {
     event.respondWith(
       caches.open(IMG_CACHE).then(async (cache) => {
         const cached = await cache.match(req);

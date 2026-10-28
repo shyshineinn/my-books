@@ -66,6 +66,11 @@ for d in uploads books-files notes-files; do
   fi
 done
 # 保留最近 10 份文件快照(与数据库备份的保留策略一致)
+if [ -f data/auth.json ]; then
+  mkdir -p "$BACKUP_FILES/data"
+  cp -p data/auth.json "$BACKUP_FILES/data/auth.json"
+  chmod 600 "$BACKUP_FILES/data/auth.json"
+fi
 ls -1dt data/backup/files-* 2>/dev/null | tail -n +11 | xargs -r rm -rf --
 echo "    文件快照保留最近 10 份:$BACKUP_FILES"
 

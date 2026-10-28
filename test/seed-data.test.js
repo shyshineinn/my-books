@@ -27,31 +27,31 @@ const countBooks = (db) => db.prepare('SELECT COUNT(*) AS n FROM books').get().n
 
 test('全新库:首次打开播种 17 本', () => {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   assert.equal(countBooks(db), 17);
   db.close();
 });
 
 test('删光所有书后重开(模拟重启):种子不再复活', () => {
   const dir = tempDir();
-  const db1 = openDb(dir);
+  const db1 = openDb(dir, { seedDemo: true });
   db1.prepare('DELETE FROM books').run();
   assert.equal(countBooks(db1), 0);
   db1.close();
 
   // 库文件已存在 → 不是全新库 → 即使表为空也不播种
-  const db2 = openDb(dir);
+  const db2 = openDb(dir, { seedDemo: true });
   assert.equal(countBooks(db2), 0, '老库被清空后重启,不应重新播种');
   db2.close();
 });
 
 test('正常重开(有数据):数据原样保留', () => {
   const dir = tempDir();
-  const db1 = openDb(dir);
+  const db1 = openDb(dir, { seedDemo: true });
   db1.prepare('DELETE FROM books WHERE title != ?').run('三体');
   db1.close();
 
-  const db2 = openDb(dir);
+  const db2 = openDb(dir, { seedDemo: true });
   assert.equal(countBooks(db2), 1, '只保留的书不受重启影响');
   db2.close();
 });
@@ -62,7 +62,7 @@ test('空库文件(0 字节占位)也视为已存在:不播种', () => {
   // 宁可空书架,也不在残缺现场凭空造数据。
   const dir = tempDir();
   fs.writeFileSync(path.join(dir, 'books.db'), '');
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   assert.equal(countBooks(db), 0);
   db.close();
 });

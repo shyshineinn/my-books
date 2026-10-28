@@ -12,11 +12,14 @@ const path = require('node:path');
 
 // 项目根(本文件在 src/core/ 下,上溯两级)
 const ROOT = path.join(__dirname, '..', '..');
+const STORAGE_ROOT = process.env.MYBOOKS_STORAGE_DIR
+  ? path.resolve(process.env.MYBOOKS_STORAGE_DIR) : ROOT;
 
 module.exports = {
   ROOT,
-  DATA_DIR: path.join(ROOT, 'data'),
-  UPLOAD_DIR: path.join(ROOT, 'uploads'),        // 封面图片
-  FILES_DIR: path.join(ROOT, 'books-files'),     // 电子书正文
-  NOTES_DIR: path.join(ROOT, 'notes-files'),     // 读书心得 Markdown
+  STORAGE_ROOT,
+  DATA_DIR: path.join(STORAGE_ROOT, 'data'),
+  UPLOAD_DIR: path.join(STORAGE_ROOT, 'uploads'),
+  FILES_DIR: path.join(STORAGE_ROOT, 'books-files'),
+  NOTES_DIR: path.join(STORAGE_ROOT, 'notes-files'),
 };

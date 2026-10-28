@@ -21,7 +21,9 @@ const routesCustomFields = require('./src/http/routes.customFields');
 const routesExport = require('./src/http/routes.export');
 const routesEnrich = require('./src/http/routes.enrich');
 const routesImport = require('./src/http/routes.import');
-const { requireAdmin } = require('./src/http/middleware.auth');
+const { requireAdmin, requireLibraryAccess } = require('./src/http/middleware.auth');
+const routesAuth = require('./src/http/routes.auth');
+const { UPLOAD_DIR, FILES_DIR } = require('./src/core/paths');
 const { attachVlScope } = require('./src/http/middleware.vl');
 const { db } = require('./src/db/index');
 const books = require('./src/db/books');
@@ -34,6 +36,14 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 app.use(express.json({ limit: '10mb' }));
+if (process.env.MYBOOKS_TRUST_PROXY) app.set('trust proxy', process.env.MYBOOKS_TRUST_PROXY);
+app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
+// 认证端点先注册，不受书库读权限或业务写权限的阻挡。
+app.use(routesAuth);
+app.use('/api/v1/auth', (req, res, next) => {
+  req.url = '/api/auth' + (req.url === '/' ? '' : req.url);
+  routesAuth(req, res, next);
+});
 // CSV 导入允许直接发 text/csv 请求体(比 JSON 包一层 base64 省 33% 体积,
 // 也更符合"把文件拖进来"的直觉)。只对这一个路由生效,不给全局加文本解析器 ——
 // 那会让所有路由都接受任意文本体,收窄攻击面。
@@ -52,9 +62,9 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
   },
 }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', requireLibraryAccess, express.static(UPLOAD_DIR));
 // 电子书文件:GET 下载/阅读用(上传经 /api/* 走鉴权);原文件名不落盘
-app.use('/books-files', express.static(path.join(__dirname, 'books-files')));
+app.use('/books-files', requireLibraryAccess, express.static(FILES_DIR));
 
 // 读书心得页:/notes/<书籍 id> —— 带路径参数,静态目录兜不住,显式路由。
 // 与 *.html 同一套 no-cache 策略;非法 id 直接回书架(旧 hash 深链也收敛到这里)。
@@ -67,7 +77,7 @@ app.get('/notes/:rest(.*)', (req, res) => res.redirect('/shelf'));
 
 // 写操作鉴权(应用内):GET/HEAD 放行,POST/PUT/DELETE 要求 Bearer token。
 // token 来源:环境变量 ADMIN_TOKEN 或 data/admin-token 文件;Nginx Basic 是外圈,这层是里圈。
-app.use('/api', requireAdmin);
+app.use('/api', requireLibraryAccess, requireAdmin);
 // 虚拟书库作用域(?vl=名称):解析一次挂到 req.vlScope,各路由只管取用
 app.use('/api', attachVlScope);
 
@@ -152,7 +162,7 @@ runTrashMaintenance();
 setInterval(runTrashMaintenance, TRASH_MAINTENANCE_INTERVAL_MS).unref();
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`My books 已启动: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  console.log(`My books 已启动: http://${HOST === '0.0.0.0' || HOST === '127.0.0.1' ? 'localhost' : HOST}:${server.address().port}`);
 });
 
 // 优雅退出(借鉴 calibre srv/standalone.py 的 HandleInterrupt):

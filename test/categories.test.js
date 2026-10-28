@@ -218,7 +218,7 @@ test('rebuildAll:幂等,并把未经同步的裸插入行归一化', () => {
 /* ---------- 迁移 v9 在种子库上的回填(集成) ---------- */
 
 test('v9 迁移:种子库自动归一化,缓存与链接一致', () => {
-  const db = openDb(tempDir());   // 走完整迁移 + 种子 rebuild 路径
+  const db = openDb(tempDir(), { seedDemo: true });   // 显式验证演示种子的归一化
   const tags = categories.listTags(db);
   const authors = categories.listAuthors(db);
   assert.ok(tags.length > 0, '种子标签已建链');

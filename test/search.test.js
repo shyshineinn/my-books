@@ -25,7 +25,7 @@ function tempDir() {
 // 清空两者,再插入可控样本,逐行同步索引(同 books.addBook 契约)。
 function setup(list) {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   db.exec('DELETE FROM books');
   db.exec("INSERT INTO books_fts(books_fts) VALUES('delete-all')");
   const ins = db.prepare(
@@ -133,7 +133,7 @@ test('无搜索词时退化为主表查询:status/tag/sort 照常生效', () => 
 
 test('迁移:全新库建出 books_fts 虚表,并随种子数据全量索引', () => {
   const dir = tempDir();
-  const db = openDb(dir);
+  const db = openDb(dir, { seedDemo: true });
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='books_fts'").get(), 'books_fts 应存在');
   assert.equal(db.prepare('PRAGMA user_version').get().user_version, migrations.length);
   const hit = search.searchBooks(db, { q: '三体' }).map((b) => b.title);

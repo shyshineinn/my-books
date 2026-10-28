@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+data
+uploads
+books-files
+notes-files
+calibre-master
+.npm-cache
+.tmp-client
+.env
+.env.*
+*.log
+*.bundle
+PROJECT_MEMORY.md
+PROGRESS.md

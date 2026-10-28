@@ -80,7 +80,7 @@ test('requireAdmin:GET/HEAD/OPTIONS 一律放行(即使无 token 配置)', () =>
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mybooks-auth-test-'));
 const tokenFile = path.join(tmpDir, 'admin-token');
 
-test('requireAdmin:未配置 token 时写操作放行(单层模式,Nginx Basic 兜底)', () => {
+test('requireAdmin:未配置账号或 token 时写操作拒绝', () => {
   // 新语义:token 是"开关"——未配置(无环境变量且本地 data/admin-token 不存在)时,
   // 写请求直接放行,由外圈 Nginx Basic 保护;配置后才要求 Bearer token
   const saved = process.env.ADMIN_TOKEN;
@@ -103,7 +103,9 @@ test('requireAdmin:未配置 token 时写操作放行(单层模式,Nginx Basic �
     const res = fakeRes();
     let nexted = false;
     requireAdmin(req, res, () => { nexted = true; });
-    assert.ok(nexted, '单层模式(未配置 token)下写请求应放行');
+    assert.equal(nexted, false, '未初始化不能放行写入');
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.jsonBody.code, 'SETUP_REQUIRED');
   }
 });
 

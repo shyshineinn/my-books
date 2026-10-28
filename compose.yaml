@@ -1,0 +1,13 @@
+services:
+  my-books:
+    build: .
+    ports:
+      - "127.0.0.1:${MYBOOKS_PORT:-3000}:3000"
+    environment:
+      MYBOOKS_PUBLIC_READ: "${MYBOOKS_PUBLIC_READ:-false}"
+      MYBOOKS_PUBLIC_URL: "${MYBOOKS_PUBLIC_URL:-http://localhost:3000}"
+    volumes:
+      - mybooks-data:/data
+    restart: unless-stopped
+volumes:
+  mybooks-data:

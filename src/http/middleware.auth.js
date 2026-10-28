@@ -14,8 +14,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { DATA_DIR } = require('../core/paths');
+const { createAuthStore } = require('../db/auth');
 
-const TOKEN_FILE = path.join(__dirname, '..', '..', 'data', 'admin-token');
+const TOKEN_FILE = path.join(DATA_DIR, 'admin-token');
+const authStore = createAuthStore();
 
 // 读取 token:环境变量优先;文件方案不需要任何配置库,data/ 天然不进仓库。
 // 每次请求都重新解析环境变量成本可忽略;文件只在存在时读一次并缓存,
@@ -102,9 +105,8 @@ function pruneFailLog() {
 }
 
 function clientIp(req) {
-  // 有反代时优先取 X-Forwarded-For 首个(Nginx 已配置传递);否则直连地址
-  const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return xff || req.socket?.remoteAddress || 'unknown';
+  // 仅使用 Express 已按 trust proxy 配置解析的地址，不能信任任意 XFF。
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 function rateCheck(req, res) {
@@ -139,37 +141,64 @@ function rateClear(req) {
   failLog.delete(clientIp(req));
 }
 
-// express 中间件:只拦写方法
-//
-// 开关语义(用 token 文件/环境变量的存在性做开关,不引入新配置):
-//   · 未配置 token(无 ADMIN_TOKEN 且无 data/admin-token 文件)→ 直接放行,
-//     写操作由外圈 Nginx Basic 保护(单人 + 仅网页访问的日常模式,不弹令牌框);
-//   · 一旦配置 token(建文件或设环境变量 + 重启)→ 双层模式,写操作必须带 Bearer token。
-// 也就是说:开/关 = 建/删 data/admin-token 文件。
-function requireAdmin(req, res, next) {
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+// 写权限、私有书库读权限与设备会话使用同一鉴权入口。未初始化时拒绝访问。
+const COOKIE_NAME = 'mybooks_session';
 
-  const serverToken = loadTokenCached();
-  if (!serverToken) {
-    // 未配置应用层令牌:放行,交给外圈 Nginx Basic(单层模式)
-    return next();
-  }
-
-  // 双层模式:先看该 IP 是否处于限速冷却期
-  if (!rateCheck(req, res)) return;
-
-  const clientToken = extractToken(req);
-  if (!clientToken || !safeEqual(clientToken, serverToken)) {
-    rateFail(req);
-    res.set('WWW-Authenticate', 'Bearer realm="my-books-admin"');
-    return res.status(401).json({
-      error: '需要管理令牌:请求头带 Authorization: Bearer <token> 或 X-Admin-Token',
-      code: 'AUTH_REQUIRED',
-    });
-  }
-  rateClear(req);   // 成功即清空该 IP 的失败计数
-  return next();
+function cookieToken(req) {
+  return String(req.headers.cookie || '').split(';').map((s) => s.trim())
+    .find((s) => s.startsWith(COOKIE_NAME + '='))?.slice(COOKIE_NAME.length + 1) || '';
 }
+
+function sameOrigin(req) {
+  if (req.get?.('Sec-Fetch-Site') === 'cross-site') return false;
+  const origin = req.get?.('Origin');
+  if (!origin) return true; // 原生客户端没有 Origin；浏览器 cookie 另有 SameSite 限制。
+  try { return new URL(origin).host === req.get('host'); } catch { return false; }
+}
+
+function createAuthMiddleware({ store = authStore, legacyToken = loadTokenCached,
+  publicRead = () => process.env.MYBOOKS_PUBLIC_READ === 'true' } = {}) {
+  function authenticate(req) {
+    const token = extractToken(req) || cookieToken(req);
+    const master = legacyToken();
+    if (token && master && safeEqual(token, master)) return { id: 'legacy-admin', label: '管理员令牌' };
+    return store.authenticate(token);
+  }
+  function initialized() { return store.initialized() || !!legacyToken(); }
+  function requireSession(req, res, next) {
+    if (!initialized()) {
+      return res.status(503).json({ error: '请先在服务器运行 npm run setup 初始化管理员', code: 'SETUP_REQUIRED' });
+    }
+    if (!rateCheck(req, res)) return;
+    const session = authenticate(req);
+    if (!session) {
+      // 匿名浏览不积累计数；实际提交错误凭据才计入。
+      if (extractToken(req)) rateFail(req);
+      res.set('WWW-Authenticate', 'Bearer realm="my-books-admin"');
+      return res.status(401).json({ error: '请登录你的图书服务器', code: 'AUTH_REQUIRED' });
+    }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !extractToken(req) && !sameOrigin(req)) {
+      return res.status(403).json({ error: '请求来源不匹配', code: 'ORIGIN_REJECTED' });
+    }
+    req.authSession = session;
+    rateClear(req);
+    next();
+  }
+  return {
+    authenticate, initialized, requireSession,
+    requireAdmin(req, res, next) {
+      if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+      return requireSession(req, res, next);
+    },
+    requireLibraryAccess(req, res, next) {
+      if (publicRead()) return next();
+      res.set('Cache-Control', 'private, no-store');
+      return requireSession(req, res, next);
+    },
+  };
+}
+const auth = createAuthMiddleware();
+const { requireAdmin, requireLibraryAccess, requireSession } = auth;
 
 // 供测试:重置文件 token 缓存与限速计数
 function resetTokenCache() {
@@ -182,4 +211,6 @@ function failLogSize() {
   return failLog.size;
 }
 
-module.exports = { requireAdmin, safeEqual, extractToken, loadToken, resetTokenCache, TOKEN_FILE, FAIL_LIMIT, MAX_ENTRIES, failLogSize };
+module.exports = { requireAdmin, requireLibraryAccess, requireSession, auth, authStore,
+  createAuthMiddleware, sameOrigin, COOKIE_NAME, rateCheck, rateFail, rateClear,
+  safeEqual, extractToken, loadToken, resetTokenCache, TOKEN_FILE, FAIL_LIMIT, MAX_ENTRIES, failLogSize };

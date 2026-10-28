@@ -16,7 +16,7 @@ const saved = require('../src/db/saved_searches.js');
 
 function tempDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mybooks-saved-test-'));
-  return { dir, db: openDb(dir) };
+  return { dir, db: openDb(dir, { seedDemo: true }) };
 }
 const cleanup = (dir, db) => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); };
 

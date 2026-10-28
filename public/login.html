@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>账号与设备 · My books</title>
+  <link rel="stylesheet" href="/css/style.css?v=106">
+  <link rel="stylesheet" href="/css/login.css?v=1">
+  <script src="/js/login.js?v=1" defer></script>
+</head>
+<body>
+  <main class="account-page">
+    <a href="/">My books</a><h1>账号与设备</h1>
+    <p id="accountStatus" role="status" aria-live="polite">正在连接服务器…</p>
+    <form id="loginForm" hidden>
+      <label>用户名<input name="username" autocomplete="username" required maxlength="80"></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
+      <button class="btn btn-primary" type="submit">登录</button>
+      <details><summary>使用已有管理员令牌</summary>
+        <label>管理员令牌<input name="token" type="password" autocomplete="off" maxlength="1024"></label>
+        <button class="btn btn-ghost" type="button" id="tokenLogin">使用令牌登录</button>
+      </details>
+    </form>
+    <section id="accountPanel" hidden>
+      <p><a href="/shelf">进入书架</a></p>
+      <h2>已授权设备</h2><ul id="deviceList"></ul>
+      <button class="btn btn-ghost" id="logout" type="button">退出当前设备</button>
+    </section>
+  </main>
+</body>
+</html>

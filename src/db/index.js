@@ -20,7 +20,7 @@ const path = require('node:path');
 
 const { samples } = require('./seed-data');
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const { DATA_DIR } = require('../core/paths');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 /* ---------- PRAGMA 加固(借鉴 calibre db/backend.py Connection)---------- */
@@ -465,7 +465,7 @@ function runMigrations(db, dataDir) {
 }
 
 /* ---------- 打开数据库(工厂):默认项目 data/,测试可传临时目录 ---------- */
-function openDb(dataDir = DATA_DIR) {
+function openDb(dataDir = DATA_DIR, { seedDemo = process.env.MYBOOKS_SEED_DEMO === 'true' } = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
   const dbPath = path.join(dataDir, 'books.db');
 
@@ -485,7 +485,7 @@ function openDb(dataDir = DATA_DIR) {
   }
 
   // 种子数据:仅当这是一个全新的库文件(与书架当前是否为空无关)
-  if (isNewLibrary) {
+  if (isNewLibrary && seedDemo) {
     const insert = db.prepare(`
       INSERT INTO books (title, author, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)

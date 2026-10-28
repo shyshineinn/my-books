@@ -31,6 +31,7 @@
 })();
 
 const NAV_ITEMS = [
+  { id: 'account', label: '账号', href: '/login' },
   { id: 'home', label: '首页', href: '/' },
   { id: 'shelf', label: '书架', href: '/shelf' },
   { id: 'rank', label: '榜单', href: '/rank' },
