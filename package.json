@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node scripts/test.js",
-    "setup": "node scripts/setup-admin.js"
+    "setup": "node scripts/setup-admin.js",
+    "check:public": "node scripts/check-public.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
@@ -17,5 +18,11 @@
     "express": "4.21.2",
     "marked": "18.0.11",
     "multer": "2.0.2"
+  },
+  "license": "GPL-3.0-only",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shyshineinn/my-books.git"
   }
 }

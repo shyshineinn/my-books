@@ -6,6 +6,9 @@
 ## Docker
 
 ```sh
+git clone https://github.com/shyshineinn/my-books.git
+cd my-books
+cp .env.example .env
 docker compose up -d --build
 docker compose exec my-books npm run setup
 ```
@@ -16,22 +19,41 @@ docker compose exec my-books npm run setup
 默认只绑定宿主机回环地址。反代不在宿主机上时，按网络结构显式调整端口绑定。
 
 `mybooks-data` 卷包含数据库、封面、正文、心得与授权文件，升级时保留该卷。
+Compose 从 `.env` 读取端口 `MYBOOKS_PORT`、`MYBOOKS_PUBLIC_URL` 和 `MYBOOKS_PUBLIC_READ`；
+容器内固定使用 `/data`，不会使用示例中的本地 `MYBOOKS_STORAGE_DIR`。
 管理员初始化在服务器终端执行，不开放远程抢注入口；重复执行不会覆盖账号。
 自动化环境可用 `npm run setup -- --password-stdin` 从标准输入读取密码，
 用户名通过 `MYBOOKS_ADMIN_USERNAME` 指定。
 
 ## 本地运行
 
+推荐 Node.js 24。Node 不会自动加载 `.env`，初始化与服务必须使用同一套存储配置：
+
 ```sh
 npm ci
-npm run setup
-npm start
+cp .env.example .env
+node --env-file=.env scripts/setup-admin.js
+node --env-file=.env server.js
 ```
 
+PowerShell 可用 `Copy-Item .env.example .env`。
+已有 `.env` 时保留自己的配置，不要用示例覆盖。
+不使用配置文件时，可以设置系统环境变量后执行 `npm run setup` / `npm start`。
 可用 `MYBOOKS_STORAGE_DIR` 指定持久化根目录，目录下分别为
 `data/`、`uploads/`、`books-files/`、`notes-files/`。
 未指定时沿用项目目录，不迁移或覆盖现有文件。
 新库默认不添加示例书；仅当显式 `MYBOOKS_SEED_DEMO=true` 且库文件不存在时播种。
+
+## 反向代理与已有部署脚本
+
+通用代理模板见 [nginx.example.conf](../deploy/nginx.example.conf)，默认回源到本机 3000；
+公网使用前配置 HTTPS，再将 `MYBOOKS_PUBLIC_URL` 设为外部 HTTPS 地址。
+不要给私有附件配置 `Cache-Control: public`，也不要用 Nginx 的公开静态目录绕过应用鉴权。
+
+`deploy/update.sh` 和 `deploy/ecosystem.config.js` 保留为现有 PM2 部署使用，
+包含特定路径与端口，不是开箱即用的通用安装器。代理配置请使用上述通用模板。
+尤其 `update.sh` 按项目内 `data/` 等目录备份，不支持任意 `MYBOOKS_STORAGE_DIR`；
+使用外部存储或 Docker 卷时应按实际存储位置备份，不能直接照搬该脚本。
 
 ## 现有站点升级
 

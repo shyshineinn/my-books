@@ -23,6 +23,19 @@ npm-debug.log*
 # 环境变量（可能含密钥）
 .env
 .env.*
+!.env.example
+
+# 完整用户数据目录、签名与导出产物
+data/
+storage/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.apk
+*.aab
 
 # 本地工具 / 编辑器
 .workbuddy/
@@ -31,6 +44,7 @@ npm-debug.log*
 .merkle-snapshot.json
 .vscode/
 .idea/
+.mimocode/
 
 # 本地进展 / 项目记忆笔记(个人工作清单,不进仓库)
 PROGRESS.md
