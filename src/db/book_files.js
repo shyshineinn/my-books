@@ -10,7 +10,7 @@
  * 调用方传入,不在模块顶层 require 单例,测试可完全隔离。
  * ============================================================ */
 
-const COLUMNS = `id, book, format, path, size, created_at, updated_at`;
+const COLUMNS = `id, book, format, path, size, sha256, created_at, updated_at`;
 
 // 列出某本书的全部文件(按格式名排序,列表展示用)
 function listFiles(db, bookId) {
@@ -30,17 +30,23 @@ function getFileById(db, fileId) {
 }
 
 // 登记/替换一个文件(幂等 UPSERT):values 来自 core/ebook 的校验输出
-function upsertFile(db, bookId, { format, path, size }) {
+function upsertFile(db, bookId, { format, path, size, sha256 = '' }) {
   const ts = new Date().toISOString();
   db.prepare(`
-    INSERT INTO book_files (book, format, path, size, created_at, updated_at)
-    VALUES (@book, @format, @path, @size, @ts, @ts)
+    INSERT INTO book_files (book, format, path, size, sha256, created_at, updated_at)
+    VALUES (@book, @format, @path, @size, @sha256, @ts, @ts)
     ON CONFLICT(book, format) DO UPDATE SET
       path = excluded.path,
       size = excluded.size,
+      sha256 = excluded.sha256,
       updated_at = excluded.updated_at
-  `).run({ book: bookId, format, path, size, ts });
+  `).run({ book: bookId, format, path, size, sha256, ts });
   return getFile(db, bookId, format);
+}
+
+// 下载时按实际文件补齐旧登记的 SHA;不改 updated_at(不是用户可见的元数据变更)
+function setDigest(db, fileId, sha256) {
+  return db.prepare('UPDATE book_files SET sha256 = ? WHERE id = ?').run(String(sha256 || ''), fileId).changes;
 }
 
 // 合并书籍:把来源书独有格式的登记迁到目标书(目标已有的格式不覆盖)。
@@ -90,4 +96,4 @@ function removeFile(db, bookId, format) {
   return db.prepare('DELETE FROM book_files WHERE book = ?').run(bookId).changes;
 }
 
-module.exports = { listFiles, getFile, getFileById, upsertFile, moveFormatsToBook, listFormatsForBooks, removeFile };
+module.exports = { listFiles, getFile, getFileById, upsertFile, setDigest, moveFormatsToBook, listFormatsForBooks, removeFile };

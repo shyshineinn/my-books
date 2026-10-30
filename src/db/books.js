@@ -387,9 +387,12 @@ function enrichBook(handleDb, id, patch) {
     const updated = getBook(id, handleDb);
     if (tagsJson !== null) {
       categories.syncBookTags(handleDb, id, categories.parseTagNames(tagsJson));
-      // FTS 是外部内容表,不会自动感知 UPDATE —— 必须用旧行显式 delete 再插新行
-      search.updateBookIndex(handleDb, id, oldRow, updated);
     }
+    // FTS 是外部内容表,不会自动感知 UPDATE。简介也是索引字段,
+    // 不能只在标签变化时才重建 —— 比较旧/新行的全部 FTS 字段。
+    const ftsChanged = ['title', 'author', 'summary', 'tags']
+      .some((field) => String(oldRow[field] ?? '') !== String(updated[field] ?? ''));
+    if (ftsChanged) search.updateBookIndex(handleDb, id, oldRow, updated);
     return updated;
   });
 }

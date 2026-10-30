@@ -78,6 +78,25 @@ function removeNote(id) {
   return removeUnderBase(NOTES_DIR, `${Number(id)}.md`);
 }
 
+// 合并书籍时的心得拼接规则(纯函数,便于单测):
+//   · 目标没有心得、只有一本来源 → 原样搬过来,不额外加标题
+//   · 其余情况 → 保留目标原文,每份来源心得加「合并自《书名》」小节
+//   · 空来源忽略;调用方负责 5MB 上限与落盘/回滚
+function mergeContents(targetContent, sources) {
+  const target = String(targetContent == null ? '' : targetContent).replace(/\s+$/, '');
+  const parts = (sources || [])
+    .map((s) => ({
+      title: String((s && s.title) || '').trim() || '未命名',
+      content: String((s && s.content) == null ? '' : s.content).trim(),
+    }))
+    .filter((s) => s.content);
+  if (!parts.length) return target;
+  if (!target && parts.length === 1) return parts[0].content;
+  const out = target ? [target] : [];
+  for (const s of parts) out.push(`### 合并自《${s.title}》\n\n${s.content}`);
+  return out.join('\n\n---\n\n') + '\n';
+}
+
 // 批量:哪些书有心得文件。
 // 一次 readdir 拿到全部 id,避免书架列表逐本 stat(N+1 次系统调用)。
 function listNoteIds() {
@@ -101,4 +120,5 @@ module.exports = {
   writeNote,
   removeNote,
   listNoteIds,
+  mergeContents,
 };

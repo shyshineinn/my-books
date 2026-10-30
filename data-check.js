@@ -13,15 +13,19 @@
  * 用法(服务器或本地):
  *   node data-check.js            # 检查默认 data/books.db
  *   node data-check.js 某备份.db  # 检查指定库文件(如 data/backup/ 里的备份)
+ *   node data-check.js --sha      # 额外重算电子书 SHA(慢)
  *
  * 退出码:0 = 全部通过;1 = 发现问题(每个问题一行 [问题] 前缀输出)
  * ============================================================ */
 
 const { DatabaseSync } = require('node:sqlite');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const target = process.argv[2] || path.join(__dirname, 'data', 'books.db');
+const args = process.argv.slice(2);
+const target = args.find((arg) => !arg.startsWith('--')) || path.join(__dirname, 'data', 'books.db');
+const checkSha = args.includes('--sha');
 if (!fs.existsSync(target)) {
   console.error(`[错误] 数据库文件不存在: ${target}`);
   process.exit(1);
@@ -187,6 +191,64 @@ if (hasTable('custom_columns')) {
     }
   }
   console.log('✓ 自定义字段定义与取值检查完成');
+}
+
+// 5.5 电子书文件与 book_files 登记是否一致(仅在能推断存储根时执行)
+if (hasTable('book_files')) {
+  const before = problems.length;
+  const resolvedTarget = path.resolve(target);
+  const storageRoot = process.env.MYBOOKS_STORAGE_DIR
+    ? path.resolve(process.env.MYBOOKS_STORAGE_DIR)
+    : (path.basename(path.dirname(resolvedTarget)) === 'data'
+      ? path.dirname(path.dirname(resolvedTarget))
+      : null);
+  const filesDir = storageRoot ? path.join(storageRoot, 'books-files') : null;
+  const fileRows = db.prepare('SELECT book, path, size, sha256 FROM book_files').all();
+
+  if (!filesDir) {
+    console.log('· 未识别存储根,跳过电子书文件检查(可用 MYBOOKS_STORAGE_DIR 指定)');
+  } else if (!fs.existsSync(filesDir)) {
+    if (fileRows.length) problem(`电子书目录不存在:${filesDir}(${fileRows.length} 条登记找不到文件)`);
+  } else {
+    const registered = new Set();
+    const rootWithSep = filesDir.endsWith(path.sep) ? filesDir : filesDir + path.sep;
+    for (const row of fileRows) {
+      const rel = String(row.path || '').trim();
+      const full = path.resolve(filesDir, rel);
+      if (!rel || path.isAbsolute(rel) || !(full === filesDir || full.startsWith(rootWithSep))) {
+        problem(`book_files 路径非法:书 ${row.book} → ${rel || '(空)'}`);
+        continue;
+      }
+      let stat;
+      try { stat = fs.statSync(full); } catch { stat = null; }
+      if (!stat || !stat.isFile()) {
+        problem(`登记了但磁盘不存在:书 ${row.book} → ${rel}`);
+        continue;
+      }
+      if (Number(row.size) !== stat.size) {
+        problem(`文件大小与登记不一致:书 ${row.book} → ${rel}(登记 ${row.size},实际 ${stat.size})`);
+      }
+      if (checkSha && row.sha256) {
+        const digest = crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+        if (digest !== row.sha256) problem(`文件 SHA 与登记不一致:书 ${row.book} → ${rel}`);
+      }
+      registered.add(path.relative(filesDir, full).split(path.sep).join('/'));
+    }
+
+    const stray = [];
+    const temps = [];
+    for (const entry of fs.readdirSync(filesDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      if (entry.name.startsWith('uploading-')) { temps.push(entry.name); continue; }
+      if (!registered.has(entry.name)) stray.push(entry.name);
+    }
+    if (temps.length) problem(`电子书目录有 ${temps.length} 个残留临时上传文件:${temps.slice(0, 5).join(', ')}`);
+    if (stray.length) problem(`电子书目录有 ${stray.length} 个未登记文件:${stray.slice(0, 5).join(', ')}`);
+    if (problems.length === before) {
+      const shaText = checkSha ? '(含 SHA)' : '(未校验 SHA,可加 --sha)';
+      console.log(`✓ 电子书文件登记与磁盘一致(${fileRows.length} 个)${shaText}`);
+    }
+  }
 }
 
 db.close();

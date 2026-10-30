@@ -15,6 +15,7 @@ const bookFiles = require('./book_files');
 const customFields = require('./custom_fields');
 const identifiers = require('./identifiers');
 const categories = require('./categories');
+const { mergeReadingStates } = require('./sync-v3');
 const { mergeFields } = require('../core/merge');
 
 function mergeBooks(handleDb, targetId, rawSourceIds) {
@@ -36,53 +37,64 @@ function mergeBooks(handleDb, targetId, rawSourceIds) {
   let targetAfter;
   const assets = [];
 
-  inTransaction(handleDb, () => {
-    // 自定义字段:目标为空才用来源补
-    customFields.fillMissingValues(handleDb, targetId, sourceIds);
+  try {
+    inTransaction(handleDb, () => {
+      // 自定义字段:目标为空才用来源补
+      customFields.fillMissingValues(handleDb, targetId, sourceIds);
 
-    // 标识符:先放来源,再用目标覆盖 —— 冲突时目标优先
-    const mergedIds = {};
-    for (const source of sources) {
-      Object.assign(mergedIds, identifiers.getIdentifiers(handleDb, source.id));
+      // 标识符:先放来源,再用目标覆盖 —— 冲突时目标优先
+      const mergedIds = {};
+      for (const source of sources) {
+        Object.assign(mergedIds, identifiers.getIdentifiers(handleDb, source.id));
+      }
+      Object.assign(mergedIds, identifiers.getIdentifiers(handleDb, targetId));
+
+      // 电子书格式:目标没有的格式迁到目标;重复格式随来源删除
+      for (const source of sources) {
+        bookFiles.moveFormatsToBook(handleDb, source.id, targetId);
+      }
+
+      const fields = mergeFields(target, sources);
+      const merged = {
+        title: target.title,
+        title_sort: target.title_sort,
+        author: target.author,
+        author_sort: target.author_sort,
+        status: fields.status,
+        summary: fields.summary,
+        tags: fields.tags,
+        start_date: fields.start_date,
+        finish_date: fields.finish_date,
+        cover: fields.cover,
+        read_count: fields.read_count,
+        read_logs: fields.read_logs,
+        publisher: fields.publisher,
+        pub_year: fields.pub_year,
+        isbn: mergedIds.isbn || '',
+        rating: fields.rating,
+        douban_id: mergedIds.douban || mergedIds.douban_id || '',
+        series: fields.series,
+        series_index: fields.series_index,
+        identifiers: mergedIds,
+      };
+
+      targetAfter = books.updateBook(targetId, merged, null, handleDb);
+
+      // 安卓阅读状态:并入目标后才删除来源书(来源行随外键级联消失)
+      mergeReadingStates(handleDb, target, sources);
+
+      for (const source of sources) {
+        assets.push({ id: source.id, assets: books.hardDeleteBook(handleDb, source.id) });
+      }
+      categories.pruneOrphans(handleDb);
+    });
+  } catch (err) {
+    // 阅读数据结构异常属于用户数据问题:回滚后按 400 返回,而不是 500
+    if (err && err.code === 'VALIDATION') {
+      return { ok: false, code: 'VALIDATION', error: err.message };
     }
-    Object.assign(mergedIds, identifiers.getIdentifiers(handleDb, targetId));
-
-    // 电子书格式:目标没有的格式迁到目标;重复格式随来源删除
-    for (const source of sources) {
-      bookFiles.moveFormatsToBook(handleDb, source.id, targetId);
-    }
-
-    const fields = mergeFields(target, sources);
-    const merged = {
-      title: target.title,
-      title_sort: target.title_sort,
-      author: target.author,
-      author_sort: target.author_sort,
-      status: fields.status,
-      summary: fields.summary,
-      tags: fields.tags,
-      start_date: fields.start_date,
-      finish_date: fields.finish_date,
-      cover: fields.cover,
-      read_count: fields.read_count,
-      read_logs: fields.read_logs,
-      publisher: fields.publisher,
-      pub_year: fields.pub_year,
-      isbn: mergedIds.isbn || '',
-      rating: fields.rating,
-      douban_id: mergedIds.douban || mergedIds.douban_id || '',
-      series: fields.series,
-      series_index: fields.series_index,
-      identifiers: mergedIds,
-    };
-
-    targetAfter = books.updateBook(targetId, merged, null, handleDb);
-
-    for (const source of sources) {
-      assets.push({ id: source.id, assets: books.hardDeleteBook(handleDb, source.id) });
-    }
-    categories.pruneOrphans(handleDb);
-  });
+    throw err;
+  }
 
   return {
     ok: true,

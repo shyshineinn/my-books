@@ -120,6 +120,24 @@ test('book_files:登记 / 列表 / 查询 / 删除', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('book_files:sha256 持久化,旧调用保持空串,下载回填可用 setDigest', () => {
+  const { dir, db } = openTestDb();
+  const id = insertBook(db);
+  const cols = db.prepare('PRAGMA table_info(book_files)').all().map((c) => c.name);
+  assert.ok(cols.includes('sha256'), 'v20 应有 sha256 列');
+
+  const saved = bookFiles.upsertFile(db, id, {
+    format: 'EPUB', path: '12-a.epub', size: 1024, sha256: 'a'.repeat(64),
+  });
+  assert.equal(saved.sha256, 'a'.repeat(64));
+  const legacy = bookFiles.upsertFile(db, id, { format: 'PDF', path: '12-b.pdf', size: 1 });
+  assert.equal(legacy.sha256, '');
+
+  assert.equal(bookFiles.setDigest(db, saved.id, 'b'.repeat(64)), 1);
+  assert.equal(bookFiles.getFileById(db, saved.id).sha256, 'b'.repeat(64));
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('book_files:同格式重复上传覆盖替换(UPSERT)', () => {
   const { dir, db } = openTestDb();
   const id = insertBook(db);

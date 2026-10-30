@@ -39,7 +39,7 @@ const router = express.Router();
 function withFiles(row) {
   if (!row) return row;
   const files = bookFiles.listFiles(db, row.id).map((f) => ({
-    id: f.id, format: f.format, path: f.path, size: f.size,
+    id: f.id, format: f.format, path: f.path, size: f.size, sha256: f.sha256,
     download_url: `/api/books/${row.id}/files/${f.id}/content?uuid=${encodeURIComponent(row.uuid)}`,
   }));
   const ids = identifiersRepo.getIdentifiers(db, row.id);
@@ -224,21 +224,87 @@ router.post('/api/books/bulk', (req, res) => {
   res.json(result);
 });
 
+// 合并书籍时先把心得合并到目标(在 DB 合并前落盘,失败可恢复),
+// 否则来源书删除后心得文件会永久消失。
+function planBookNotes(target, sources) {
+  const targetStat = notesRepo.statNote(target.id);
+  const targetNote = targetStat ? notesRepo.readNote(target.id) : null;
+  if (targetStat && !targetNote) {
+    return { error: '目标书的心得读取失败,已中止合并', status: 500, code: 'INTERNAL' };
+  }
+  const items = [];
+  for (const source of sources) {
+    const stat = notesRepo.statNote(source.id);
+    const note = stat ? notesRepo.readNote(source.id) : null;
+    if (stat && !note) {
+      return { error: `《${source.title}》的心得读取失败,已中止合并`, status: 500, code: 'INTERNAL' };
+    }
+    items.push({ id: source.id, title: source.title, content: note ? note.content : '' });
+  }
+  const oldContent = targetNote ? targetNote.content : null;
+  const merged = notesRepo.mergeContents(oldContent || '', items);
+  if (Buffer.byteLength(merged, 'utf8') > notesRepo.MAX_NOTE_BYTES) {
+    return { error: '合并后的心得超过 5MB,已中止合并;请先拆分或清理来源心得', status: 400, code: 'VALIDATION' };
+  }
+  return {
+    targetId: target.id,
+    oldContent,
+    content: merged,
+    write: oldContent === null ? merged.trim().length > 0 : merged !== oldContent,
+    sourceIds: items.map((item) => item.id),
+  };
+}
+
+function restoreTargetNote(plan) {
+  if (!plan || !plan.write) return;
+  try {
+    if (plan.oldContent === null) notesRepo.removeNote(plan.targetId);
+    else notesRepo.writeNote(plan.targetId, plan.oldContent);
+  } catch (err) {
+    console.error(`[merge] 合并失败后恢复目标心得失败(id=${plan.targetId}):`, err);
+  }
+}
+
 // 合并书籍:目标书保留标题/作者,其余字段/格式/标识符/自定义值合并;
 // 来源书永久删除(与 calibre Merge book records 同语义)。
 router.post('/api/books/merge', (req, res) => {
   const parsed = parseMergeRequest(req.body || {});
   if (parsed.error) return badBody(res, parsed.error);
 
-  const result = mergeRepo.mergeBooks(db, parsed.targetId, parsed.sourceIds);
+  const sourceIds = [...new Set(parsed.sourceIds)].filter((id) => id !== parsed.targetId);
+  const targetBook = books.getBook(parsed.targetId);
+  const sourceBooks = sourceIds.map((id) => books.getBook(id));
+  const canPlanNotes = !!targetBook && sourceIds.length > 0 && sourceBooks.every(Boolean);
+  let notePlan = null;
+  if (canPlanNotes) {
+    notePlan = planBookNotes(targetBook, sourceBooks);
+    if (notePlan.error) return res.status(notePlan.status).json({ error: notePlan.error, code: notePlan.code });
+    if (notePlan.write) {
+      try {
+        notesRepo.writeNote(notePlan.targetId, notePlan.content);
+      } catch (err) {
+        const status = err && err.code === 'VALIDATION' ? 400 : 500;
+        return res.status(status).json({ error: (err && err.message) || '心得写入失败', code: status === 400 ? 'VALIDATION' : 'INTERNAL' });
+      }
+    }
+  }
+
+  let result;
+  try {
+    result = mergeRepo.mergeBooks(db, parsed.targetId, parsed.sourceIds);
+  } catch (err) {
+    restoreTargetNote(notePlan);
+    throw err;
+  }
   if (!result.ok) {
+    restoreTargetNote(notePlan);
     const status = result.code === 'VALIDATION' ? 400 : 404;
     return res.status(status).json({ error: result.error, code: result.code || 'NOT_FOUND' });
   }
 
   let failed = 0;
   for (const item of result.assets) failed += removeBookAssets(item.assets);
-  for (const sourceId of parsed.sourceIds) {
+  for (const sourceId of sourceIds) {
     if (!notesRepo.removeNote(sourceId)) failed += 1;
   }
   if (failed) {

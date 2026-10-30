@@ -560,8 +560,17 @@ function migrateV19(db) {
   `);
 }
 
+// v20:电子书文件持久化 SHA-256。
+// 新上传直接写入;旧行留空,下载时按实际文件回填;供后续完整性/孤儿扫描使用。
+function migrateV20(db) {
+  const cols = db.prepare('PRAGMA table_info(book_files)').all().map((c) => c.name);
+  if (!cols.includes('sha256')) {
+    db.exec("ALTER TABLE book_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''");
+  }
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

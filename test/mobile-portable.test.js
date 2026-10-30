@@ -18,7 +18,7 @@ const empty = () => ({ schemaVersion:1,createdAt:1,sourceDeviceId:'device-a',boo
 const input = (db, data, revision=0) => ({ library_id:getPortableState(db).library_id,expected_revision:revision,data });
 test('v18 初始状态与能力声明独立于书目版本', () => {
   const db=fixture();try { const state=getPortableState(db);assert.equal(state.revision,0);assert.equal(state.data,null);
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version,19);const changes=getSyncChanges(db);assert.equal(changes.portable_sync,true);assert.equal(changes.portable_revision,0);
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version,20);const changes=getSyncChanges(db);assert.equal(changes.portable_sync,true);assert.equal(changes.portable_revision,0);
   }finally{db.close();}
 });
 test('资料设置快照使用 CAS，拒绝旧版本及其他书库，保持已确认内容', () => {

@@ -21,6 +21,7 @@ const {
   fuzzyTitle, mapHeaders, rowToBook, findIdentical, buildDedupeIndex,
   splitTags, parseIdentifiersCell, importCsv, MAX_ROWS,
 } = require('../src/core/import.js');
+const { isbnKey } = require('../src/core/isbn.js');
 const { openDb } = require('../src/db/index.js');
 const dbImport = require('../src/db/import.js');
 const books = require('../src/db/books.js');
@@ -279,7 +280,7 @@ function fakeImportDeps(existing = []) {
     store, calls,
     deps: {
       listExisting: () => [...store.values()],
-      isbnOf: (r) => r.isbn || '',
+      isbnOf: (r) => isbnKey(r.isbn || ''),
       createBook: (body, custom) => {
         const id = nextId++;
         const row = { id, title: body.title, author: body.author || '', isbn: body.isbn || '' };
@@ -408,6 +409,40 @@ test('D13 返回被忽略的表头与已映射字段(前端展示用)', () => {
   assert.deepEqual(out.customFields, ['页数']);
   assert.ok(out.ignoredHeaders.includes('id'));
   assert.ok(out.ignoredHeaders.includes('未知列'));
+});
+
+test('D15 ISBN 归一化:带连字符的已有 ISBN 命中无连字符输入', () => {
+  const { deps } = fakeImportDeps([
+    { id: 1, title: '三体', author: '刘慈欣', isbn: '978-7-5366-9293-0' },
+  ]);
+  const out = importCsv(deps, {
+    text: 'title,author,isbn\n完全不同的标题,某人,9787536692930',
+    duplicateAction: 'ignore',
+  });
+  assert.equal(out.summary.duplicate, 1);
+  assert.equal(out.results[0].reason, 'isbn');
+});
+
+test('D16 批次内新建的书立即进查重索引:同 CSV 的第二条相同行不重复建', () => {
+  const { deps } = fakeImportDeps([]);
+  const out = importCsv(deps, {
+    text: csvOf('重复书,甲,', '重复书,甲,'),
+    duplicateAction: 'ignore',
+  });
+  assert.equal(out.summary.created, 1);
+  assert.equal(out.summary.duplicate, 1);
+  assert.equal(out.results[1].reason, 'title');
+});
+
+test('D17 dry_run 也模拟批次内新建,预览能显示 duplicate', () => {
+  const { deps } = fakeImportDeps([]);
+  const out = importCsv(deps, {
+    text: csvOf('重复书,甲,', '重复书,甲,'),
+    duplicateAction: 'ignore',
+    dryRun: true,
+  });
+  assert.equal(out.summary.created, 1);
+  assert.equal(out.summary.duplicate, 1);
 });
 
 test('D14 parseHeaders:只解表头,不碰库', () => {

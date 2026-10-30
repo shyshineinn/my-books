@@ -60,7 +60,7 @@ PowerShell 可用 `Copy-Item .env.example .env`。
 ## 现有站点升级
 
 - 先保存数据库一致性备份及上述所有目录，再更新代码。
-- 本批数据库升级为 v18；先更新后端再安装新版安卓。阅读数据、便携设置/书架状态与增量日志保存在同一数据库中。
+- 当前数据库结构版本为 v20；升级前先备份，先更新后端再安装新版安卓。阅读数据、便携设置/书架状态与增量日志保存在同一数据库中。
 - 代理应透传 Range/If-Range、ETag 与 X-Content-SHA256；旧接口仍可完整下载。
 - 现有 `ADMIN_TOKEN` 和 `data/admin-token` 仍有效，可在网页登录页交换为独立设备会话。
 - **未配置管理员或旧令牌时，写入会被拒绝**，不再依赖 Nginx 是否保护写接口。
@@ -73,10 +73,11 @@ PowerShell 可用 `Copy-Item .env.example .env`。
 
 ## 数据保护与验证
 
-备份必须包含数据库的一致性快照、附件、心得、`data/mobile-state-assets/` 与 `data/auth.json`。
+备份必须包含数据库的一致性快照、附件、心得、`data/mobile-state-assets/`、在线更新使用的 `data/app-releases/` 与 `data/auth.json`。
 授权文件含密码哈希及设备令牌摘要，备份也应私有保存。
 恢复到新的存储目录后验证登录、书目、文件下载和心得；不能只验证数据库能打开。
 跨越数据结构升级回退时，应同时恢复匹配版本的数据库与程序。
 
 `npm test` 把所有默认存储隔离到临时目录，验证鉴权、设备撤销、私有文件和已有业务规则。
+`node data-check.js --sha` 会额外核对 `book_files` 登记与磁盘文件（存在性、大小、SHA、孤儿/残留临时文件）；存储根可用 `MYBOOKS_STORAGE_DIR` 指定。
 开发时不把真实书库、授权文件、Cookie 或 APK 签名配置提交到仓库。

@@ -48,6 +48,7 @@
  * ============================================================ */
 
 const { parseCsv } = require('./csv');
+const { isbnKey } = require('./isbn');
 
 const MAX_ROWS = 500;
 const MAX_REPORT = 500;          // 逐条结果上限,防止响应体过大
@@ -254,6 +255,30 @@ function buildDedupeIndex(rows, isbnOf) {
   return { byIsbn, byFuzzyTitle };
 }
 
+// 批次内新建/合并后的书要立即进索引,否则同一 CSV 后面出现相同行会被重复创建。
+function addToIndex(index, row) {
+  if (!index || !row) return;
+  const key = isbnKey(row.isbn || '');
+  if (key && !index.byIsbn.has(key)) index.byIsbn.set(key, row);
+  const ft = fuzzyTitle(row.title);
+  if (!ft) return;
+  const list = index.byFuzzyTitle.get(ft) || [];
+  if (!list.some((c) => c === row || (row.id != null && c.id === row.id))) list.push(row);
+  index.byFuzzyTitle.set(ft, list);
+}
+
+function removeFromIndex(index, id) {
+  if (!index || id == null) return;
+  for (const [key, row] of index.byIsbn) {
+    if (row.id === id) index.byIsbn.delete(key);
+  }
+  for (const [ft, list] of index.byFuzzyTitle) {
+    const kept = list.filter((row) => row.id !== id);
+    if (kept.length) index.byFuzzyTitle.set(ft, kept);
+    else index.byFuzzyTitle.delete(ft);
+  }
+}
+
 /**
  * 找出与 incoming 相同的那本书(没有则 null)。
  * 判定顺序(从严到宽):
@@ -261,7 +286,9 @@ function buildDedupeIndex(rows, isbnOf) {
  *   2. fuzzy_title 相同 **且** 所有作者都能对上(calibre 同款)
  */
 function findIdentical(body, index) {
-  const isbn = String(body.isbn || '').trim();
+  // 必须与 buildDedupeIndex 的键同一套归一化(去连字符/空格),否则
+  // "978-7-5366-9293-0" 与 "9787536692930" 会被当成两本书。
+  const isbn = isbnKey(body.isbn || '');
   if (isbn) {
     const hit = index.byIsbn.get(isbn);
     if (hit) return { book: hit, reason: 'isbn' };
@@ -384,6 +411,10 @@ function importCsv(deps, { text, duplicateAction = 'add', automergeAction = 'ign
       out.status = shouldMerge ? 'merged' : 'created';
       out.bookId = target ? target.id : null;
       if (target) out.existing = { id: target.id, title: target.title };
+      // 预览也要模拟"本批前面新建的书":否则同一 CSV 的重复行不会显示为 duplicate
+      if (index && !shouldMerge) {
+        addToIndex(index, { id: null, title: body.title, author: body.author || '', isbn: body.isbn || '' });
+      }
       results.push(out);
       continue;
     }
@@ -398,11 +429,14 @@ function importCsv(deps, { text, duplicateAction = 'add', automergeAction = 'ign
           out.status = 'merged';
           out.bookId = merged.id;
           out.existing = { id: target.id, title: target.title };
+          removeFromIndex(index, target.id);
+          addToIndex(index, merged);
         }
       } else {
         const created = deps.createBook(body, custom);
         out.status = 'created';
         out.bookId = created.id;
+        addToIndex(index, created);
       }
     } catch (err) {
       out.status = 'error';

@@ -190,6 +190,20 @@ test('B2 enrichBook 的 tags_add 是并集,并同步 FTS', () => {
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('B2b enrichBook 只补简介(没有标签变化)也同步 FTS', () => {
+  const dir = tempDir();
+  const db = openDb(dir);
+  db.exec('DELETE FROM books; DELETE FROM book_tags; DELETE FROM tags;');
+  db.exec("INSERT INTO books_fts(books_fts) VALUES('delete-all')");
+  seedBook(db, { summary: '旧简介', tags: '[]' });
+
+  const out = books.enrichBook(db, 1, { summary: '黑暗森林法则', cover: '/uploads/new.png' });
+  assert.equal(out.summary, '黑暗森林法则');
+  assert.equal(search.searchBooks(db, { q: '黑暗森林法则' }).length, 1, '新简介应进 FTS');
+  assert.equal(search.searchBooks(db, { q: '旧简介' }).length, 0, '旧简介不应再命中');
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('B3 enrichBook 白名单外键被忽略(防 SQL 注入面)', () => {
   const dir = tempDir();
   const db = openDb(dir);
