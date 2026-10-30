@@ -1714,6 +1714,9 @@ const searchMq = window.matchMedia('(min-width: 820px)');
 
 let savedItems = [];
 let savedEditMode = false;
+let searchCloseTimer = null;
+let searchBlurTimer = null;
+let searchNavTimer = null;
 
 const isSearchOpen = () => searchFlyout.classList.contains('open');
 const searchQuery = () => searchInput.value.trim();
@@ -1784,6 +1787,11 @@ function openSearchOverlay() {
   closeMobileMenu();
   document.dispatchEvent(new Event('nav-flyout-close'));
   renderSaved();
+  // 取消上一次关闭留下的滚动锁/失焦定时器,避免重开后被旧定时器打断
+  clearTimeout(searchCloseTimer);
+  clearTimeout(searchBlurTimer);
+  clearTimeout(searchNavTimer);
+  document.body.classList.remove('search-closing');
   searchFlyout.classList.add('open');
   document.body.classList.add('search-open');
   // 顶栏汉堡 → ✕;它压在搜索面板之上,点击即收起(apple.com 同款)
@@ -1811,18 +1819,47 @@ function openSearchOverlay() {
 
 function closeSearchOverlay(restoreFocus) {
   if (!isSearchOpen()) return;
+  const desktop = searchMq.matches;
+  // 桌面端先把当前实际高度写成 inline,再切到 0:
+  // 同帧清空 inline height 时,浏览器可能直接跳到终值,240ms 收起动画就丢了。
+  if (desktop) {
+    searchFlyout.style.height = searchFlyout.getBoundingClientRect().height + 'px';
+    void searchFlyout.offsetHeight;
+  }
   searchFlyout.classList.remove('open');
   document.body.classList.remove('search-open');
+  // 退场期间继续锁住页面滚动(仅窄屏生效),避免面板还在时背景先滚动
+  document.body.classList.add('search-closing');
+  clearTimeout(searchCloseTimer);
+  searchCloseTimer = setTimeout(() => document.body.classList.remove('search-closing'), 450);
   // ✕ 变回两条横杠(240ms);面板约 100ms 后先消失,幕布继续淡出
   playMenuTrigger(false);
   searchFlyout.setAttribute('aria-hidden', 'true');
   searchBtn.setAttribute('aria-expanded', 'false');
-  searchFlyout.style.height = '';
+  if (desktop) searchFlyout.style.height = '0px';
+  else searchFlyout.style.height = '';
   if (savedEditMode) {
     savedEditMode = false;
     renderSaved();
   }
-  if (restoreFocus) searchBtn.focus();
+  if (restoreFocus) {
+    searchBtn.focus();
+    // searchBtn 不可聚焦时焦点仍可能留在输入框,兜底收键盘
+    if (document.activeElement === searchInput) searchInput.blur();
+  } else {
+    // 触屏点幕布/回车关闭时输入框可能仍有焦点:等面板退场再收键盘,
+    // 否则移动端视口先缩,100ms 的收起节奏会被打乱。
+    clearTimeout(searchBlurTimer);
+    searchBlurTimer = setTimeout(() => {
+      if (!isSearchOpen()) searchInput.blur();
+    }, 160);
+  }
+}
+
+// 从其它页搜索要跳书架:等浮层退场再导航,否则关闭动画会被页面卸载直接吞掉
+function navigateAfterSearchClose(url) {
+  clearTimeout(searchNavTimer);
+  searchNavTimer = setTimeout(() => { location.href = url; }, searchMq.matches ? 260 : 140);
 }
 
 function submitSearch() {
@@ -1833,7 +1870,7 @@ function submitSearch() {
   if (onShelf) {
     document.dispatchEvent(new CustomEvent('shelf-search', { detail: { q } }));
   } else if (q) {
-    location.href = '/shelf?q=' + encodeURIComponent(q);
+    navigateAfterSearchClose('/shelf?q=' + encodeURIComponent(q));
   }
 }
 
@@ -1854,7 +1891,7 @@ function applySavedSearch(item) {
   if (q) params.set('q', q);
   if (vl) params.set('vl', vl);
   if (sort && sort !== 'updated') params.set('sort', sort);
-  location.href = '/shelf' + (params.toString() ? '?' + params.toString() : '');
+  navigateAfterSearchClose('/shelf' + (params.toString() ? '?' + params.toString() : ''));
 }
 
 searchBtn.addEventListener('click', () => {
@@ -1877,8 +1914,11 @@ searchInput.addEventListener('keydown', (e) => {
   if (first) first.focus();
 });
 searchResetBtn.addEventListener('click', () => {
+  const hadText = !!searchInput.value;
   searchInput.value = '';
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  // 叉号不仅清空草稿,也取消已经生效的检索(书架回到未检索状态)
+  if (hadText) document.dispatchEvent(new Event('search-cancel'));
   searchInput.focus();
 });
 $('#searchSyntaxBtn').addEventListener('click', () => openModal('#syntaxModal'));

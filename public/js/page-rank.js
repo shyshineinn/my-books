@@ -5,16 +5,6 @@
 
 const RANK_SIZE = 8;
 
-// 从全量书目计算各榜单
-function computeRankings(books) {
-  const reread = books
-    .filter((b) => (b.read_count || 0) >= 2)
-    .sort((a, b) => (b.read_count || 0) - (a.read_count || 0)
-      || String(b.finish_date || '').localeCompare(String(a.finish_date || '')))
-    .slice(0, RANK_SIZE);
-  return { reread };
-}
-
 function rankRowsHtml(list, metric) {
   return `<ol class="rank-list">${list.map((b, i) => `
     <li>
@@ -43,12 +33,13 @@ function rankBoardHtml(title, sub, list, metric) {
     </section>`;
 }
 
-function renderRank(books, { reread }) {
+function renderRank(feed = {}) {
   const root = $('#rankContent');
   if (!root) return;
 
-  const total = books.length;
-  const doneCount = books.filter((b) => b.status === 'done').length;
+  const total = feed.total || 0;
+  const doneCount = feed.done || 0;
+  const reread = Array.isArray(feed.reread) ? feed.reread : [];
 
   root.innerHTML = `
     <section class="rank-tile rank-hero">
@@ -64,13 +55,13 @@ function renderRank(books, { reread }) {
 }
 
 async function loadRankings() {
-  let books;
+  let feed;
   try {
-    books = await api('/api/books');
+    feed = await api(`/api/rank/feed?size=${RANK_SIZE}`);
   } catch {
     return; // 静默:保留上次内容
   }
-  renderRank(books, computeRankings(books));
+  renderRank(feed);
 }
 
 // 榜单交互:事件委托,渲染后无需重复绑定

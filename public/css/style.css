@@ -1281,7 +1281,8 @@ body.search-open .search-curtain {
 }
 
 @media (max-width: 819px) {
-  body.search-open { overflow: hidden; }
+  body.search-open,
+  body.search-closing { overflow: hidden; }
 }
 
 @media (min-width: 820px) {

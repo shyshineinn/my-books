@@ -32,7 +32,9 @@
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | `/api/books` | 筛选后的书目数组，供网页浏览 |
-| GET | `/api/books/:id` | 书目详情，含附件、标识符、心得状态和自定义字段 |
+| GET | `/api/home/feed` | 首页专用精选（featured/grid/gallery），避免全库传输 |
+| GET | `/api/rank/feed` | 榜单专用（总数、已读数、重读榜） |
+| GET | `/api/books/:id` | 书目详情，含附件（含持久化 SHA-256）、标识符、心得状态和自定义字段 |
 | POST | `/api/books` | 创建书目；至少提供非空 `title` |
 | PATCH | `/api/books/:id` | 局部修改书目 |
 | PUT | `/api/books/:id` | 兼容网页的书目更新接口 |
@@ -73,6 +75,16 @@ X-Total-Count: 173
 
 自定义字段：数值字段支持 `#页数:>=300`（基于 `value_num` 索引）；布尔字段接受
 `#重读:true` / `#重读:false` / `1` / `0`；枚举字段精确匹配。
+
+首页和榜单使用专用 feed，不再拉取全库：
+
+```http
+GET /api/home/feed?grid=4&ent=16   -> {featured, grid[], gallery[]}
+GET /api/rank/feed?size=8          -> {total, done, reread[]}
+```
+
+`grid`/`ent`/`size` 会被夹到合理范围；未传时使用 4/16/8。响应带
+`Cache-Control: private, no-store`。
 
 新客户端对书目的 PATCH、PUT、DELETE 应携带读取时的 `expected_uuid` 和
 `expected_revision`，不要用手机时间决定谁覆盖谁。PATCH 示例：

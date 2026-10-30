@@ -309,26 +309,17 @@ function homeTileHtml(b) {
 }
 
 /* ---------- 渲染与数据 ---------- */
-function renderHome(books) {
+function renderHome(feed = {}) {
   const root = $('#homeContent');
   if (!root) return;
 
-  // 大屏只展示已读完且读过次数 ≥2 的书,按次数排序;还没有达标时展示全部已读完的书兜底
-  const done = books.filter((b) => b.status === 'done');
-  const counted = done
-    .filter((b) => (b.read_count || 0) >= 2)
-    .sort((a, b) => (b.read_count || 0) - (a.read_count || 0)
-      || String(b.finish_date || '').localeCompare(String(a.finish_date || '')));
-  const bigScreen = counted.length ? counted : done;
-  const restDone = done.filter((b) => !bigScreen.includes(b));
-  const others = books.filter((b) => b.status !== 'done');
-  // 书格只放次多的 4 本,其余(含更靠后的已读书)全部进 Endless entertainment
-  const gallery = [...bigScreen.slice(1 + GRID_MAX), ...restDone, ...others].slice(0, ENT_LIMIT);
+  // 选取规则已下推到 /api/home/feed:这里只负责把 featured/grid/gallery 画出来
+  const featured = feed.featured || null;
+  const gridBooks = Array.isArray(feed.grid) ? feed.grid : [];
+  const gallery = Array.isArray(feed.gallery) ? feed.gallery : [];
   // 两排分配:按比例切分(见 splitBigCount)。小卡凑不满一排时整排不渲染,书全在大卡里
   const entPrimary = gallery.slice(0, splitBigCount(gallery.length));
   const entSecondary = gallery.slice(entPrimary.length);
-  const featured = bigScreen[0];
-  const gridBooks = bigScreen.slice(1, 1 + GRID_MAX);
 
   root.innerHTML = `
     <div class="home-hero">
@@ -372,7 +363,7 @@ function renderHome(books) {
 
 async function fetchHome() {
   try {
-    renderHome(await api('/api/books?sort=created'));
+    renderHome(await api(`/api/home/feed?grid=${GRID_MAX}&ent=${ENT_LIMIT}`));
   } catch { /* 静默:首页保持上次内容 */ }
 }
 

@@ -435,6 +435,16 @@ document.addEventListener('shelf-search', (e) => {
   syncUrl();
 });
 
+// 搜索框的叉号:common.js 先清空输入,再派发 search-cancel;
+// 这里把已经生效的查询一并撤掉,列表回到全部书籍(浮层保持打开,方便继续输入)。
+document.addEventListener('search-cancel', () => {
+  if (!shelf.q) return;
+  shelf.q = '';
+  $('#searchInput').value = '';
+  fetchBooks();
+  syncUrl();
+});
+
 // 顶栏搜索浮层里的保存项(common.js 派发):套用查询串/虚拟书库 + 排序并写回地址栏
 document.addEventListener('saved-search-apply', (e) => {
   const { q = '', sort = 'updated', vl = '' } = e.detail || {};
