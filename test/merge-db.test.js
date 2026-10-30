@@ -15,6 +15,7 @@ const search = require('../src/db/search.js');
 const categories = require('../src/db/categories.js');
 const identifiers = require('../src/db/identifiers.js');
 const bookFiles = require('../src/db/book_files.js');
+const collections = require('../src/db/collections.js');
 const customFields = require('../src/db/custom_fields.js');
 const notes = require('../src/db/notes.js');
 const { validateReadingData } = require('../src/core/mobile-reading.js');
@@ -295,6 +296,24 @@ test('mergeBooks:来源阅读数据损坏时整体回滚,不删除来源', () =>
   const targetState = db.prepare('SELECT * FROM mobile_reading_state WHERE book_id = ?').get(target);
   assert.equal(targetState.revision, 1, '目标状态不能被改动');
   assert.deepEqual(JSON.parse(targetState.data).bookmarks.map((b) => b.syncId), ['b1']);
+  db.close();
+});
+
+test('mergeBooks:来源书的藏书集关系并入目标并去重', () => {
+  const db = freshDb();
+  const target = makeBook(db, { title: '目标' });
+  const source = makeBook(db, { title: '来源' });
+  const first = collections.createCollection(db, '待读');
+  const second = collections.createCollection(db, '技术');
+  collections.addBooks(db, first.id, [target, source]);
+  collections.addBooks(db, second.id, [source]);
+
+  const result = mergeBooks(db, target, [source]);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(collections.listForBook(db, target).map((c) => c.name), ['待读', '技术']);
+  assert.equal(collections.listCollections(db).find((c) => c.id === first.id).count, 1);
+  assert.equal(collections.listCollections(db).find((c) => c.id === second.id).count, 1);
+  assert.equal(rawBook(db, source), undefined);
   db.close();
 });
 

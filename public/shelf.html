@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#f6f5f2">
   <title>书架 · My books</title>
   <link rel="icon" type="image/png" href="/logo.png?v=2">
   <link rel="manifest" href="/manifest.json">
@@ -12,87 +12,159 @@
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="stylesheet" href="/css/style.css?v=108">
+  <link rel="stylesheet" href="/css/shelf-workbench.css?v=6">
 </head>
 <body data-page="shelf">
-  <main>
-    <h1 class="page-title">书架</h1>
-    <div id="bookGrid" class="book-grid"></div>
-    <div id="shelfSentinel" class="shelf-sentinel" aria-hidden="true"></div>
-    <div id="emptyState" class="empty hidden">
-      <div class="empty-icon">书</div>
-      <p id="emptyTitle">书架还是空的</p>
-      <p class="hint" id="emptyText">添加第一本书,开始你的阅读记录之旅。</p>
+  <main class="wb" id="shelfWorkbench">
+    <aside class="wb-side" id="wbSidebar" aria-label="资料库"></aside>
+
+    <section class="wb-main" id="wbMain">
+      <div class="wb-top">
+        <button type="button" class="wb-brand" id="wbBrand" aria-expanded="false" aria-controls="wbBrandMenu">
+          <img src="/logo-mark.png?v=4" alt="" width="16" height="16">
+          <span>My books</span>
+          <svg class="wb-chevron" width="9" height="5" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <nav class="wb-brand-menu" id="wbBrandMenu" aria-label="站点导航" hidden>
+          <a href="/">首页</a>
+          <a href="/shelf" aria-current="page">书架</a>
+          <a href="/rank">榜单</a>
+          <a href="/stats">统计</a>
+          <a href="/tags">分类管理</a>
+          <a href="/login">账号</a>
+        </nav>
+
+        <div class="wb-top-right">
+          <span class="wb-count" id="wbCount"></span>
+          <div class="wb-sort" id="wbSortHost">
+            <select id="wbSort" aria-label="排序">
+              <option value="updated">最近更新</option>
+              <option value="created">最近添加</option>
+              <option value="title">书名</option>
+              <option value="author">作者</option>
+              <option value="series">系列</option>
+              <option value="finish">读完日期</option>
+            </select>
+          </div>
+          <div class="seg wb-view" id="wbViewToggle" role="group" aria-label="显示方式">
+            <button type="button" data-view="grid" class="active" aria-label="封面网格" title="封面网格">
+              <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.2"/><rect x="9" y="1" width="6" height="6" rx="1.2"/><rect x="1" y="9" width="6" height="6" rx="1.2"/><rect x="9" y="9" width="6" height="6" rx="1.2"/></g></svg>
+            </button>
+            <button type="button" data-view="list" aria-label="列表" title="列表">
+              <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/><rect x="1" y="12" width="14" height="2" rx="1"/></g></svg>
+            </button>
+          </div>
+          <button type="button" class="wb-circle" id="wbAdd" title="添加书籍" aria-label="添加书籍">
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="wb-content" id="wbContent">
+        <div class="wb-grid" id="bookGrid" aria-label="书籍"></div>
+        <div id="shelfSentinel" class="wb-sentinel" aria-hidden="true"></div>
+        <div id="emptyState" class="wb-empty hidden">
+          <div class="wb-empty-icon" aria-hidden="true">◫</div>
+          <p id="emptyTitle">书架还是空的</p>
+          <p class="wb-empty-hint" id="emptyText">添加第一本书,开始你的阅读记录之旅。</p>
+        </div>
+      </div>
+    </section>
+
+    <aside class="wb-inspector" id="wbInspector" aria-label="书籍详情" hidden></aside>
+
+    <div class="wb-chrome">
+      <button type="button" class="wb-circle wb-toggle" id="wbSidebarToggle" aria-label="显示资料库" aria-pressed="true" title="资料库">
+        <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true"><rect x="1.5" y="2.5" width="15" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M7 3v12" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button type="button" class="wb-search" id="shelfSearchBtn" aria-label="搜索">
+        <svg width="14" height="14" viewBox="0 0 18 18" aria-hidden="true"><circle cx="7.8" cy="7.8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12.2 12.2 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <span>搜索</span>
+        <kbd>⌘K</kbd>
+      </button>
+      <button type="button" class="wb-circle wb-toggle" id="wbInspectorToggle" aria-label="显示详情" aria-pressed="false" title="详情">
+        <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true"><rect x="1.5" y="2.5" width="15" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 3v12" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+    </div>
+
+    <!-- 多选底部操作条:长按卡片(手机)或 Ctrl/⌘+点击(电脑)进入多选后才出现 -->
+    <div id="bulkBar" class="bulk-bar hidden" role="region" aria-label="批量操作">
+      <span class="bulk-count" id="bulkCount">已选 0 本</span>
+      <button type="button" class="btn btn-primary btn-sm" id="bulkEditBtn" disabled>批量编辑</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="bulkEnrichBtn" disabled>补全元数据</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="bulkCancelBtn">取消</button>
+    </div>
+
+    <!-- 批量编辑弹窗:留空 = 不修改,标签是添加/移除而不是覆盖 -->
+    <div id="bulkModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bulkTitle">
+      <div class="modal-box settings-box">
+        <div class="modal-head">
+          <h2 id="bulkTitle">批量编辑</h2>
+          <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="bulkStatus">状态</label>
+            <select id="bulkStatus">
+              <option value="">不修改</option>
+              <option value="wish">想读</option>
+              <option value="reading">在读</option>
+              <option value="done">已读</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bulkRating">评分</label>
+            <input type="number" id="bulkRating" min="0" max="10" step="0.1" placeholder="留空不修改">
+          </div>
+          <div class="field">
+            <label for="bulkTagsAdd">添加标签</label>
+            <input type="text" id="bulkTagsAdd" placeholder="用逗号或空格分隔">
+          </div>
+          <div class="field">
+            <label for="bulkTagsRemove">移除标签</label>
+            <input type="text" id="bulkTagsRemove" placeholder="用逗号或空格分隔">
+          </div>
+          <div class="field">
+            <label for="bulkSeries">系列</label>
+            <input type="text" id="bulkSeries" placeholder="留空不修改">
+          </div>
+          <div class="field">
+            <label for="bulkSeriesIndex">系列序号</label>
+            <input type="number" id="bulkSeriesIndex" min="0" step="0.1" placeholder="留空不修改">
+          </div>
+          <div class="field">
+            <label for="bulkPublisher">出版社</label>
+            <input type="text" id="bulkPublisher" placeholder="留空不修改">
+          </div>
+          <div class="field">
+            <label for="bulkPubYear">出版年</label>
+            <input type="text" id="bulkPubYear" placeholder="留空不修改">
+          </div>
+        </div>
+        <p class="field-hint">只有填写或选择的字段会被修改;标签是添加/移除,不会清空其它标签。</p>
+        <div class="form-foot">
+          <span id="bulkError" class="form-error"></span>
+          <div class="form-foot-btns">
+            <button type="button" class="btn btn-ghost" data-close>取消</button>
+            <button type="button" class="btn btn-primary" id="bulkSaveBtn">应用</button>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
-  <!-- 多选底部操作条:长按卡片(手机)或 Ctrl/⌘+点击(电脑)进入多选后才出现 -->
-  <div id="bulkBar" class="bulk-bar hidden" role="region" aria-label="批量操作">
-    <span class="bulk-count" id="bulkCount">已选 0 本</span>
-    <button type="button" class="btn btn-primary btn-sm" id="bulkEditBtn" disabled>批量编辑</button>
-    <button type="button" class="btn btn-ghost btn-sm" id="bulkEnrichBtn" disabled>补全元数据</button>
-    <button type="button" class="btn btn-ghost btn-sm" id="bulkCancelBtn">取消</button>
-  </div>
-
-  <!-- 批量编辑弹窗:留空 = 不修改,标签是添加/移除而不是覆盖 -->
-  <div id="bulkModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bulkTitle">
-    <div class="modal-box settings-box">
-      <div class="modal-head">
-        <h2 id="bulkTitle">批量编辑</h2>
-        <button type="button" class="icon-btn" data-close aria-label="关闭">✕</button>
-      </div>
-      <div class="form-grid">
-        <div class="field">
-          <label for="bulkStatus">状态</label>
-          <select id="bulkStatus">
-            <option value="">不修改</option>
-            <option value="wish">想读</option>
-            <option value="reading">在读</option>
-            <option value="done">已读</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="bulkRating">评分</label>
-          <input type="number" id="bulkRating" min="0" max="10" step="0.1" placeholder="留空不修改">
-        </div>
-        <div class="field">
-          <label for="bulkTagsAdd">添加标签</label>
-          <input type="text" id="bulkTagsAdd" placeholder="用逗号或空格分隔">
-        </div>
-        <div class="field">
-          <label for="bulkTagsRemove">移除标签</label>
-          <input type="text" id="bulkTagsRemove" placeholder="用逗号或空格分隔">
-        </div>
-        <div class="field">
-          <label for="bulkSeries">系列</label>
-          <input type="text" id="bulkSeries" placeholder="留空不修改">
-        </div>
-        <div class="field">
-          <label for="bulkSeriesIndex">系列序号</label>
-          <input type="number" id="bulkSeriesIndex" min="0" step="0.1" placeholder="留空不修改">
-        </div>
-        <div class="field">
-          <label for="bulkPublisher">出版社</label>
-          <input type="text" id="bulkPublisher" placeholder="留空不修改">
-        </div>
-        <div class="field">
-          <label for="bulkPubYear">出版年</label>
-          <input type="text" id="bulkPubYear" placeholder="留空不修改">
-        </div>
-      </div>
-      <p class="field-hint">只有填写或选择的字段会被修改;标签是添加/移除,不会清空其它标签。</p>
-      <div class="form-foot">
-        <span id="bulkError" class="form-error"></span>
-        <div class="form-foot-btns">
-          <button type="button" class="btn btn-ghost" data-close>取消</button>
-          <button type="button" class="btn btn-primary" id="bulkSaveBtn">应用</button>
-        </div>
-      </div>
-    </div>
-  </div>
+  <button type="button" class="wb-search-close" id="wbSearchClose" aria-label="关闭搜索" hidden>
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+  </button>
 
   <script defer src="/js/chrome.js?v=34"></script>
   <script defer src="/js/common.js?v=32"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=19"></script>
+  <script defer src="/js/shelf/store.js?v=6"></script>
+  <script defer src="/js/shelf/sidebar.js?v=6"></script>
+  <script defer src="/js/shelf/grid.js?v=6"></script>
+  <script defer src="/js/shelf/inspector.js?v=6"></script>
+  <script defer src="/js/shelf/actions.js?v=6"></script>
+  <script defer src="/js/shelf/main.js?v=6"></script>
 </body>
 </html>

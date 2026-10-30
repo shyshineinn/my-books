@@ -67,6 +67,10 @@ GET /api/books?status=done&sort=title&start=60&size=60
 X-Total-Count: 173
 ```
 
+常用筛选参数：`status=wish|reading|done`；`tag`（精确标签）；`author`（作者子串）；
+`series`（系列名精确、大小写不敏感）；`collection=<id>`（手动藏书集成员）；`vl`
+（虚拟书库作用域）。筛选与 `q` 按 AND 组合，非法 `collection` 返回 400。
+
 ### 检索排序
 
 带 `q` 的自由词检索：省略 `sort` 或写 `sort=relevance` 时按 BM25 相关度排序；
@@ -116,6 +120,22 @@ GET /api/rank/feed?size=8          -> {total, done, reread[]}
 版本冲突返回 `409 CONFLICT` 及 `current`，客户端重新合并后提交。所有 `/api/sync/state` 接口始终要求设备会话，
 公开书库模式也不会公开个人资料。协议 3 增量头的 `portable_sync` 与 `portable_revision` 声明能力及当前状态版本。
 书籍身份通过 `data.bookIdentities` 的 `mybooks-ID → UUID` 对照校验；逐本阅读内容继续走阅读接口，禁止混入便携快照。
+
+### 手动藏书集
+
+藏书集是独立分组，不修改书目元数据，也不推进 `revision`；删除分组不会删书。
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/collections?vl=` | 返回 `[{id,name,count}]`，可按虚拟书库收窄计数 |
+| POST | `/api/collections` | `{name}` 新建，名称大小写不敏感唯一，重名 409 |
+| PUT | `/api/collections/:id` | `{name}` 重命名 |
+| DELETE | `/api/collections/:id` | 删除分组，书目保留 |
+| POST | `/api/collections/:id/books` | `{ids:[]}` 批量加入，幂等，单次最多 1000 本 |
+| DELETE | `/api/collections/:id/books` | `{ids:[]}` 批量移除 |
+
+书目详情响应中的 `collections` 字段给出该书所属分组。回收站里的书不计入分组计数；
+恢复后原有关系仍然保留。安卓同步协议不包含藏书集。
 
 ## 附件与心得
 

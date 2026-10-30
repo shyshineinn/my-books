@@ -15,6 +15,7 @@ const bookFiles = require('./book_files');
 const customFields = require('./custom_fields');
 const identifiers = require('./identifiers');
 const categories = require('./categories');
+const collections = require('./collections');
 const { mergeReadingStates } = require('./sync-v3');
 const { mergeFields } = require('../core/merge');
 
@@ -82,6 +83,9 @@ function mergeBooks(handleDb, targetId, rawSourceIds) {
 
       // 安卓阅读状态:并入目标后才删除来源书(来源行随外键级联消失)
       mergeReadingStates(handleDb, target, sources);
+
+      // 手动藏书集是独立分组,合并时把来源成员关系并到目标书
+      for (const source of sources) collections.mergeForBook(handleDb, source.id, targetId);
 
       for (const source of sources) {
         assets.push({ id: source.id, assets: books.hardDeleteBook(handleDb, source.id) });

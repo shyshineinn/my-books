@@ -251,6 +251,33 @@ if (hasTable('book_files')) {
   }
 }
 
+// 5.6 手动藏书集:名称与成员关系完整性(v22 起)
+if (hasTable('collections') && hasTable('book_collections')) {
+  const before = problems.length;
+  const emptyNames = db.prepare("SELECT id FROM collections WHERE trim(name) = ''").all();
+  for (const c of emptyNames) problem(`藏书集名称为空:id=${c.id}`);
+  const dupNames = db.prepare(`
+    SELECT lower(name) AS key, COUNT(*) AS n FROM collections GROUP BY lower(name) HAVING n > 1
+  `).all();
+  for (const d of dupNames) problem(`藏书集名称重复:${d.key}(${d.n} 个)`);
+  const orphanMembers = db.prepare(`
+    SELECT bc.collection_id, bc.book_id
+    FROM book_collections bc
+    LEFT JOIN collections c ON c.id = bc.collection_id
+    LEFT JOIN books b ON b.id = bc.book_id
+    WHERE c.id IS NULL OR b.id IS NULL
+  `).all();
+  for (const m of orphanMembers.slice(0, 20)) {
+    problem(`藏书集成员关系孤儿:collection=${m.collection_id} book=${m.book_id}`);
+  }
+  if (orphanMembers.length > 20) problem(`藏书集成员关系孤儿还有 ${orphanMembers.length - 20} 条`);
+  if (problems.length === before) {
+    const total = db.prepare('SELECT COUNT(*) AS n FROM collections').get().n;
+    const members = db.prepare('SELECT COUNT(*) AS n FROM book_collections').get().n;
+    console.log(`✓ 藏书集关系检查完成(${total} 个分组,${members} 条成员关系)`);
+  }
+}
+
 db.close();
 
 const trashCount = rows.filter((r) => r.deleted_at).length;

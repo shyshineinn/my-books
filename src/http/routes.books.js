@@ -19,6 +19,7 @@ const books = require('../db/books');
 const duplicatesRepo = require('../db/duplicates');
 const mergeRepo = require('../db/merge');
 const bookFiles = require('../db/book_files');
+const collectionsRepo = require('../db/collections');
 const customFields = require('../db/custom_fields');
 const identifiersRepo = require('../db/identifiers');
 const notesRepo = require('../db/notes');
@@ -50,6 +51,7 @@ function withFiles(row) {
     file_formats: files.map((f) => f.format).join(', '),
     identifiers: ids,
     identifier_list: coreIdent.toDisplayList(ids),
+    collections: collectionsRepo.listForBook(db, row.id),
     series_label: coreSeries.seriesLabel(row.series, row.series_index),
     has_notes: !!note,
     notes_size: note ? note.size : 0,

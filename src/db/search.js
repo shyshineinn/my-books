@@ -783,7 +783,7 @@ function nextDayIso(isoStr) {
 // legacy,一处生效,避免新增查询路径时漏掉 deleted_at。
 // scopeIds 是「虚拟书库 / 外部作用域」:null = 不限定;
 // 数组 = 旧版 id 集合(空数组 = 什么都不命中);{sql, params} = 新版子查询片段。
-function legacyFilterClauses(status, tag, author, scopeIds = null) {
+function legacyFilterClauses(status, tag, author, scopeIds = null, series = '', collection = null) {
   const STATUSES = ['wish', 'reading', 'done'];
   const clauses = [{ sql: 'b.deleted_at IS NULL', params: [] }];
   const scope = scopeClause('b.id', scopeIds);
@@ -791,6 +791,17 @@ function legacyFilterClauses(status, tag, author, scopeIds = null) {
   if (status && STATUSES.includes(status)) clauses.push({ sql: 'b.status = ?', params: [status] });
   if (tag) clauses.push({ sql: 'b.tags LIKE ?', params: [`%"${escapeLike(tag)}"%`] });
   if (author) clauses.push({ sql: 'b.author LIKE ?', params: [`%${escapeLike(author)}%`] });
+  if (series) clauses.push({ sql: 'b.series = ? COLLATE NOCASE', params: [String(series).trim()] });
+  if (collection !== undefined && collection !== null && collection !== '') {
+    const id = Number(collection);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      throw Object.assign(new Error('collection 应为正整数'), { code: 'VALIDATION' });
+    }
+    clauses.push({
+      sql: 'EXISTS (SELECT 1 FROM book_collections bc WHERE bc.book_id = b.id AND bc.collection_id = ?)',
+      params: [id],
+    });
+  }
   return clauses;
 }
 
@@ -915,12 +926,12 @@ function buildStructuredSearch(db, parsed, legacy, order, columns, vlStack = [],
 
 // 把一次检索编译成 SQL(不执行)。虚拟书库作用域用它嵌入子查询;
 // select 可换成 b.id 只取 id,page 用于列表分页。
-function buildSearchSql(db, { q, status, tag, author, sort, scopeIds } = {}, vlStack = [],
+function buildSearchSql(db, { q, status, tag, author, series, collection, sort, scopeIds } = {}, vlStack = [],
   { page = null, select = 'b.*', forceLike = false, noOrder = false } = {}) {
   // sort 省略或写 relevance = 相关度;显式白名单排序则覆盖 BM25。
   const relevance = !sort || sort === 'relevance';
   const order = SORTS[sort] || SORTS.updated;
-  const legacy = legacyFilterClauses(status, tag, author, scopeIds);
+  const legacy = legacyFilterClauses(status, tag, author, scopeIds, series, collection);
   const paging = pagingParts(page);
   const orderSql = noOrder ? '' : ` ORDER BY ${order}`;
 

@@ -583,8 +583,27 @@ function migrateV21(db) {
   `);
 }
 
+// v22:手动藏书集。成员关系独立于 tags,不触发书目 revision。
+function migrateV22(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS collections (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS book_collections (
+      collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+      book_id       INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+      added_at      TEXT NOT NULL,
+      PRIMARY KEY (collection_id, book_id)
+    );
+    CREATE INDEX IF NOT EXISTS book_collections_book_idx ON book_collections(book_id);
+  `);
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21, migrateV22];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
