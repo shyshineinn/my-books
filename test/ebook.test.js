@@ -120,7 +120,7 @@ test('book_files:登记 / 列表 / 查询 / 删除', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('book_files:sha256 持久化,旧调用保持空串,下载回填可用 setDigest', () => {
+test('book_files:sha256 持久化,摘要回填不推动书目版本', () => {
   const { dir, db } = openTestDb();
   const id = insertBook(db);
   const cols = db.prepare('PRAGMA table_info(book_files)').all().map((c) => c.name);
@@ -133,8 +133,26 @@ test('book_files:sha256 持久化,旧调用保持空串,下载回填可用 setDi
   const legacy = bookFiles.upsertFile(db, id, { format: 'PDF', path: '12-b.pdf', size: 1 });
   assert.equal(legacy.sha256, '');
 
+  const bookBefore = db.prepare('SELECT revision, updated_at FROM books WHERE id = ?').get(id);
+  const syncBefore = db.prepare("SELECT COUNT(*) AS n FROM sync_changes WHERE book_id = ? AND kind = 'book'").get(id).n;
   assert.equal(bookFiles.setDigest(db, saved.id, 'b'.repeat(64)), 1);
   assert.equal(bookFiles.getFileById(db, saved.id).sha256, 'b'.repeat(64));
+  const bookAfter = db.prepare('SELECT revision, updated_at FROM books WHERE id = ?').get(id);
+  const syncAfter = db.prepare("SELECT COUNT(*) AS n FROM sync_changes WHERE book_id = ? AND kind = 'book'").get(id).n;
+  assert.deepEqual(bookAfter, bookBefore, '只补摘要不应改 revision / updated_at');
+  assert.equal(syncAfter, syncBefore, '只补摘要不应写增量日志');
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('book_files:替换文件仍会推动书目版本', () => {
+  const { dir, db } = openTestDb();
+  const id = insertBook(db);
+  const before = bookFiles.upsertFile(db, id, { format: 'EPUB', path: '12-old.epub', size: 10, sha256: 'a'.repeat(64) });
+  const v1 = db.prepare('SELECT revision FROM books WHERE id = ?').get(id).revision;
+  bookFiles.upsertFile(db, id, { format: 'EPUB', path: '12-new.epub', size: 20, sha256: 'b'.repeat(64) });
+  const v2 = db.prepare('SELECT revision FROM books WHERE id = ?').get(id).revision;
+  assert.equal(before.path, '12-old.epub');
+  assert.equal(v2, v1 + 1);
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 

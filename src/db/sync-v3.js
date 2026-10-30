@@ -124,15 +124,26 @@ function mergeReadingData(targetData, sourceData) {
     targetData.tombstones, sourceData.tombstones,
     (t) => `${t.namespace}:${t.itemId}`, 'deletedAt',
   );
-  // 墓碑优先:被删除的批注/书签不能再出现在合并结果里(否则 validateReadingData 会拒绝)
-  const deleted = { bookmark: new Set(), note: new Set() };
-  for (const t of tombstones) deleted[t.namespace].add(t.itemId);
+  // 同 ID 的批注/书签与墓碑按时间戳裁决:修改晚于删除则保留内容、丢弃旧墓碑;
+  // 平局仍按删除处理,避免时钟相同时把已删除内容带回来。
+  const items = {
+    bookmark: new Map(bookmarks.map((b) => [b.syncId, b])),
+    note: new Map(notes.map((n) => [n.syncId, n])),
+  };
+  const keptTombstones = [];
+  for (const t of tombstones) {
+    const bucket = items[t.namespace];
+    const item = bucket.get(t.itemId);
+    if (item && (Number(item.updatedAt) || 0) > (Number(t.deletedAt) || 0)) continue;
+    if (item) bucket.delete(t.itemId);
+    keptTombstones.push(t);
+  }
   return {
     positions,
-    bookmarks: bookmarks.filter((b) => !deleted.bookmark.has(b.syncId)),
-    notes: notes.filter((n) => !deleted.note.has(n.syncId)),
+    bookmarks: [...items.bookmark.values()],
+    notes: [...items.note.values()],
     reading_records: reading,
-    tombstones,
+    tombstones: keptTombstones,
   };
 }
 

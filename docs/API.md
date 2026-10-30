@@ -121,11 +121,11 @@ GET /api/rank/feed?size=8          -> {total, done, reread[]}
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| GET | `/api/books/:id/file` | 返回 `files` 列表 |
+| GET | `/api/books/:id/file` | 返回 `files` 列表（含 `sha256` 与 `download_url`） |
 | POST | `/api/books/:id/file` | multipart 字段 `file`，上传电子书，单文件上限 80 MiB |
 | DELETE | `/api/books/:id/file?format=EPUB` | 按格式删除该书的附件 |
-| GET | `/books-files/:path` | 下载文件列表给出的相对路径 |
-| GET | `/api/books/:id/files/:fileId/content?uuid=...` | 强 ETag、SHA-256 和 Range/If-Range 正文续传 |
+| GET | `/books-files/:path` | 兼容旧客户端的静态路径，不校验摘要；新客户端不要使用 |
+| GET | `/api/books/:id/files/:fileId/content?uuid=...` | 强 ETag、SHA-256 和 Range/If-Range 正文续传；已登记摘要与实际文件不一致时返回 `409 FILE_INTEGRITY` |
 | GET | `/api/books/:id/notes` | 返回 `has_notes`、`content`、`size`、`updated_at` |
 | PUT | `/api/books/:id/notes` | JSON 的 `content` 与可选的 `expected_updated_at` 保存心得 |
 | DELETE | `/api/books/:id/notes` | 删除心得 |
@@ -140,3 +140,4 @@ GET /api/rank/feed?size=8          -> {total, done, reread[]}
 业务错误通常为 JSON 的 `error`（说明）与 `code`（程序判断）。
 400 表示参数错误，401/403 需要处理认证或来源问题，404 表示资源不存在，
 409 表示冲突，429 应降低重试频率。代理和网络故障不一定返回 JSON，客户端应保留本地数据。
+正文摘要不一致返回 `409 FILE_INTEGRITY`，需重新上传该格式文件后再下载。

@@ -103,6 +103,43 @@ test('缺书 / 非法 id / 非法格式:临时文件都被清理', async () => {
   assert.equal(bookFiles.listFiles(db, id).length, 0);
 });
 
+test('文件列表给出 content 下载地址;下载返回实际 SHA 并回填旧登记', async () => {
+  reset();
+  const id = makeBook();
+  const body = Buffer.from('hello download');
+  const uploaded = await (await postFile(id, body, 'book.epub')).json();
+  const uuid = db.prepare('SELECT uuid FROM books WHERE id = ?').get(id).uuid;
+
+  const listed = await (await fetch(`${base}/api/books/${id}/file`)).json();
+  assert.equal(listed.files.length, 1);
+  assert.equal(listed.files[0].download_url, `/api/books/${id}/files/${uploaded.file.id}/content?uuid=${uuid}`);
+
+  db.prepare('UPDATE book_files SET sha256 = ? WHERE id = ?').run('', uploaded.file.id);
+  const res = await fetch(`${base}${listed.files[0].download_url}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-content-sha256'), createHash('sha256').update(body).digest('hex'));
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), body);
+  assert.equal(bookFiles.getFileById(db, uploaded.file.id).sha256, createHash('sha256').update(body).digest('hex'));
+});
+
+test('磁盘正文与登记摘要不一致时阻止下载', async () => {
+  reset();
+  const id = makeBook();
+  const body = Buffer.from('original file content');
+  const uploaded = await (await postFile(id, body, 'book.epub')).json();
+  const saved = bookFiles.getFileById(db, uploaded.file.id);
+  const target = path.join(FILES_DIR, saved.path);
+  fs.writeFileSync(target, Buffer.from('tampered file content'));
+  const uuid = db.prepare('SELECT uuid FROM books WHERE id = ?').get(id).uuid;
+
+  const res = await fetch(`${base}/api/books/${id}/files/${uploaded.file.id}/content?uuid=${uuid}`);
+  assert.equal(res.status, 409);
+  const json = await res.json();
+  assert.equal(json.code, 'FILE_INTEGRITY');
+  assert.ok(bookFiles.getFileById(db, uploaded.file.id), '阻止下载不应删除登记');
+  assert.ok(fs.existsSync(target), '阻止下载不应删除磁盘文件');
+});
+
 test('磁盘删除失败时保留登记;正常删除同时清磁盘与登记', async () => {
   reset();
   const id = makeBook();

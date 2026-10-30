@@ -10,7 +10,11 @@ async function fileDigest(filePath) {
     const hash = crypto.createHash('sha256');
     for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk);
     const after = await fs.promises.stat(filePath);
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) {
+    // 不能用 ctime 判断“读取期间被改”：移动端资源靠硬链接落盘，
+    // 并发请求增删硬链接会计入 ctime，导致同内容并发上传误报 409。
+    // dev/ino 识别 rename 覆盖，size/mtime 识别原地改写。
+    if (before.dev !== after.dev || before.ino !== after.ino ||
+        before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
       throw Object.assign(new Error('文件已变化，请重新下载'), { status: 409 });
     }
     return { sha256: hash.digest('hex'), size: after.size };

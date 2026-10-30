@@ -46,13 +46,17 @@ router.get('/api/books/:id/files/:fileId/content', async (req, res, next) => {
     if (bookFiles.getFileById(db, fileId)?.path !== file.path) {
       return res.status(409).json({ code: 'FILE_CHANGED', error: '正文已更新，请重试下载' });
     }
-    // 旧登记没有 SHA:下载时按实际文件补齐;已有值但不一致说明磁盘被改过,先记日志
+    // 旧登记没有 SHA:下载时按实际文件补齐
     if (!file.sha256) {
       try { bookFiles.setDigest(db, fileId, digest.sha256); } catch (err) {
         console.error(`[files] 回填文件摘要失败 id=${fileId}:`, err.message);
       }
     } else if (file.sha256 !== digest.sha256) {
-      console.warn(`[files] 文件摘要与登记不一致 id=${fileId}:登记=${file.sha256} 实际=${digest.sha256}`);
+      console.error(`[files] 文件摘要与登记不一致 id=${fileId}:登记=${file.sha256} 实际=${digest.sha256}`);
+      return res.status(409).json({
+        code: 'FILE_INTEGRITY',
+        error: '文件内容与登记摘要不一致，已阻止下载；请重新上传该格式的文件',
+      });
     }
     res.set({ ETag: `"sha256-${digest.sha256}"`, 'X-Content-SHA256': digest.sha256,
       'Cache-Control': 'private, no-store', 'Accept-Ranges': 'bytes' });
@@ -204,7 +208,10 @@ router.get('/api/books/:id/file', (req, res) => {
   const book = books.getBook(id);
   if (!book) return res.status(404).json({ error: '书籍不存在', code: 'NOT_FOUND' });
   const rows = bookFiles.listFiles(db, id);
-  res.json({ files: rows.map((f) => ({ id: f.id, format: f.format, path: f.path, size: f.size, sha256: f.sha256 })) });
+  const prefix = `/api/books/${id}/files/`;
+  const uuid = encodeURIComponent(book.uuid);
+  res.json({ files: rows.map((f) => ({ id: f.id, format: f.format, path: f.path, size: f.size, sha256: f.sha256,
+    download_url: `${prefix}${f.id}/content?uuid=${uuid}` })) });
 });
 
 // 删除某个文件(按格式;磁盘 + 登记一起删)

@@ -224,6 +224,40 @@ test('mergeBooks:合并安卓阅读状态,冲突保留较新记录并应用墓�
   db.close();
 });
 
+test('mergeBooks:墓碑与批注冲突按时间戳裁决,较新的修改可以保留', () => {
+  const db = freshDb();
+  const target = makeBook(db, { title: '目标' });
+  const source = makeBook(db, { title: '来源' });
+  const targetUuid = setUuid(db, target);
+  const sourceUuid = setUuid(db, source);
+
+  putReadingState(db, target, targetUuid, 1, readingData({
+    notes: [noteItem('nNew', 500), noteItem('nOld', 200), noteItem('nTie', 300)],
+    bookmarks: [bookmark('bNew', 500), bookmark('bOld', 200)],
+    tombstones: [{ namespace: 'note', itemId: 'n3', deviceId: 'device-a', deletedAt: 100 }],
+  }));
+  putReadingState(db, source, sourceUuid, 1, readingData({
+    notes: [noteItem('n3', 200)],
+    tombstones: [
+      { namespace: 'note', itemId: 'nNew', deviceId: 'device-b', deletedAt: 300 },
+      { namespace: 'note', itemId: 'nOld', deviceId: 'device-b', deletedAt: 300 },
+      { namespace: 'note', itemId: 'nTie', deviceId: 'device-b', deletedAt: 300 },
+      { namespace: 'bookmark', itemId: 'bNew', deviceId: 'device-b', deletedAt: 300 },
+      { namespace: 'bookmark', itemId: 'bOld', deviceId: 'device-b', deletedAt: 300 },
+    ],
+  }));
+
+  const result = mergeBooks(db, target, [source]);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const data = JSON.parse(db.prepare('SELECT * FROM mobile_reading_state WHERE book_id = ?').get(target).data);
+  assert.equal(validateReadingData(data), true);
+  assert.deepEqual(data.notes.map((n) => n.syncId).sort(), ['n3', 'nNew'], '较新修改保留,较旧/平局按删除处理');
+  assert.deepEqual(data.bookmarks.map((b) => b.syncId), ['bNew'], '较旧书签仍被墓碑删除');
+  assert.deepEqual(data.tombstones.map((t) => `${t.namespace}:${t.itemId}`).sort(),
+    ['bookmark:bOld', 'note:nOld', 'note:nTie'], '生效的删除保留墓碑,被较新修改压过的墓碑移除');
+  db.close();
+});
+
 test('mergeBooks:目标没有阅读状态时搬入来源状态并提升版本', () => {
   const db = freshDb();
   const target = makeBook(db, { title: '目标' });

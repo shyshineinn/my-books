@@ -569,8 +569,22 @@ function migrateV20(db) {
   }
 }
 
+// v21:文件摘要回填属于完整性元数据,不应推动书目 revision。
+// 收窄 v16 的 book_files 更新触发器:只有书、格式、路径或大小变化才记书目变更。
+function migrateV21(db) {
+  db.exec(`
+    DROP TRIGGER IF EXISTS book_files_revision_update;
+    CREATE TRIGGER book_files_revision_update AFTER UPDATE ON book_files
+      WHEN OLD.book IS NOT NEW.book OR OLD.format IS NOT NEW.format
+        OR OLD.path IS NOT NEW.path OR OLD.size IS NOT NEW.size
+    BEGIN
+      UPDATE books SET revision=revision+1, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id IN (OLD.book, NEW.book);
+    END;
+  `);
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

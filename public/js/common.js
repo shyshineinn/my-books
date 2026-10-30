@@ -537,7 +537,7 @@ async function openDetail(id) {
       ${customFieldsDetailHtml(book)}
       ${book.summary ? `<div class="detail-block"><div class="detail-block-k">简介</div><p class="detail-block-v">${esc(book.summary)}</p></div>` : ''}
       ${book.files && book.files.length ? `<div class="detail-block"><div class="detail-block-k">电子书文件</div><div class="detail-files">${book.files.map((f) => `
-        <a class="detail-file-link" href="/books-files/${esc(f.path)}" download="《${esc(book.title)}》.${esc(f.format.toLowerCase())}" title="下载 ${esc(f.format)} 文件(${fileSizeText(f.size)})">
+        <a class="detail-file-link" href="${esc(f.download_url || `/books-files/${f.path}`)}" download="《${esc(book.title)}》.${esc(f.format.toLowerCase())}" title="下载 ${esc(f.format)} 文件(${fileSizeText(f.size)})">
           <span class="ebook-tag">.${esc(f.format)}</span><span>${fileSizeText(f.size)}</span> ⬇
         </a>`).join('')}</div></div>` : ''}
       <button type="button" class="notes-entry" id="detailNotesEntry" title="打开读书心得">读书心得</button>
@@ -981,7 +981,7 @@ function renderEbookList(files) {
   box.innerHTML = files.map((f) => `
     <span class="ebook-item">
       <span class="ebook-tag">.${esc(f.format)}</span>
-      <a href="/books-files/${esc(f.path)}" download title="下载该文件">${fileSizeText(f.size)}</a>
+      <a href="${esc(f.download_url || `/books-files/${f.path}`)}" download title="下载该文件">${fileSizeText(f.size)}</a>
       <button type="button" class="ebook-item-del" data-format="${esc(f.format)}" title="删除 ${esc(f.format)} 文件" aria-label="删除 ${esc(f.format)} 文件">✕</button>
     </span>`).join('');
   box.querySelectorAll('.ebook-item-del').forEach((btn) => {
