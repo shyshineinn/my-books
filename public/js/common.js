@@ -88,13 +88,11 @@ function authHeaders() {
 
 function forgetToken() { localStorage.removeItem(TOKEN_KEY); }
 
-async function api(url, options = {}) {
-  const doFetch = () => fetch(url, {
+async function apiFetch(url, options = {}) {
+  const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     ...options,
   });
-
-  let res = await doFetch();
 
   // 401:会话缺失或失效，清理旧令牌并跳转登录。
   if (res.status === 401) {
@@ -102,9 +100,6 @@ async function api(url, options = {}) {
     location.assign('/login?next=' + encodeURIComponent(location.pathname + location.search));
     throw new Error('请先登录图书服务器');
   }
-
-  // 重试后仍 401:令牌错误,清掉避免下次自动带上废 token
-  if (res.status === 401) forgetToken();
 
   // 429:触发限速(双层模式连续输错令牌),提示等待而非笼统"请求失败"
   if (res.status === 429) {
@@ -114,7 +109,19 @@ async function api(url, options = {}) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || '请求失败');
-  return data;
+  return { data, res };
+}
+
+async function api(url, options = {}) {
+  return (await apiFetch(url, options)).data;
+}
+
+// 需要响应头的调用(列表分页的总数 X-Total-Count)。
+// total 为 null 表示服务端没给这个头,调用方据此回退到"本页是否满页"判断。
+async function apiPage(url, options = {}) {
+  const { data, res } = await apiFetch(url, options);
+  const raw = res.headers.get('X-Total-Count');
+  return { data, total: raw === null ? null : Number(raw) };
 }
 
 /* ============ 占位封面 ============ */
@@ -151,7 +158,7 @@ function coverHtml(book) {
   // 与 Canvas 取色跨域限制;本站 /uploads 相对路径直接用
   const url = String(book.cover ?? '').trim();
   if (url) {
-    return `<img src="${esc(coverSrc(url))}" alt="${esc(book.title)} 封面" loading="lazy" referrerpolicy="no-referrer" data-ph="${esc(book.title)}" data-ph-author="${esc(book.author || '')}">`;
+    return `<img src="${esc(coverSrc(url))}" alt="${esc(book.title)} 封面" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-ph="${esc(book.title)}" data-ph-author="${esc(book.author || '')}">`;
   }
   return phHtml(esc(book.title), esc(book.author || ''));
 }

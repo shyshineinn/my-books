@@ -7,7 +7,7 @@ const { db, now, inTransaction } = require('./index');
 const crypto = require('node:crypto');
 const { coverUploadFile, splitAuthors } = require('../core/book');
 const { isbnKey } = require('../core/isbn');
-const { inClause } = require('../core/sql');
+const { scopeClause } = require('../core/sql');
 const { applyStatusTransition, deriveLogFields, todayStr } = require('../core/bulk');
 const search = require('./search');
 const bookFiles = require('./book_files');
@@ -25,6 +25,10 @@ function listBooks(query = {}, handleDb = db) {
   return search.searchBooks(handleDb, query);
 }
 
+function listBooksPage(query = {}, page, handleDb = db) {
+  return search.searchBooksPage(handleDb, query, page);
+}
+
 // 默认只在“在架书”里查;回收站里的书要显式 includeDeleted 才能读到
 function getBook(id, handleDb = db, { includeDeleted = false } = {}) {
   const sql = includeDeleted
@@ -36,18 +40,17 @@ function getBook(id, handleDb = db, { includeDeleted = false } = {}) {
 // 系列列表(带计数与序号范围)。放在 db 层而不是路由里,便于统一过滤与测试。
 // scopeIds 用于虚拟书库作用域:null = 全部在架书。
 function listSeries(handleDb = db, { scopeIds = null } = {}) {
-  const scope = Array.isArray(scopeIds) ? ` AND ${inClause('id', scopeIds).sql}` : '';
-  const scopeParams = Array.isArray(scopeIds) ? inClause('id', scopeIds).params : [];
+  const scope = scopeClause('id', scopeIds);
   return handleDb.prepare(`
     SELECT series AS name,
            COUNT(*) AS count,
            MIN(series_index) AS min_index,
            MAX(series_index) AS max_index
     FROM books
-    WHERE series <> '' AND deleted_at IS NULL${scope}
+    WHERE series <> '' AND deleted_at IS NULL${scope ? ' AND ' + scope.sql : ''}
     GROUP BY series COLLATE NOCASE
     ORDER BY series COLLATE NOCASE
-  `).all(...scopeParams);
+  `).all(...(scope ? scope.params : []));
 }
 
 // 新增书籍:values 来自 core/parseBook 的规范化输出。
@@ -393,6 +396,7 @@ function enrichBook(handleDb, id, patch) {
 
 module.exports = {
   listBooks,
+  listBooksPage,
   getBook,
   addBook,
   updateBook,

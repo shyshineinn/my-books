@@ -66,6 +66,27 @@ test('trigram:简介与标签字段也参与匹配', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('显式 sort 覆盖 BM25;省略 sort / sort=relevance 仍按相关度', () => {
+  const { dir, db } = setup([
+    { title: '量子力学导论', author: '甲', status: 'done', summary: '无关的很长简介占位符一', tags: '[]' },
+    { title: '乙', author: '乙', status: 'done', summary: '量子力学相关的量子概念讲解量子', tags: '[]' },
+  ]);
+  const titles = (rows) => rows.map((b) => b.title);
+
+  // 标题命中(BM25)排在仅简介命中之前;书名排序则相反(乙 < 量)
+  assert.deepEqual(titles(search.searchBooks(db, { q: '量子力学' })), ['量子力学导论', '乙']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: '量子力学', sort: 'relevance' })), ['量子力学导论', '乙']);
+
+  // 显式 sort=title 时按书名排,不再被 BM25 覆盖
+  assert.deepEqual(titles(search.searchBooks(db, { q: '量子力学', sort: 'title' })), ['乙', '量子力学导论']);
+  const p1 = search.searchBooksPage(db, { q: '量子力学', sort: 'title' }, { start: 0, size: 1 });
+  const p2 = search.searchBooksPage(db, { q: '量子力学', sort: 'title' }, { start: 1, size: 1 });
+  assert.equal(p1.total, 2);
+  assert.deepEqual([...titles(p1.rows), ...titles(p2.rows)], ['乙', '量子力学导论']);
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('短词(1~2字)走 LIKE 兜底,仍能命中', () => {
   const { dir, db } = setup([
     { title: '三体', author: '刘慈欣', status: 'done', summary: '', tags: '["科幻"]' },

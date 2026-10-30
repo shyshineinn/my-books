@@ -99,6 +99,25 @@ const badId = (res) => res.status(400).json({ error: '书籍 id 应为正整数'
 const notFound = (res) => res.status(404).json({ error: '书籍不存在', code: 'NOT_FOUND' });
 const badBody = (res, msg) => res.status(400).json({ error: msg, code: 'VALIDATION' });
 
+// 列表分页参数:size 缺省 = 旧行为(全量数组);带 size 才分页并回 X-Total-Count。
+// start 缺省 0;两者都必须是十进制整数,避免 Number('')=0、Number('1e3') 之类的宽松转换。
+function parsePage(query) {
+  if (query.size === undefined) return { page: null, error: '' };
+  const rawSize = Array.isArray(query.size) ? query.size[0] : query.size;
+  const rawStart = query.start === undefined
+    ? 0
+    : (Array.isArray(query.start) ? query.start[0] : query.start);
+  const size = Number(rawSize);
+  const start = Number(rawStart);
+  if (!/^\d+$/.test(String(rawSize)) || !Number.isInteger(size) || size < 1 || size > 200) {
+    return { page: null, error: 'size 应为 1~200 的整数' };
+  }
+  if (!/^\d+$/.test(String(rawStart)) || !Number.isInteger(start)) {
+    return { page: null, error: 'start 应为非负整数' };
+  }
+  return { page: { start, size }, error: '' };
+}
+
 router.get('/api/sync/books', (req, res) => {
   if (Object.keys(req.query).length) return badBody(res, '同步接口不接受筛选或分页参数');
   res.set('Cache-Control', 'private, no-store');
@@ -109,7 +128,15 @@ router.get('/api/sync/books', (req, res) => {
 router.get('/api/books', (req, res) => {
   try {
     // 作用域只由 ?vl= 中间件决定:请求体/查询串里的 scopeIds 一律忽略
-    const { scopeIds: _ignored, ...filter } = req.query;
+    const { scopeIds: _ignored, start: _start, size: _size, ...filter } = req.query;
+    const { page, error } = parsePage(req.query);
+    if (error) return badBody(res, error);
+    if (page) {
+      const { rows, total } = books.listBooksPage({ ...filter, scopeIds: req.vlScope }, page, db);
+      res.set('Cache-Control', 'private, no-store');
+      res.set('X-Total-Count', String(total));
+      return res.json(withCustomDisplay(rows));
+    }
     res.json(withCustomDisplay(books.listBooks({ ...filter, scopeIds: req.vlScope }, db)));
   } catch (err) {
     // 检索语法错误(如未知的 #自定义字段、数值字段给非数字)是用户输入问题,回 400 并说明原因。

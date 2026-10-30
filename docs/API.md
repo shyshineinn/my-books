@@ -48,6 +48,32 @@
 | PUT | `/api/sync/state/assets/:sha256.ext` | 二进制上传同步资源，最多 64 MiB，校验内容 SHA-256 |
 | GET/HEAD | `/api/sync/state/assets/:sha256.ext` | 私有资源，支持强 ETag、SHA-256 与 Range/If-Range |
 
+### 书目分页
+
+`GET /api/books` 默认仍返回筛选后的完整数组，旧客户端不受影响。需要分页时传：
+
+- `size`：每页条数，1~200 的十进制整数；
+- `start`：起始偏移，默认 0，非负十进制整数，只在带 `size` 时生效。
+
+分页响应仍是**数组**，总数放在响应头 `X-Total-Count`，并带
+`Cache-Control: private, no-store`。`start` 越过末页返回空数组，`X-Total-Count`
+仍是真实总数。非法参数返回 400 `VALIDATION`。排序末尾带 `id` 次级键，
+因此相同时间戳的书跨页不会重复或遗漏。
+
+```http
+GET /api/books?status=done&sort=title&start=60&size=60
+X-Total-Count: 173
+```
+
+### 检索排序
+
+带 `q` 的自由词检索：省略 `sort` 或写 `sort=relevance` 时按 BM25 相关度排序；
+显式传 `sort=title|author|series|finish|created|updated` 时，显式排序覆盖相关度。
+含 `#字段`、布尔或否定的结构化检索始终按 `sort` 或默认 `updated` 排序。
+
+自定义字段：数值字段支持 `#页数:>=300`（基于 `value_num` 索引）；布尔字段接受
+`#重读:true` / `#重读:false` / `1` / `0`；枚举字段精确匹配。
+
 新客户端对书目的 PATCH、PUT、DELETE 应携带读取时的 `expected_uuid` 和
 `expected_revision`，不要用手机时间决定谁覆盖谁。PATCH 示例：
 

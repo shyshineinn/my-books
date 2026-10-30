@@ -407,6 +407,42 @@ test('检索 #数值字段:比较运算符两种写法都支持(calibre 的 :>= 
   db.close();
 });
 
+test('检索 #数值字段:!= 不反转命中集;空值算作不等于 x', () => {
+  const db = searchSetup();
+  addBook(db, '无页数');
+  search.reindexAll(db);
+
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#pages!=384' })), ['无页数', '活着', '黑暗森林']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#pages:!=384' })), ['无页数', '活着', '黑暗森林']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: 'not #pages:384' })), ['无页数', '活着', '黑暗森林']);
+  // 范围比较排除没有值的书
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#pages>=0' })), ['三体', '活着', '黑暗森林']);
+  db.close();
+});
+
+test('检索 #布尔字段:true/false/1/0 都按存储值 1/0 匹配', () => {
+  const db = searchSetup();
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#done2:true' })), ['三体']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#done2:false' })), ['活着']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#done2:1' })), ['三体']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#done2:0' })), ['活着']);
+  assert.deepEqual(titles(search.searchBooks(db, { q: '#done2!=true' })), ['活着', '黑暗森林']);
+  assert.throws(() => search.searchBooks(db, { q: '#done2:maybe' }), (e) => e.code === 'VALIDATION');
+  db.close();
+});
+
+test('v19:数值字段有 (column_id, value_num) 索引,范围查询走索引', () => {
+  const db = searchSetup();
+  const col = repo.getColumnByLabel(db, 'pages');
+  const plan = db.prepare(
+    'EXPLAIN QUERY PLAN SELECT book FROM book_custom_values WHERE column_id = ? AND value_num >= ?'
+  ).all(col.id, 300).map((r) => r.detail).join(' ');
+  assert.match(plan, /book_custom_values_num_idx/);
+  const cols = db.prepare('PRAGMA table_xinfo(book_custom_values)').all().map((c) => c.name);
+  assert.ok(cols.includes('value_num'), 'value_num 生成列应存在');
+  db.close();
+});
+
 test('检索 #数值字段:非数字明确报 VALIDATION(不静默跳过返回全库)', () => {
   const db = searchSetup();
   assert.throws(() => search.searchBooks(db, { q: '#pages:abc' }), (e) => e.code === 'VALIDATION');

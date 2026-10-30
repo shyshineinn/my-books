@@ -6,17 +6,16 @@
 
 const { db } = require('./index');
 const { computeStats } = require('../core/stats');
-const { inClause } = require('../core/sql');
+const { scopeClause } = require('../core/sql');
 
 // handleDb 可选,便于测试用 openDb(临时目录) 隔离
 function getStats(handleDb = db, scopeIds = null) {
-  const scope = Array.isArray(scopeIds) ? ` AND ${inClause('id', scopeIds).sql}` : '';
-  const params = Array.isArray(scopeIds) ? inClause('id', scopeIds).params : [];
+  const scope = scopeClause('id', scopeIds);
   return computeStats(handleDb.prepare(`
     SELECT status, tags, finish_date, author, publisher
     FROM books
-    WHERE deleted_at IS NULL${scope}
-  `).all(...params));
+    WHERE deleted_at IS NULL${scope ? ' AND ' + scope.sql : ''}
+  `).all(...(scope ? scope.params : [])));
 }
 
 module.exports = { getStats };

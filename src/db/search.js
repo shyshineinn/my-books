@@ -16,7 +16,7 @@
  * ============================================================ */
 
 const { parseQuery } = require('../core/query');
-const { inClause } = require('../core/sql');
+const { scopeClause } = require('../core/sql');
 const customFieldsRepo = require('./custom_fields');
 const savedSearches = require('./saved_searches');
 
@@ -91,10 +91,9 @@ function escapeLike(s) {
 
 /* ---------- 虚拟书库(命名作用域,对标 calibre 的 vl: 字段与 Virtual library) ---------- */
 
-// 把一个虚拟书库名解析成命中的书籍 id 集合。
 // 虚拟书库 = saved_searches 里 is_virtual = 1 的一行,query 字段是普通语法串,
 // 因此可以嵌套引用别的虚拟书库(vl:A and vl:B)—— 用 stack 挡住自引用与环。
-function resolveVirtualIds(db, name, stack = []) {
+function virtualRow(db, name, stack = []) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw Object.assign(new Error('虚拟书库名称不能为空'), { code: 'VALIDATION' });
   if (stack.length >= MAX_VL_DEPTH) {
@@ -111,7 +110,25 @@ function resolveVirtualIds(db, name, stack = []) {
   if (!row) {
     throw Object.assign(new Error(`虚拟书库「${trimmed}」不存在`), { code: 'VALIDATION' });
   }
-  return searchBooks(db, { q: row.query }, [...stack, trimmed]).map((b) => b.id);
+  return { trimmed, row };
+}
+
+// 把虚拟书库编译成可嵌入的 SQL 子查询(只取 id),不再先物化 id 数组。
+// 作用域内的自由词固定走 LIKE:避免把可能非法的 FTS MATCH 嵌进外层查询,
+// 也保证 3 万字以上的虚拟书库不会撞到 SQLite 的 32766 变量上限。
+function buildVirtualScope(db, name, stack = []) {
+  const { trimmed, row } = virtualRow(db, name, stack);
+  return buildSearchSql(db, { q: row.query }, [...stack, trimmed], {
+    page: null,
+    select: 'b.id',
+    forceLike: true,
+  });
+}
+
+// 兼容旧调用:需要真实 id 列表时执行一次子查询即可。
+function resolveVirtualIds(db, name, stack = []) {
+  const scope = buildVirtualScope(db, name, stack);
+  return db.prepare(scope.sql).all(...scope.params).map((r) => r.id);
 }
 
 /* ---------- 结构化查询构件(字段谓词 / 自由词 / 布尔 / 否定) ---------- */
@@ -127,7 +144,7 @@ function likeClause(term) {
 
 // 长自由词:走 FTS 子查询 —— 外部内容表按 rowid 回链主表 id,
 // 这样自由词能和其它字段谓词以 AND/OR 自由组合(纯 bm25 排序只在
-// 整串自由词检索时保留,见 plainSearch)。
+// 整串自由词检索时保留,见 buildPlainSearch)。
 function ftsClause(term) {
   return {
     sql: 'b.id IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ?)',
@@ -209,16 +226,16 @@ function splitLeadingOp(op, value, isNumeric) {
 //          这样本函数保持"纯 SQL 构造"职责,不在循环里反复查库。
 
 // 字符变体归一(对标 calibre 的 character-variant search):
-// 去变音符号 + 小写 + 去标点空白。用于 SQLite 侧给列建归一化副本再比对 ——
-// 本项目的 books 表没有"折叠列",所以这里退一步:把用户输入折叠后做 LIKE,
-// 命中范围比真正的折叠索引窄(列侧未折叠),但比裸 LIKE 宽(输入侧已折叠)。
-// 完全对齐 calibre 需要给每个文本列加 generated column + 索引,个人库量级不必要。
+// 去变音符号 + 小写 + 去标点/空白。openDb 会把它注册成 SQL 函数 fold_variants,
+// 让查询两侧(列与输入)都折叠;旧版 node:sqlite 没有 function() 时,
+// search.js 退回"只折叠输入"的近似。
 function foldVariants(s) {
   return String(s == null ? '' : s)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')     // 组合用变音符号
     .replace(/[\u2018\u2019\u201c\u201d]/g, (ch) => ({ '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"' })[ch])
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[\p{P}\p{Z}\s]+/gu, '');   // 标点、分隔符、空白
 }
 
 // 正则无法翻译时的降级词:从正则表达式里提取一个"最像人想搜的东西"的片段。
@@ -284,41 +301,53 @@ function regexpToLike(expr) {
 }
 
 function fieldClause({ field, op, value, kind = 'contains' }, columns, ctx = {}) {
-  // 文本类匹配:按 kind 决定 LIKE 的形态
+  // 文本类匹配:按 kind 决定匹配方式
   //   contains      → LIKE %v%         子串(默认)
   //   eq            → = v 或 LIKE v    相等(标点空格有意义)
-  //   regexp        → 近似 LIKE(见 regexpToLike)
-  //   charvariant   → 折叠输入后 LIKE %v%
+  //   regexp        → 真正则(SQL 函数 regexp),旧运行时退回 LIKE 近似
+  //   charvariant   → 两侧折叠后 LIKE(SQL 函数 fold_variants),旧运行时只折叠输入
   const rawVal = String(value == null ? '' : value).trim();
+  const hasFns = !!(ctx.db && ctx.db.__mybooksFns);
 
   let textMode = 'contains';
   let textVal = rawVal;
+  let sqlOverride = null;
   if (kind === 'eq') {
     textMode = 'eq';
   } else if (kind === 'charvariant') {
-    textMode = 'contains';
-    textVal = foldVariants(rawVal);
-  } else if (kind === 'regexp') {
-    const like = regexpToLike(rawVal);
-    if (like == null) {
-      // 正则无法翻译(含分组/字符类/选择)→ 退化成**普通子串**搜索。
-      // 注意必须把正则元字符剥掉再当子串,否则 `~^(三体|活着)` 会变成
-      // 字面量匹配 "(三体|活着)" 这个串,永远不命中(实测踩过)。
-      // 剥法:去掉锚点与前导分组符号,按 | 取第一个分支。
-      textMode = 'contains';
-      textVal = regexpFallbackTerm(rawVal);
-    } else if (rawVal.startsWith('^')) {
-      textMode = 'prefix';
-      textVal = like;
+    if (hasFns) {
+      const folded = `%${escapeLike(foldVariants(rawVal))}%`;
+      sqlOverride = (col) => ({ sql: `fold_variants(${col}) LIKE ? ESCAPE '\\'`, params: [folded] });
     } else {
       textMode = 'contains';
-      textVal = like;
+      textVal = foldVariants(rawVal);
+    }
+  } else if (kind === 'regexp') {
+    if (hasFns) {
+      sqlOverride = (col) => ({ sql: `${col} REGEXP ?`, params: [rawVal] });
+    } else {
+      const like = regexpToLike(rawVal);
+      if (like == null) {
+        // 正则无法翻译(含分组/字符类/选择)→ 退化成**普通子串**搜索。
+        // 注意必须把正则元字符剥掉再当子串,否则 `~^(三体|活着)` 会变成
+        // 字面量匹配 "(三体|活着)" 这个串,永远不命中(实测踩过)。
+        // 剥法:去掉锚点与前导分组符号,按 | 取第一个分支。
+        textMode = 'contains';
+        textVal = regexpFallbackTerm(rawVal);
+      } else if (rawVal.startsWith('^')) {
+        textMode = 'prefix';
+        textVal = like;
+      } else {
+        textMode = 'contains';
+        textVal = like;
+      }
     }
   }
 
   // 构造文本匹配片段。mode 决定 % 的位置;eq 模式对空值要小心:
   //   `cover:=` 之类空相等无意义,按 contains 兜底。
   function textSql(col) {
+    if (sqlOverride) return sqlOverride(col);
     if (textMode === 'eq' && textVal) {
       return { sql: `${col} = ? COLLATE NOCASE`, params: [textVal] };
     }
@@ -335,12 +364,17 @@ function fieldClause({ field, op, value, kind = 'contains' }, columns, ctx = {})
   // calibre 的同款语义:`cover:false` 找没封面的书,`marked:true` 找被标记的书。
   // 本站的 marked 用自定义字段承载(不必新增表),这里按 #marked 查即可 ——
   // 但为了与 calibre 的字段名对齐,给 marked 一个内建别名。
+  function storedBoolValue(raw) {
+    const s = String(raw == null ? '' : raw).trim().toLowerCase();
+    if (/^(true|1|yes|y|是|真|checked)$/.test(s)) return '1';
+    if (/^(false|0|no|n|否|假|unchecked|empty|blank)$/.test(s)) return '0';
+    return null;
+  }
+
   function boolSql(exprSql) {
-    const want = /^(true|1|yes|y|是|真|checked)$/i.test(rawVal);
-    if (/^(false|0|no|n|否|假|unchecked|empty|blank)$/i.test(rawVal)) {
-      return { sql: `NOT (${exprSql})`, params: [] };
-    }
-    if (want) return { sql: exprSql, params: [] };
+    const stored = storedBoolValue(rawVal);
+    if (stored === '1') return { sql: exprSql, params: [] };
+    if (stored === '0') return { sql: `NOT (${exprSql})`, params: [] };
     return null;                                  // 既不是 true 也不是 false:不认
   }
 
@@ -363,6 +397,7 @@ function fieldClause({ field, op, value, kind = 'contains' }, columns, ctx = {})
     // enumeration 不做文字 LIKE 而是精确匹配(选项是受控词表)
     const isEnum = !isMultiple && col.datatype === 'enumeration';
     const isNumeric = !isMultiple && ['int', 'float', 'rating'].includes(col.datatype);
+    const isBool = !isMultiple && col.datatype === 'bool';
 
     // 数值字段允许 calibre 风格的 `#页数:>=300`
     const eff = splitLeadingOp(op, value, isNumeric);
@@ -382,10 +417,34 @@ function fieldClause({ field, op, value, kind = 'contains' }, columns, ctx = {})
           { code: 'VALIDATION' }
         );
       }
-      // 空值不参与数值比较(cv.value = '' 时 CAST 成 0 会误命中)
-      inner = `cv.value <> '' AND CAST(cv.value AS REAL) ${cmp} ?`;
-      params = [n];
-    } else if (isMultiple) {
+      // 走 v19 的 (column_id, value_num) 索引。!= 用 NOT IN(等于 x 的书):
+      // 旧写法把 <> 塞进 NOT EXISTS,双重否定会把命中集反转(已修)。
+      // 空值不在子查询里,因此和文本一样算作"不等于 x"。
+      const sub = 'SELECT cv.book FROM book_custom_values cv WHERE cv.column_id = ? AND cv.value_num';
+      return op === 'ne'
+        ? { sql: `b.id NOT IN (${sub} = ?)`, params: [col.id, n] }
+        : { sql: `b.id IN (${sub} ${cmp} ?)`, params: [col.id, n] };
+    }
+    if (isBool) {
+      if (op !== 'eq' && op !== 'ne') {
+        throw Object.assign(
+          new Error(`「${field}」是布尔字段,只支持相等/不等`),
+          { code: 'VALIDATION' }
+        );
+      }
+      const stored = storedBoolValue(value);
+      if (stored === null) {
+        throw Object.assign(
+          new Error(`「${field}」应为 是/否 或 1/0`),
+          { code: 'VALIDATION' }
+        );
+      }
+      const sub = 'SELECT cv.book FROM book_custom_values cv WHERE cv.column_id = ? AND cv.value = ?';
+      return op === 'ne'
+        ? { sql: `b.id NOT IN (${sub})`, params: [col.id, stored] }
+        : { sql: `b.id IN (${sub})`, params: [col.id, stored] };
+    }
+    if (isMultiple) {
       inner = 'cv.value LIKE ? ESCAPE \'\\\'';
       params = [`%"${escapeLike(String(value).trim())}"%`];
     } else if (isEnum) {
@@ -514,8 +573,8 @@ function fieldClause({ field, op, value, kind = 'contains' }, columns, ctx = {})
     // 名称必须已标记为虚拟书库;解析出命中 id 集合后按 id 收口。
     // 递归解析带 stack,循环引用与超深嵌套都报 VALIDATION 而不是栈溢出。
     case 'vl': {
-      const ids = resolveVirtualIds(ctx.db, value, ctx.vlStack);
-      const clause = inClause('b.id', ids);
+      const scope = buildVirtualScope(ctx.db, value, ctx.vlStack);
+      const clause = { sql: `b.id IN (${scope.sql})`, params: scope.params };
       if (op === 'ne') return { sql: `NOT (${clause.sql})`, params: clause.params };
       return clause;
     }
@@ -720,14 +779,15 @@ function nextDayIso(isoStr) {
 }
 
 // 独立入参(status/tag/author)沿用改造前的 SQL,保证向后兼容与既有测试零变化。
-// 回收站过滤放在这里:plainSearch / structuredSearch / 空查询三条路径都会经过
+// 回收站过滤放在这里:自由词 / 结构化 / 空查询三条路径都会经过
 // legacy,一处生效,避免新增查询路径时漏掉 deleted_at。
-// scopeIds 是「虚拟书库 / 外部作用域」传进来的 id 集合:
-// null = 不限定;空数组 = 什么都不命中(不能退化成不限定)。
+// scopeIds 是「虚拟书库 / 外部作用域」:null = 不限定;
+// 数组 = 旧版 id 集合(空数组 = 什么都不命中);{sql, params} = 新版子查询片段。
 function legacyFilterClauses(status, tag, author, scopeIds = null) {
   const STATUSES = ['wish', 'reading', 'done'];
   const clauses = [{ sql: 'b.deleted_at IS NULL', params: [] }];
-  if (Array.isArray(scopeIds)) clauses.push(inClause('b.id', scopeIds));
+  const scope = scopeClause('b.id', scopeIds);
+  if (scope) clauses.push(scope);
   if (status && STATUSES.includes(status)) clauses.push({ sql: 'b.status = ?', params: [status] });
   if (tag) clauses.push({ sql: 'b.tags LIKE ?', params: [`%"${escapeLike(tag)}"%`] });
   if (author) clauses.push({ sql: 'b.author LIKE ?', params: [`%${escapeLike(author)}%`] });
@@ -736,59 +796,63 @@ function legacyFilterClauses(status, tag, author, scopeIds = null) {
 
 /* ---------- 检索主入口(供 routes 与 books.listBooks 复用) ---------- */
 
+// 排序末尾一律带 id:分页要靠稳定次序,否则同时间戳的书会在页边界
+// 重复出现或被跳过(批量导入的书 updated_at 经常完全相同)。
 const SORTS = {
-  updated: 'updated_at DESC',
-  created: 'created_at DESC',
-  finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC',
+  updated: 'updated_at DESC, b.id DESC',
+  created: 'created_at DESC, b.id DESC',
+  finish: 'CASE WHEN finish_date = \'\' THEN 1 ELSE 0 END, finish_date DESC, b.id DESC',
   // A8:title 走 title_sort(剥引号 + 英语冠词移位);中文书名两者相同
-  title: 'title_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
-  author: 'author_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC',
+  title: 'title_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC, b.id ASC',
+  author: 'author_sort COLLATE NOCASE ASC, title COLLATE NOCASE ASC, b.id ASC',
   // A3:按系列 + 系列序号;未入系列排最后
-  series: "CASE WHEN series = '' THEN 1 ELSE 0 END, series COLLATE NOCASE ASC, series_index ASC, title COLLATE NOCASE ASC",
+  series: "CASE WHEN series = '' THEN 1 ELSE 0 END, series COLLATE NOCASE ASC, series_index ASC, title COLLATE NOCASE ASC, b.id ASC",
 };
 
-// 纯自由词检索(整串当一个短语)—— 与结构化改造前的行为逐字一致:
+// 分页片段:只加 LIMIT/OFFSET;总数由独立的 countSearch 查询。
+// 不用 COUNT(*) OVER ():窗口函数会强制扫完全部匹配行,30k 本首屏慢 3 倍左右。
+function pagingParts(page) {
+  if (!page) return { tail: '', params: [] };
+  return { tail: ' LIMIT ? OFFSET ?', params: [page.size, page.start] };
+}
+
+// 纯自由词检索(整串当一个短语)—— 与结构化改造前的行为一致:
 // 短词走 LIKE,长词走 FTS5 trigram 短语匹配 + BM25 相关度排序。
-// status/tag/author 独立过滤器始终正交叠加。
-function plainSearch(db, rawQ, legacy, order) {
+// forceLike 供虚拟书库子查询使用(不把可能非法的 MATCH 嵌进外层)。
+function buildPlainSearch(rawQ, legacy, order, page = null,
+  { select = 'b.*', forceLike = false, useRelevance = true, noOrder = false } = {}) {
   const legacyWhere = legacy.map((c) => c.sql);
   const legacyParams = legacy.flatMap((c) => c.params);
+  const paging = pagingParts(page);
+  const orderSql = noOrder ? '' : ` ORDER BY ${order}`;
 
-  if (meaningfulLen(rawQ) < TRIGRAM_MIN) {
+  if (forceLike || meaningfulLen(rawQ) < TRIGRAM_MIN) {
     const like = `%${escapeLike(rawQ)}%`;
     const where = [LIKE_COLS, ...legacyWhere].join(' AND ');
-    return db
-      .prepare(`SELECT b.* FROM books b WHERE ${where} ORDER BY ${order}`)
-      .all(like, like, like, like, ...legacyParams);
+    return {
+      sql: `SELECT ${select} FROM books b WHERE ${where}${orderSql}${paging.tail}`,
+      params: [like, like, like, like, ...legacyParams, ...paging.params],
+    };
   }
 
   const fts = toFtsQuery(rawQ);
   const andLegacy = legacyWhere.length ? 'AND ' + legacyWhere.join(' AND ') : '';
-  // 兜底:用户输入可能构成非法 MATCH 表达式(裸引号、运算符组合),
-  // FTS 抛异常时回退 LIKE —— 检索是只读操作,宁降级不报错。
-  try {
-    return db
-      .prepare(
-        `SELECT b.* FROM books_fts f JOIN books b ON b.id = f.rowid
-         WHERE books_fts MATCH ? ${andLegacy}
-         ORDER BY bm25(books_fts)`
-      )
-      .all(fts, ...legacyParams);
-  } catch (err) {
-    if (!/fts|MATCH/i.test(err.message)) throw err;
-    const like = `%${escapeLike(rawQ)}%`;
-    const where = [LIKE_COLS, ...legacyWhere].join(' AND ');
-    return db
-      .prepare(`SELECT b.* FROM books b WHERE ${where} ORDER BY ${order}`)
-      .all(like, like, like, like, ...legacyParams);
-  }
+  // 显式指定 sort 时按用户排序;省略 sort 才用 BM25 相关度。
+  const ftsOrder = noOrder ? '' : ` ORDER BY ${useRelevance ? 'bm25(books_fts), b.id ASC' : order}`;
+  return {
+    sql: `SELECT ${select} FROM books_fts f JOIN books b ON b.id = f.rowid
+       WHERE books_fts MATCH ? ${andLegacy}${ftsOrder}${paging.tail}`,
+    params: [fts, ...legacyParams, ...paging.params],
+  };
 }
 
 // 结构化检索:字段谓词 + 自由词 + 布尔组(可含 FTS)→ 统一以 books 主表为驱动,
 // 各条款按 or 标志整体 OR 或默认 AND;否定条款恒为 AND NOT(...)。
 // 这里不追求 BM25(排序交给 SORTS/显式 sort),换取布尔组合的正确与简单。
-function structuredSearch(db, parsed, legacy, order, columns, vlStack = []) {
+function buildStructuredSearch(db, parsed, legacy, order, columns, vlStack = [], page = null,
+  { select = 'b.*', forceLike = false, noOrder = false } = {}) {
   const ctx = { db, vlStack };
+  const paging = pagingParts(page);
   // 查询是否自带布尔结构(括号/混合优先级)。有结构时不能用旧版的"整体 OR"收尾。
   const hasGroups = (parsed.groups || []).length > 0;
   const build = (forceLike) => {
@@ -841,47 +905,31 @@ function structuredSearch(db, parsed, legacy, order, columns, vlStack = []) {
     for (const c of legacy) chunks.push(c.sql);
     for (const n of neg) chunks.push(n);
     const where = chunks.length ? 'WHERE ' + chunks.join(' AND ') : '';
-    const params = [...posParams, ...legacy.flatMap((c) => c.params), ...negParams];
-    return { sql: `SELECT b.* FROM books b ${where} ORDER BY ${order}`, params };
+    const params = [...posParams, ...legacy.flatMap((c) => c.params), ...negParams, ...paging.params];
+    const orderSql = noOrder ? '' : ` ORDER BY ${order}`;
+    return { sql: `SELECT ${select} FROM books b ${where}${orderSql}${paging.tail}`, params };
   };
 
-  // 自由词在顶层还是括号组里?组里的也要参与"是否用 FTS"的判断,
-  // 否则组内含长词时 FTS 语法错误不会被捕获降级。
-  const useFts = parsed.free.some((t) => meaningfulLen(t) >= TRIGRAM_MIN)
-    || (parsed.groups || []).some((g) => groupHasFree(g));
-  try {
-    const q = assemble(build(false));
-    return db.prepare(q.sql).all(...q.params);
-  } catch (err) {
-    if (useFts && /fts|MATCH/i.test(err.message)) {
-      const q = assemble(build(true)); // 自由词全部降级为 LIKE
-      return db.prepare(q.sql).all(...q.params);
-    }
-    throw err;
-  }
+  return assemble(build(forceLike));
 }
 
-// 布尔子树里是否含自由词(用于决定 FTS 降级路径)
-function groupHasFree(node) {
-  if (!node) return false;
-  if (node.type === 'free') return true;
-  if (node.type === 'filter') return false;
-  if (node.op === 'not') return groupHasFree(node.child);
-  return (node.children || []).some(groupHasFree);
-}
-
-// 返回完整书籍行(SELECT * FROM books 的同构),按相关度或白名单排序。
-// 入参 { q, status, tag, author, sort, scopeIds }:q 为空走主表;纯自由词走 plainSearch;
-// 含字段谓词/布尔/否定则走 structuredSearch。status/tag/author/scopeIds 恒正交生效。
-// vlStack 只在解析虚拟书库时内部传入,用于环检测。
-function searchBooks(db, { q, status, tag, author, sort, scopeIds } = {}, vlStack = []) {
+// 把一次检索编译成 SQL(不执行)。虚拟书库作用域用它嵌入子查询;
+// select 可换成 b.id 只取 id,page 用于列表分页。
+function buildSearchSql(db, { q, status, tag, author, sort, scopeIds } = {}, vlStack = [],
+  { page = null, select = 'b.*', forceLike = false, noOrder = false } = {}) {
+  // sort 省略或写 relevance = 相关度;显式白名单排序则覆盖 BM25。
+  const relevance = !sort || sort === 'relevance';
   const order = SORTS[sort] || SORTS.updated;
   const legacy = legacyFilterClauses(status, tag, author, scopeIds);
+  const paging = pagingParts(page);
+  const orderSql = noOrder ? '' : ` ORDER BY ${order}`;
 
   if (!q || !String(q).trim()) {
     const where = legacy.length ? 'WHERE ' + legacy.map((c) => c.sql).join(' AND ') : '';
-    const params = legacy.flatMap((c) => c.params);
-    return db.prepare(`SELECT b.* FROM books b ${where} ORDER BY ${order}`).all(...params);
+    return {
+      sql: `SELECT ${select} FROM books b ${where}${orderSql}${paging.tail}`,
+      params: [...legacy.flatMap((c) => c.params), ...paging.params],
+    };
   }
 
   const parsed = parseQuery(q);
@@ -890,13 +938,67 @@ function searchBooks(db, { q, status, tag, author, sort, scopeIds } = {}, vlStac
     || parsed.or || (parsed.groups || []).length > 0;
 
   if (!hasStructure) {
-    return plainSearch(db, String(q).trim(), legacy, order);
+    return buildPlainSearch(String(q).trim(), legacy, order, page, {
+      select, forceLike, useRelevance: relevance, noOrder,
+    });
   }
 
   // 只有查询里真的出现 #字段 时才查注册表(空 Map 也要传,
   // 这样未知 #字段 依然会被 fieldClause 判为 VALIDATION 错误)
   const columns = new Map(customFieldsRepo.listColumns(db).map((c) => [c.label, c]));
-  return structuredSearch(db, parsed, legacy, order, columns, vlStack);
+  return buildStructuredSearch(db, parsed, legacy, order, columns, vlStack, page, {
+    select, forceLike, noOrder,
+  });
+}
+
+// 只算总数:与列表共享同一套 WHERE,但不排序(避免让 COUNT 等待排序)。
+function countSearch(db, query = {}, vlStack = []) {
+  const build = (forceLike) => buildSearchSql(db, query, vlStack, {
+    page: null, select: 'b.id', forceLike, noOrder: true,
+  });
+  try {
+    const built = build(false);
+    return Number(db.prepare(`SELECT COUNT(*) AS n FROM (${built.sql})`).get(...built.params).n);
+  } catch (err) {
+    if (!/fts|MATCH/i.test(err.message)) throw err;
+    const built = build(true);
+    return Number(db.prepare(`SELECT COUNT(*) AS n FROM (${built.sql})`).get(...built.params).n);
+  }
+}
+
+// 返回完整书籍行(SELECT * FROM books 的同构),按相关度或白名单排序。
+// FTS 语法错误时把自由词整体降级为 LIKE 再跑一次 —— 检索只读,宁降级不报错。
+function runSearch(db, query = {}, vlStack = [], page = null) {
+  const opts = { page, select: 'b.*', forceLike: false };
+  try {
+    const built = buildSearchSql(db, query, vlStack, opts);
+    return db.prepare(built.sql).all(...built.params);
+  } catch (err) {
+    if (!/fts|MATCH/i.test(err.message)) throw err;
+    const built = buildSearchSql(db, query, vlStack, { ...opts, forceLike: true });
+    return db.prepare(built.sql).all(...built.params);
+  }
+}
+
+function searchBooks(db, query = {}, vlStack = []) {
+  return runSearch(db, query, vlStack, null);
+}
+
+// 分页版:独立 count + LIMIT 页。不用 COUNT(*) OVER (),
+// 否则 SQLite 会为 60 行结果扫完整个匹配集(30k 本实测慢约 3 倍)。
+function searchBooksPage(db, query = {}, page = {}, vlStack = []) {
+  const start = Number(page.start);
+  const size = Number(page.size);
+  if (!Number.isInteger(start) || start < 0) {
+    throw Object.assign(new Error('start 应为非负整数'), { code: 'VALIDATION' });
+  }
+  if (!Number.isInteger(size) || size < 1) {
+    throw Object.assign(new Error('size 应为正整数'), { code: 'VALIDATION' });
+  }
+
+  const total = countSearch(db, query, vlStack);
+  if (total === 0) return { rows: [], total: 0 };
+  return { rows: runSearch(db, query, vlStack, { start, size }), total };
 }
 
 module.exports = {
@@ -907,7 +1009,10 @@ module.exports = {
   removeBook,
   updateBookIndex,
   searchBooks,
+  searchBooksPage,
   resolveVirtualIds,
+  buildVirtualScope,
+  foldVariants,
   meaningfulLen,
   toFtsQuery,
   escapeLike,

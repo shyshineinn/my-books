@@ -178,25 +178,23 @@ test('C3 正则近似:^ 锚定前缀 + .* 通配', () => {
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('C4 正则不支持分组时降级:取第一个分支做子串,不抛错', () => {
+test('C4 正则支持分组与选择(真正则),非法表达式按不命中处理', () => {
   const { dir, db } = corpus();
-  // `~^(三体|活着)`：分组 + 选择在 SQLite 的 LIKE 里无法表达,
-  // 实现策略是"提取最像用户想搜的片段"——按 | 取第一个分支 → 子串 "三体"。
-  // 因此命中 三体 / 三体II,不命中 活着。这是**有意的近似**:
-  // 正则的"或"语义在零依赖的前提下无法下推到 SQL,只能降级。
-  // 想表达"三体或活着"请写 `title:三体 or title:活着`(布尔 or 是真支持的)。
-  const r = search.searchBooks(db, { q: 'title:~^(三体|活着)' });
-  assert.ok(Array.isArray(r));                    // 不抛错
-  assert.deepEqual(T(r), ['三体', '三体II']);
+  // 注册了 SQL 函数 regexp 后,"或"语义完整保留
+  assert.deepEqual(T(search.searchBooks(db, { q: 'title:~^(三体|活着)' })), ['三体', '三体II', '活着']);
+  assert.deepEqual(T(search.searchBooks(db, { q: 'title:~[' })), [], '非法正则不抛错,也不命中');
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('C5 字符变体:忽略大小写(折叠输入后 LIKE)', () => {
+test('C5 字符变体:两侧折叠大小写、标点与空白', () => {
   const { dir, db } = setup([
     { id: 1, title: 'Big Bummer', author: 'x', _tags: [] },
-    { id: 2, title: '其他', author: 'y', _tags: [] },
+    { id: 2, title: 'The Hobbit', author: 'y', _tags: [] },
+    { id: 3, title: '其他', author: 'z', _tags: [] },
   ]);
   assert.deepEqual(T(search.searchBooks(db, { q: 'title:^big' })), ['Big Bummer']);
+  assert.deepEqual(T(search.searchBooks(db, { q: 'title:^the hobbit' })), ['The Hobbit'], '空格/标点不参与匹配');
+  assert.deepEqual(T(search.searchBooks(db, { q: 'title:^hobbit' })), ['The Hobbit'], '仍是子串语义');
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 

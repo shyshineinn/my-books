@@ -20,4 +20,15 @@ function inClause(column, ids) {
   return { sql: chunks.length > 1 ? `(${chunks.join(' OR ')})` : chunks[0], params };
 }
 
-module.exports = { inClause, MAX_IN_CHUNK };
+// 作用域既可能是旧的 id 数组,也可能是新版的查询片段 { sql, params }。
+// 片段形式把虚拟书库作为子查询嵌进主查询,不再先物化上万个 id
+// (SQLite 的变量上限约 32766,旧写法在超大虚拟书库会直接报错)。
+function scopeClause(column, scope) {
+  if (Array.isArray(scope)) return inClause(column, scope);
+  if (scope && typeof scope === 'object' && typeof scope.sql === 'string') {
+    return { sql: `${column} IN (${scope.sql})`, params: Array.isArray(scope.params) ? scope.params : [] };
+  }
+  return null;
+}
+
+module.exports = { inClause, scopeClause, MAX_IN_CHUNK };

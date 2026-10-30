@@ -1,43 +1,72 @@
 /* ============================================================
- * 书架页(/shelf) —— 纯网格,页面内不放任何按钮与下拉框
- * 逻辑自旧单页 app.js 拆出;筛选状态存本页闭包,
- * URL 查询参数(?q=&status=&tag=&vl=&sort=)是跨页进入时的初始条件来源。
+ * 书架页(/shelf) —— 网格 + 触底分页
+ * 页面内仍不放工具条;筛选/排序来自导航、地址栏与搜索面板。
+ * 首屏 60 本,滚到底追加下一页;选择集跨页保留,换筛选才清空。
  * 两个能力的入口:虚拟书库 = 搜索面板的「书库」词条 + 地址栏 ?vl=;
  * 多选 = 长按卡片(手机)或 Ctrl/⌘+点击(电脑)。
  * ============================================================ */
 
+const PAGE_SIZE = 60;
+
 const shelf = {
   q: '', status: '', tag: '', author: '', sort: 'updated', books: [],
-  selectMode: false, selected: new Set(),
-  vl: '',
+  selectMode: false, selected: new Set(), vl: '',
+  start: 0, total: null, loading: false, hasMore: true,
 };
 
 // 批量补全的上限,与后端 src/core/enrich.js 的 MAX_BATCH 保持一致
 const ENRICH_MAX = 100;
 
 let fetchSeq = 0; // 请求序号:连续查询时只渲染最后一次的结果,避免旧响应覆盖新结果
+let shelfObserver = null;
 
-async function fetchBooks() {
-  const seq = ++fetchSeq;
+function buildParams() {
   const params = new URLSearchParams();
   if (shelf.q) params.set('q', shelf.q);
   if (shelf.status) params.set('status', shelf.status);
   if (shelf.tag) params.set('tag', shelf.tag);
   if (shelf.author) params.set('author', shelf.author);
   if (shelf.vl) params.set('vl', shelf.vl);
-  params.set('sort', shelf.sort);
+  // 默认 updated 不发给服务端:带搜索词时服务端按相关度(BM25)排序;
+  // 用户显式选了 title/author/series 等才传,显式排序覆盖相关度。
+  if (shelf.sort !== 'updated') params.set('sort', shelf.sort);
+  return params;
+}
+
+async function fetchBooks({ append = false } = {}) {
+  // 追加请求同时只允许一个;重置请求可以打断正在进行的追加
+  if (append && (shelf.loading || !shelf.hasMore)) return;
+  const seq = ++fetchSeq;
+
+  if (!append) {
+    shelf.books = [];
+    shelf.start = 0;
+    shelf.total = null;
+    shelf.hasMore = true;
+    if (shelf.selectMode || shelf.selected.size) setSelectMode(false);
+  }
+  shelf.loading = true;
+
+  const params = buildParams();
+  params.set('size', String(PAGE_SIZE));
+  params.set('start', String(shelf.start));
 
   try {
-    const books = await api('/api/books?' + params.toString());
+    const { data, total } = await apiPage('/api/books?' + params.toString());
     if (seq !== fetchSeq) return;
-    shelf.books = books;
-    // 刷新后把已不在当前结果里的书从选择集中剔除(避免对不可见的 id 批量操作)
-    if (shelf.selectMode) {
-      const visible = new Set(books.map((b) => b.id));
-      for (const id of [...shelf.selected]) if (!visible.has(id)) shelf.selected.delete(id);
-    }
+    const incoming = Array.isArray(data) ? data : [];
+    shelf.books = append ? shelf.books.concat(incoming) : incoming;
+    shelf.total = total;
+    shelf.start = shelf.books.length;
+    shelf.hasMore = total === null ? incoming.length === PAGE_SIZE : shelf.books.length < total;
+    shelf.loading = false;
+    updateSentinel();
+    if (append) appendCards(incoming);
+    else renderGrid();
+    requestAnimationFrame(maybeLoadMore);
   } catch (e) {
     if (seq !== fetchSeq) return;
+    shelf.loading = false;
     const msg = String(e.message || '');
     // 地址栏里的 ?vl= 可能指向已被删/改名的书库:退回全部,别让用户卡在错误页
     if (shelf.vl && /虚拟书库/.test(msg)) {
@@ -49,9 +78,59 @@ async function fetchBooks() {
       return;
     }
     toast(msg, true);
-    shelf.books = [];
+    if (!append) {
+      shelf.books = [];
+      shelf.hasMore = false;
+      updateSentinel();
+      renderGrid();
+    }
   }
-  renderGrid();
+}
+
+function cardElement(book) {
+  const card = document.createElement('article');
+  const selected = shelf.selected.has(book.id);
+  card.className = 'book-card' + (selected ? ' is-selected' : '');
+  card.dataset.id = book.id;
+  card.dataset.title = book.title;
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', shelf.selectMode ? `选择《${book.title}》` : `查看《${book.title}》详情`);
+  if (shelf.selectMode) card.setAttribute('aria-pressed', String(selected));
+  if (book.summary) card.title = book.summary;   // 书架卡片悬停显示简介
+
+  const date = book.status === 'done' && book.finish_date
+    ? book.finish_date.slice(0, 10)
+    : (book.start_date ? book.start_date.slice(0, 10) : '');
+
+  card.innerHTML = `
+    <div class="card-cover">
+      ${coverHtml(book)}
+      <span class="select-check" aria-hidden="true">${selected ? '✓' : ''}</span>
+      <span class="status-badge ${book.status}">${STATUS_LABEL[book.status]}</span>
+      ${book.file_formats ? `<span class="card-file-badge" title="已有电子书文件: ${esc(book.file_formats)}">📁 ${esc(book.file_formats)}</span>` : ''}
+    </div>
+    <div class="card-info">
+      <div class="card-title">${esc(book.title)}</div>
+      ${book.author ? `<div class="card-author">${esc(book.author)}</div>` : ''}
+      <div class="card-meta">
+        ${book.has_notes ? '<span class="has-notes" title="这本书有读书心得">✎ 心得</span>' : ''}
+        ${date ? `<span class="card-date">${esc(date)}</span>` : ''}
+      </div>
+    </div>`;
+
+  bindCardGestures(card, book.id);
+  return card;
+}
+
+function appendCards(books) {
+  if (!books.length) return;
+  const grid = $('#bookGrid');
+  const frag = document.createDocumentFragment();
+  for (const book of books) frag.appendChild(cardElement(book));
+  grid.appendChild(frag);
+  $('#emptyState').classList.add('hidden');
+  updateBulkBar();
 }
 
 function renderGrid() {
@@ -70,45 +149,38 @@ function renderGrid() {
     }
     empty.classList.remove('hidden');
     updateBulkBar();
+    updateSentinel();
     return;
   }
   empty.classList.add('hidden');
+  appendCards(shelf.books);
+  updateSentinel();
+}
 
-  for (const book of shelf.books) {
-    const card = document.createElement('article');
-    const selected = shelf.selected.has(book.id);
-    card.className = 'book-card' + (selected ? ' is-selected' : '');
-    card.dataset.id = book.id;
-    card.tabIndex = 0;
-    card.setAttribute('role', 'button');
-    card.setAttribute('aria-label', shelf.selectMode ? `选择《${book.title}》` : `查看《${book.title}》详情`);
-    if (shelf.selectMode) card.setAttribute('aria-pressed', String(selected));
-    if (book.summary) card.title = book.summary;   // 书架卡片悬停显示简介
+/* ============ 触底加载 ============ */
+function updateSentinel() {
+  const sentinel = $('#shelfSentinel');
+  if (!sentinel) return;
+  sentinel.classList.toggle('hidden', !shelf.hasMore);
+}
 
-    const date = book.status === 'done' && book.finish_date
-      ? book.finish_date.slice(0, 10)
-      : (book.start_date ? book.start_date.slice(0, 10) : '');
-
-    card.innerHTML = `
-      <div class="card-cover">
-        ${coverHtml(book)}
-        ${shelf.selectMode ? `<span class="select-check" aria-hidden="true">${selected ? '✓' : ''}</span>` : ''}
-        <span class="status-badge ${book.status}">${STATUS_LABEL[book.status]}</span>
-        ${book.file_formats ? `<span class="card-file-badge" title="已有电子书文件: ${esc(book.file_formats)}">📁 ${esc(book.file_formats)}</span>` : ''}
-      </div>
-      <div class="card-info">
-        <div class="card-title">${esc(book.title)}</div>
-        ${book.author ? `<div class="card-author">${esc(book.author)}</div>` : ''}
-        <div class="card-meta">
-          ${book.has_notes ? '<span class="has-notes" title="这本书有读书心得">✎ 心得</span>' : ''}
-          ${date ? `<span class="card-date">${esc(date)}</span>` : ''}
-        </div>
-      </div>`;
-
-    bindCardGestures(card, book.id);
-    grid.appendChild(card);
+function maybeLoadMore() {
+  if (shelf.loading || !shelf.hasMore) return;
+  const sentinel = $('#shelfSentinel');
+  if (!sentinel || sentinel.classList.contains('hidden')) return;
+  // 哨兵进入视口下沿 600px 内就提前取下一页,滚动时不等白屏
+  if (sentinel.getBoundingClientRect().top < window.innerHeight + 600) {
+    fetchBooks({ append: true });
   }
-  updateBulkBar();
+}
+
+function setupInfiniteScroll() {
+  const sentinel = $('#shelfSentinel');
+  if (!sentinel || !('IntersectionObserver' in window)) return;
+  shelfObserver = new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting)) maybeLoadMore();
+  }, { rootMargin: '600px 0px' });
+  shelfObserver.observe(sentinel);
 }
 
 /* ============ 多选手势(页面上没有多选按钮) ============
@@ -122,8 +194,8 @@ let pressTimer = null;
 let pressOrigin = null;
 let pressIsTouch = false;
 // 长按生效后浏览器还会补一个 click(不抑制它会立刻又走「打开详情」)。
-// 长按进入多选时网格会整片重渲染,补发的 click 落在同 id 的**新**卡片上,
-// 所以按 id 判定而不是按元素;时限内只吞一次,免得误吃用户下一次真点击。
+// 长按进入多选时不再整表重渲染,补发的 click 仍落在原卡片上;
+// 按 id 判定,时限内只吞一次,免得误吃用户下一次真点击。
 let longPressId = null;
 let longPressAt = 0;
 
@@ -199,14 +271,30 @@ function updateBulkBar() {
   $('#bulkSaveBtn').textContent = `应用到 ${n} 本`;
 }
 
-// preselectId:手势落在哪本书上进入多选 —— 那本书要立刻算选中
+// preselectId:手势落在哪本书上进入多选 —— 那本书要立刻算选中。
+// 不再重建网格,只切 body class 与每张卡片的勾选态。
 function setSelectMode(on, preselectId = null) {
   shelf.selectMode = on;
   shelf.selected.clear();
   if (on && preselectId !== null) shelf.selected.add(preselectId);
   document.body.classList.toggle('select-mode', on);
   if (!on) closeModals();
-  renderGrid();
+  syncCardMode();
+  updateBulkBar();
+}
+
+function syncCardMode() {
+  for (const card of $$('#bookGrid .book-card')) {
+    const id = Number(card.dataset.id);
+    const selected = shelf.selected.has(id);
+    const title = card.dataset.title || '';
+    card.classList.toggle('is-selected', selected);
+    card.setAttribute('aria-label', shelf.selectMode ? `选择《${title}》` : `查看《${title}》详情`);
+    if (shelf.selectMode) card.setAttribute('aria-pressed', String(selected));
+    else card.removeAttribute('aria-pressed');
+    const check = card.querySelector('.select-check');
+    if (check) check.textContent = selected ? '✓' : '';
+  }
 }
 
 function toggleSelected(id, card) {
@@ -376,7 +464,7 @@ function applyUrlParams() {
 }
 
 /* ============ 数据变更刷新 + 地址栏同步 ============ */
-// 弹窗保存/删除后:统计缓存已在 common.js 作废,这里只重拉列表
+// 弹窗保存/删除后:统计缓存已在 common.js 作废,这里只重拉列表(回到第一页)
 document.addEventListener('books-changed', () => {
   fetchBooks();
 });
@@ -421,4 +509,5 @@ document.addEventListener('keydown', (e) => {
 
 /* ============ 启动 ============ */
 applyUrlParams();
+setupInfiniteScroll();
 fetchBooks();

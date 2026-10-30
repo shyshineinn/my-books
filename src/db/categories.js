@@ -5,14 +5,14 @@
  * books.tags、books.author、books.author_sort 降级为「派生缓存」:
  *   · 展示、FTS、统计、前端契约全部继续读缓存 → 归一化改造零波及
  *   · 任何改动分类(重命名 / 合并 / 删除)后,重算受影响书的缓存,
- *     再整体重建 FTS(个人库量级小,一把 reindex 最稳)
+ *     只重建这些书的 FTS 行(不再整库 reindex,大书库改名不再卡住)
  *
  * 依赖方向纪律:只接收传入的 db 句柄,不 require ./index(避免与
  * index→categories 的循环引用);仅依赖 node: 内置与 core/book。
  * ============================================================ */
 
 const { splitAuthors } = require('../core/book');
-const { inClause } = require('../core/sql');
+const { inClause, scopeClause } = require('../core/sql');
 
 const AUTHOR_JOIN = '、';
 
@@ -76,9 +76,80 @@ function recomputeBookCaches(db, bookId) {
     .run(JSON.stringify(tags), authors.join(AUTHOR_JOIN), authors[0] || '', bookId);
 }
 
-function reindexAll(db) {
-  // 惰性引入,避免 index↔search 之外的额外耦合;search.reindexAll 自开清全表
-  require('./search').reindexAll(db);
+// 分类操作影响面可能很大(改名一个常用标签 = 上千本书),缓存重算走集合式 UPDATE,
+// 避免逐本 JS 往返。单本写入路径仍走 recomputeBookCaches。
+function refreshTagCaches(db, ids) {
+  const list = [...new Set(ids)];
+  for (let i = 0; i < list.length; i += 500) {
+    const clause = inClause('id', list.slice(i, i + 500));
+    db.prepare(`
+      UPDATE books SET tags = COALESCE((
+        SELECT json_group_array(name) FROM (
+          SELECT t.name AS name
+          FROM book_tags bt JOIN tags t ON t.id = bt.tag
+          WHERE bt.book = books.id
+          ORDER BY t.name COLLATE NOCASE
+        )
+      ), '[]')
+      WHERE ${clause.sql}
+    `).run(...clause.params);
+  }
+}
+
+function refreshAuthorCaches(db, ids) {
+  const list = [...new Set(ids)];
+  for (let i = 0; i < list.length; i += 500) {
+    const clause = inClause('id', list.slice(i, i + 500));
+    db.prepare(`
+      UPDATE books SET
+        author = COALESCE((
+          SELECT GROUP_CONCAT(name, '、') FROM (
+            SELECT a.name AS name
+            FROM book_authors ba JOIN authors a ON a.id = ba.author
+            WHERE ba.book = books.id
+            ORDER BY ba.position, a.name COLLATE NOCASE
+          )
+        ), ''),
+        author_sort = COALESCE((
+          SELECT name FROM (
+            SELECT a.name AS name
+            FROM book_authors ba JOIN authors a ON a.id = ba.author
+            WHERE ba.book = books.id
+            ORDER BY ba.position, a.name COLLATE NOCASE
+          ) LIMIT 1
+        ), '')
+      WHERE ${clause.sql}
+    `).run(...clause.params);
+  }
+}
+
+/* ---------- 受影响书的 FTS 增量重建 ---------- */
+/* 外部内容表(FTS5 content='books')的 delete 命令必须传"旧行内容",
+   所以改动前先快照;改完缓存后再逐本 updateBookIndex。 */
+const FTS_COLS = 'id, title, author, summary, tags';
+
+function snapshotSearchRows(db, ids) {
+  const clause = inClause('id', ids);
+  const rows = db.prepare(`SELECT ${FTS_COLS} FROM books WHERE ${clause.sql}`).all(...clause.params);
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+function reindexBooks(db, oldRows) {
+  if (!oldRows.size) return;
+  const search = require('./search');
+  // 基准(30k 本):全量重建约 160ms,逐本 delete+insert 约 190µs/本。
+  // 受影响的书面很广时,全量重建反而更快,也更省内存;小批量才逐本。
+  const total = db.prepare('SELECT COUNT(*) AS n FROM books').get().n;
+  const threshold = Math.max(100, Math.ceil(total / 32));
+  if (oldRows.size >= threshold) {
+    search.reindexAll(db);
+    return;
+  }
+  const get = db.prepare(`SELECT ${FTS_COLS} FROM books WHERE id = ?`);
+  for (const [id, oldRow] of oldRows) {
+    const fresh = get.get(id);
+    if (fresh) search.updateBookIndex(db, id, oldRow, fresh);
+  }
 }
 
 /* ---------- 列表(带每本计数) ---------- */
@@ -87,16 +158,16 @@ function reindexAll(db) {
 // scopeIds(虚拟书库)语义照 calibre:只列出该作用域内出现过的分类,
 // 且计数只统计作用域内的书。
 function listTags(db, { scopeIds = null } = {}) {
-  if (Array.isArray(scopeIds)) {
-    const scope = inClause('b.id', scopeIds);
+  const scoped = scopeClause('b.id', scopeIds);
+  if (scoped) {
     return db.prepare(`
       SELECT t.id, t.name, COUNT(b.id) AS count
       FROM tags t
       JOIN book_tags bt ON bt.tag = t.id
       JOIN books b ON b.id = bt.book AND b.deleted_at IS NULL
-      WHERE ${scope.sql}
+      WHERE ${scoped.sql}
       GROUP BY t.id ORDER BY count DESC, t.name COLLATE NOCASE
-    `).all(...scope.params);
+    `).all(...scoped.params);
   }
   return db.prepare(`
     SELECT t.id, t.name, COUNT(b.id) AS count
@@ -108,16 +179,16 @@ function listTags(db, { scopeIds = null } = {}) {
 }
 
 function listAuthors(db, { scopeIds = null } = {}) {
-  if (Array.isArray(scopeIds)) {
-    const scope = inClause('b.id', scopeIds);
+  const scoped = scopeClause('b.id', scopeIds);
+  if (scoped) {
     return db.prepare(`
       SELECT a.id, a.name, COUNT(b.id) AS count
       FROM authors a
       JOIN book_authors ba ON ba.author = a.id
       JOIN books b ON b.id = ba.book AND b.deleted_at IS NULL
-      WHERE ${scope.sql}
+      WHERE ${scoped.sql}
       GROUP BY a.id ORDER BY count DESC, a.name COLLATE NOCASE
-    `).all(...scope.params);
+    `).all(...scoped.params);
   }
   return db.prepare(`
     SELECT a.id, a.name, COUNT(b.id) AS count
@@ -129,7 +200,7 @@ function listAuthors(db, { scopeIds = null } = {}) {
 }
 
 /* ---------- 变更操作:重命名 / 合并 / 删除 ----------
- * 统一模式:先改链接层 → 重算受影响书缓存 → reindexAll → 清孤儿。
+ * 统一模式:快照旧 FTS 行 → 改链接层 → 重算受影响书缓存 → 只重建这些书的索引。
  * 调用方负责事务边界(routes 层单条包一次,rebuildAll 迁移期已在事务内)。 */
 
 function affectedBooksByTag(db, tagId) {
@@ -151,9 +222,10 @@ function renameTag(db, id, newName) {
     mergeTags(db, id, targetId);
     return targetId;
   }
+  const oldRows = snapshotSearchRows(db, books);
   db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(name, id);
-  for (const b of books) recomputeBookCaches(db, b);
-  reindexAll(db);
+  refreshTagCaches(db, books);
+  reindexBooks(db, oldRows);
   return id;
 }
 
@@ -163,23 +235,25 @@ function mergeTags(db, fromId, toId) {
   if (!from || !to) throw Object.assign(new Error('标签不存在'), { code: 'NOT_FOUND' });
   if (fromId === toId) return toId;
   const books = new Set([...affectedBooksByTag(db, fromId), ...affectedBooksByTag(db, toId)]);
+  const oldRows = snapshotSearchRows(db, [...books]);
   db.prepare(`
     INSERT OR IGNORE INTO book_tags (book, tag)
     SELECT book, ? FROM book_tags WHERE tag = ?
   `).run(toId, fromId);
   db.prepare('DELETE FROM book_tags WHERE tag = ?').run(fromId);
   db.prepare('DELETE FROM tags WHERE id = ?').run(fromId);
-  for (const b of books) recomputeBookCaches(db, b);
-  reindexAll(db);
+  refreshTagCaches(db, books);
+  reindexBooks(db, oldRows);
   return toId;
 }
 
 function removeTag(db, id) {
   const books = affectedBooksByTag(db, id);
+  const oldRows = snapshotSearchRows(db, books);
   db.prepare('DELETE FROM book_tags WHERE tag = ?').run(id);
   db.prepare('DELETE FROM tags WHERE id = ?').run(id);
-  for (const b of books) recomputeBookCaches(db, b);
-  reindexAll(db);
+  refreshTagCaches(db, books);
+  reindexBooks(db, oldRows);
 }
 
 function renameAuthor(db, id, newName) {
@@ -194,9 +268,10 @@ function renameAuthor(db, id, newName) {
     mergeAuthors(db, id, targetId);
     return targetId;
   }
+  const oldRows = snapshotSearchRows(db, books);
   db.prepare('UPDATE authors SET name = ?, sort = ? WHERE id = ?').run(name, name, id);
-  for (const b of books) recomputeBookCaches(db, b);
-  reindexAll(db);
+  refreshAuthorCaches(db, books);
+  reindexBooks(db, oldRows);
   return id;
 }
 
@@ -206,6 +281,7 @@ function mergeAuthors(db, fromId, toId) {
   if (!from || !to) throw Object.assign(new Error('作者不存在'), { code: 'NOT_FOUND' });
   if (fromId === toId) return toId;
   const books = new Set([...affectedBooksByAuthor(db, fromId), ...affectedBooksByAuthor(db, toId)]);
+  const oldRows = snapshotSearchRows(db, [...books]);
   // 迁移链接:同一本书若两边都有,保留较小 position,忽略冲突
   db.prepare(`
     INSERT OR IGNORE INTO book_authors (book, author, position)
@@ -213,17 +289,18 @@ function mergeAuthors(db, fromId, toId) {
   `).run(toId, fromId);
   db.prepare('DELETE FROM book_authors WHERE author = ?').run(fromId);
   db.prepare('DELETE FROM authors WHERE id = ?').run(fromId);
-  for (const b of books) recomputeBookCaches(db, b);
-  reindexAll(db);
+  refreshAuthorCaches(db, books);
+  reindexBooks(db, oldRows);
   return toId;
 }
 
 function removeAuthor(db, id) {
   const books = affectedBooksByAuthor(db, id);
+  const oldRows = snapshotSearchRows(db, books);
   db.prepare('DELETE FROM book_authors WHERE author = ?').run(id);
   db.prepare('DELETE FROM authors WHERE id = ?').run(id);
-  for (const b of books) recomputeBookCaches(db, b);
-  reindexAll(db);
+  refreshAuthorCaches(db, books);
+  reindexBooks(db, oldRows);
 }
 
 // 清理零引用的标签 / 作者(删书或解除链接后调用,保持分类表干净)

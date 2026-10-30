@@ -538,8 +538,30 @@ function migrateV18(db) {
   `);
 }
 
+// v19:自定义字段数值影子列。
+// VIRTUAL 生成列由 value 自动派生,不需要改写入路径、也不重写旧表;
+// 索引让 #页数:>=300 这类范围筛选走 (column_id, value_num),
+// 不再对每个值做 CAST 全扫。空值保持 NULL,不参与数值比较。
+function migrateV19(db) {
+  // 迁移测试会把 user_version 回拨重放,这里必须幂等(ALTER 不支持 IF NOT EXISTS)
+  // table_info 不列生成列,必须用 table_xinfo 才看得见 value_num
+  const cols = db.prepare('PRAGMA table_xinfo(book_custom_values)').all().map((c) => c.name);
+  if (!cols.includes('value_num')) {
+    db.exec(`
+      ALTER TABLE book_custom_values
+        ADD COLUMN value_num REAL GENERATED ALWAYS AS (
+          CASE WHEN value <> '' THEN CAST(value AS REAL) END
+        ) VIRTUAL;
+    `);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS book_custom_values_num_idx
+      ON book_custom_values (column_id, value_num);
+  `);
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;
@@ -580,6 +602,23 @@ function openDb(dataDir = DATA_DIR, { seedDemo = process.env.MYBOOKS_SEED_DEMO =
   const result = runMigrations(db, dataDir);
   if (result.ran > 0) {
     console.log(`[db] schema 迁移完成: v${result.from} → v${result.to}`);
+  }
+
+  // 检索用的自定义 SQL 函数:真正的正则 + 列侧字符折叠。
+  // node:sqlite 的 function() 在旧版本不存在;不支持时 search.js 退回 LIKE 近似。
+  if (typeof db.function === 'function') {
+    const { foldVariants } = require('./search');
+    db.function('regexp', { deterministic: true }, (pattern, value) => {
+      const p = String(pattern == null ? '' : pattern);
+      if (p.length > 200) return 0; // 防 ReDoS:超长正则直接不命中
+      try {
+        return new RegExp(p).test(String(value == null ? '' : value)) ? 1 : 0;
+      } catch {
+        return 0; // 非法正则按不命中处理,不让整条查询报错
+      }
+    });
+    db.function('fold_variants', { deterministic: true }, (value) => foldVariants(value));
+    db.__mybooksFns = true;
   }
 
   // 种子数据:仅当这是一个全新的库文件(与书架当前是否为空无关)

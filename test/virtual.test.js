@@ -147,6 +147,30 @@ test('scopeIds:列表/搜索/分类计数/统计一起收窄(空数组 = 不命�
   db.close();
 });
 
+test('buildVirtualScope:子查询片段可直接用于列表/分类/统计,与旧 id 数组结果一致', () => {
+  const { db, ids } = seedDb();
+  saved.addSaved(db, { name: '已读', query: 'status:done', isVirtual: true });
+  const scope = search.buildVirtualScope(db, '已读');
+  assert.match(scope.sql, /^SELECT b\.id /);
+
+  const expected = [ids.sf, ids.living].sort();
+  assert.deepEqual(books.listBooks({ scopeIds: scope }, db).map((b) => b.id).sort(), expected);
+  assert.deepEqual(search.resolveVirtualIds(db, '已读').sort(), expected);
+
+  const tags = categories.listTags(db, { scopeIds: scope });
+  assert.deepEqual(tags.map((t) => t.name).sort(), ['小说', '科幻']);
+  assert.equal(tags.reduce((n, t) => n + t.count, 0), 2);
+  assert.deepEqual(categories.listAuthors(db, { scopeIds: scope }).map((a) => a.name).sort(), ['余华', '刘慈欣']);
+
+  db.prepare('UPDATE books SET series = ?, series_index = 1 WHERE id = ?').run('地球往事', ids.sf);
+  assert.deepEqual(books.listSeries(db, { scopeIds: scope }).map((s) => s.name), ['地球往事']);
+
+  const st = stats.getStats(db, scope);
+  assert.equal(st.total, 2);
+  assert.equal(st.byStatus.done, 2);
+  db.close();
+});
+
 test('listSeries 支持作用域;未受影响时与改造前一致', () => {
   const { db, ids } = seedDb();
   db.prepare('UPDATE books SET series = ?, series_index = 1 WHERE id = ?').run('地球往事', ids.sf);

@@ -11,12 +11,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=106">
+  <link rel="stylesheet" href="/css/style.css?v=107">
 </head>
 <body data-page="shelf">
   <main>
     <h1 class="page-title">书架</h1>
     <div id="bookGrid" class="book-grid"></div>
+    <div id="shelfSentinel" class="shelf-sentinel" aria-hidden="true"></div>
     <div id="emptyState" class="empty hidden">
       <div class="empty-icon">书</div>
       <p id="emptyTitle">书架还是空的</p>
@@ -90,8 +91,8 @@
   </div>
 
   <script defer src="/js/chrome.js?v=34"></script>
-  <script defer src="/js/common.js?v=27"></script>
+  <script defer src="/js/common.js?v=28"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-shelf.js?v=16"></script>
+  <script defer src="/js/page-shelf.js?v=18"></script>
 </body>
 </html>
