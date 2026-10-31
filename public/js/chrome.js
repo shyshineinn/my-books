@@ -39,6 +39,10 @@ const NAV_ITEMS = [
   { id: 'tags', label: '分类', href: '/tags' },
 ];
 
+/* 桌面端悬停下拉不再给「书架」:书架页左侧已有完整筛选栏,
+   悬停弹一次只是重复入口;触屏点开的二级菜单仍保留。 */
+const NO_DESKTOP_FLYOUT = new Set(['shelf']);
+
 /* 桌面端下拉菜单:apple.com 的 globalnav flyout。
  * 结构 = 一个「主列」(24px/600 大链接)+ 若干「次列」(12px/600 小链接)。
  * 列宽由 CSS 固定,各菜单页的列位置完全对齐。
@@ -110,7 +114,7 @@ function dropCaretSvg(cls) {
 function navHtml(current) {
   return NAV_ITEMS.map((n) => {
     const on = n.id === current;
-    const menu = n.id in NAV_MENUS;
+    const menu = n.id in NAV_MENUS && !NO_DESKTOP_FLYOUT.has(n.id);
     const attrs = [
       on ? 'class="active"' : '',
       on ? 'aria-current="page"' : '',
@@ -193,7 +197,7 @@ function navFlyoutPanelHtml(n) {
 
 function navFlyoutHtml() {
   return `<div id="navFlyout" class="nav-flyout" aria-hidden="true">
-    ${NAV_ITEMS.filter((n) => NAV_MENUS[n.id]).map(navFlyoutPanelHtml).join('')}
+    ${NAV_ITEMS.filter((n) => n.id in NAV_MENUS && !NO_DESKTOP_FLYOUT.has(n.id)).map(navFlyoutPanelHtml).join('')}
   </div>`;
 }
 

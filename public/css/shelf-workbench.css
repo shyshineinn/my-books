@@ -642,6 +642,9 @@ body.marquee-selecting .wb-content { cursor: crosshair; }
   -webkit-backdrop-filter: saturate(180%) blur(22px);
   backdrop-filter: saturate(180%) blur(22px);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+  /* .wb-top 整体 pointer-events:none(只让右侧控件可点),
+     菜单要能点链接回其它页面,这里必须自己打开命中。 */
+  pointer-events: auto;
 }
 .wb-brand-menu[hidden] { display: none !important; }
 .wb-brand-menu a {
