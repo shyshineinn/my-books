@@ -244,7 +244,7 @@ function loadNavLists() {
 
 function headerHtml(current) {
   return `
-  <header class="topbar">
+  <header class="topbar" data-glass="bar">
     <div class="topbar-inner">
       <button type="button" id="mmBackBtn" class="mm-back-btn" aria-label="返回上一级">
         <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

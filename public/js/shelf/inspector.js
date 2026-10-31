@@ -97,7 +97,7 @@
       <button type="button" data-remove-collection="${c.id}" aria-label="移出 ${esc(c.name)}">✕</button></span>`).join('');
     const available = state().facets.collections.filter((c) => !memberships.some((m) => m.id === c.id));
     const pop = S.inspectorPop
-      ? `<div class="wb-collection-pop">
+      ? `<div class="wb-collection-pop" data-glass="refract">
           ${available.length ? available.map((c) => `<button type="button" data-add-collection="${c.id}">${esc(c.name)}</button>`).join('') : '<div class="wb-pop-empty">已在该书的全部分类中</div>'}
           <form class="wb-inline-form" data-new-collection>
             <input class="wb-inline-input" name="name" placeholder="新建分类并加入" maxlength="100" aria-label="新建分类并加入">
@@ -254,12 +254,14 @@
       S.updateBook(updated);
       invalidateSharedStats();
 
-      // q 依赖 FTS,虚拟书库依赖查询语法,客户端判不准:让服务端重查。
-      const needsServerRecheck = !!state().vl
-        || (!!state().q && Object.prototype.hasOwnProperty.call(patch, 'tags'));
+      // q 与 vl 的匹配只有服务端判得准:查询语法能按状态/评分/系列/自定义字段设条件,
+      // FTS 又覆盖书名/作者/简介/标签,客户端的 matchesFilters 只认侧栏那几项筛选。
+      // 所以搜索态下任何快速编辑都让服务端重查,别把不再命中的书留在列表里。
+      const needsServerRecheck = !!state().vl || !!state().q;
       if (needsServerRecheck) {
         if (message) toast(message);
-        await S.hooks.filterChanged({ refreshFacets: true });
+        // 重查会回到第一页;书还在结果里就把它重新选中,别为了改个评分把详情面板关掉。
+        await S.hooks.filterChanged({ refreshFacets: true, restoreId: book.id });
         return;
       }
       if (!S.matchesFilters(updated)) {
@@ -291,6 +293,12 @@
   function rootEvents() {
     const root = $('#wbInspector');
     if (!root) return;
+    document.addEventListener('pointerdown', (e) => {
+      if (!S.inspectorPop) return;
+      if (e.target.closest('.wb-collection-pop') || e.target.closest('[data-collection-add]')) return;
+      S.inspectorPop = false;
+      render();
+    });
     root.addEventListener('click', async (e) => {
       if (e.target.closest('[data-inspector-close]')) { hide(); return; }
       if (e.target.closest('[data-multi="collection"]')) {

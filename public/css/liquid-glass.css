@@ -1,0 +1,593 @@
+/* ============================================================
+ * My books · Liquid Glass Design System
+ *
+ * 分层：
+ *   1. tokens（--liquid-*）
+ *   2. 三档渲染：full / frost / solid（由 liquid-glass.js 写在 <html>）
+ *   3. 实时折射控件（data-glass="refract|bar"）
+ *   4. 低成本玻璃面板（菜单、侧栏、Inspector、弹窗、搜索浮层）
+ *
+ * 材质只用宿主自身的 background / box-shadow / backdrop-filter 实现，
+ * 不注入装饰 DOM，也不占用 ::before / ::after，因此不会破坏按钮、
+ * 链接、表单的语义、事件委托、焦点顺序与点击区域。
+ * 内容层（书封、书名、表格、卡片）不加模糊或折射。
+ * ============================================================ */
+
+:root {
+  --liquid-tint: 255 255 255;
+  --liquid-opacity: 0.62;
+  --liquid-blur: 16px;
+  --liquid-saturation: 180%;
+  --liquid-refraction: 18;
+  --liquid-chroma: 0.45;
+  --liquid-rim-light: rgba(255, 255, 255, 0.72);
+  --liquid-shadow: 0 14px 38px rgba(24, 24, 28, 0.14), 0 2px 8px rgba(24, 24, 28, 0.06);
+  --liquid-shadow-soft: 0 10px 30px rgba(24, 24, 28, 0.12);
+  --liquid-shadow-hover: 0 18px 44px rgba(24, 24, 28, 0.2);
+  --liquid-radius: 18px;
+  --liquid-duration: 220ms;
+  --liquid-chroma-red: rgba(255, 92, 122, 0.16);
+  --liquid-chroma-cyan: rgba(72, 214, 255, 0.2);
+  --liquid-edge: rgba(0, 0, 0, 0.1);
+  --liquid-edge-strong: rgba(0, 0, 0, 0.16);
+  --liquid-sheen: linear-gradient(152deg,
+    rgba(255, 255, 255, 0.46) 0%,
+    rgba(255, 255, 255, 0.1) 38%,
+    rgba(255, 255, 255, 0.04) 62%,
+    rgba(255, 255, 255, 0.2) 100%);
+}
+
+html[data-glass-tier="solid"] {
+  --liquid-opacity: 0.97;
+}
+
+/* ---------- 通用表面材质 ---------- */
+
+.lg-surface {
+  --lg-tint: var(--liquid-tint);
+  --lg-opacity: var(--liquid-opacity);
+  --lg-blur: var(--liquid-blur);
+  --lg-duration: var(--liquid-duration);
+  transition:
+    background-color var(--lg-duration) var(--ease, ease),
+    box-shadow var(--lg-duration) var(--ease, ease),
+    color var(--lg-duration) var(--ease, ease),
+    transform 160ms var(--ease, ease);
+}
+
+html[data-glass-tier="full"] .lg-surface,
+html[data-glass-tier="frost"] .lg-surface {
+  background-color: rgb(var(--lg-tint) / var(--lg-opacity));
+  background-image: var(--liquid-sheen);
+  border-color: var(--liquid-rim-light);
+  box-shadow:
+    inset 0 1px 0 var(--liquid-rim-light),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.16),
+    inset 1px 0 0 var(--liquid-chroma-red),
+    inset -1px 0 0 var(--liquid-chroma-cyan),
+    0 0 0 0.5px var(--liquid-edge),
+    var(--liquid-shadow-soft);
+}
+
+html[data-glass-tier="full"] .lg-surface.lg-refract {
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--liquid-saturation));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--liquid-saturation));
+  backdrop-filter: var(--lg-filter, blur(0px)) blur(var(--lg-blur)) saturate(var(--liquid-saturation));
+}
+
+html[data-glass-tier="frost"] .lg-surface,
+html[data-glass-tier="full"] .lg-surface:not(.lg-refract) {
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--liquid-saturation));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--liquid-saturation));
+}
+
+html[data-glass-tier="solid"] .lg-surface {
+  background-color: rgb(255 255 255 / var(--liquid-opacity));
+  background-image: none;
+  border-color: var(--liquid-edge);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.7),
+    0 0 0 0.5px var(--liquid-edge),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 悬停只提亮/加强镜面高光，不做位移，避免整片控件晃动；
+   顶栏/侧栏等大面板不参与悬停材质变化 */
+html[data-glass-tier="full"] .lg-surface.lg-refract:is(button, a, .wb-view):hover,
+html[data-glass-tier="frost"] .lg-surface:is(button, a, .wb-view):hover {
+  --lg-opacity: calc(var(--liquid-opacity) + 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+    inset 1px 0 0 var(--liquid-chroma-red),
+    inset -1px 0 0 var(--liquid-chroma-cyan),
+    0 0 0 0.5px var(--liquid-edge),
+    var(--liquid-shadow-hover);
+}
+
+button.lg-surface:active,
+a.lg-surface:active {
+  transform: scale(0.96);
+}
+
+button.lg-surface:focus-visible,
+a.lg-surface:focus-visible {
+  outline: 2px solid var(--accent, #0066cc);
+  outline-offset: 2px;
+}
+
+/* 顶栏：保留 Apple 的搜索/菜单展开态（不透明 #fafafc），只在常态显示玻璃 */
+html[data-glass-tier="full"] .topbar.lg-surface,
+html[data-glass-tier="frost"] .topbar.lg-surface {
+  --lg-opacity: 0.72;
+  --lg-blur: 20px;
+  --liquid-refraction: 10;
+  --liquid-chroma: 0.2;
+  transition: background-color 0.279s cubic-bezier(0.4, 0, 0.6, 1),
+    box-shadow var(--liquid-duration) var(--ease, ease);
+  background-color: rgb(var(--liquid-tint) / 0.72);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.04));
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+html[data-glass-tier="solid"] .topbar.lg-surface {
+  background-color: #fafafc;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* 展开状态沿用原有顶栏行为：
+   窄屏菜单/搜索把顶栏退成透明（面板本身铺满 #fafafc），
+   桌面搜索与导航下拉则是不透明 #fafafc。 */
+@media (max-width: 819px) {
+  html[data-glass-tier] body.menu-open .topbar.lg-surface,
+  html[data-glass-tier] body.search-open .topbar.lg-surface {
+    background-color: transparent;
+    background-image: none;
+    border-color: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (min-width: 820px) {
+  html[data-glass-tier] body.search-open .topbar.lg-surface,
+  html[data-glass-tier] body.nav-flyout-open .topbar.lg-surface,
+  html[data-glass-tier] body.nav-flyout-closing .topbar.lg-surface {
+    background-color: #fafafc;
+    background-image: none;
+    border-color: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ---------- 低成本面板（不做实时折射，保证文字和长列表清晰） ---------- */
+
+html[data-glass-tier="full"] :is(
+  .wb-side,
+  .wb-inspector,
+  .wb-brand-menu,
+  .wb-layout-menu,
+  .wb-collection-pop,
+  .sel-menu,
+  .search-flyout,
+  .nav-flyout,
+  .modal-box
+),
+html[data-glass-tier="frost"] :is(
+  .wb-side,
+  .wb-inspector,
+  .wb-brand-menu,
+  .wb-layout-menu,
+  .wb-collection-pop,
+  .sel-menu,
+  .search-flyout,
+  .nav-flyout,
+  .modal-box
+) {
+  --lg-blur: 24px;
+  background-color: rgb(var(--liquid-tint) / 0.86);
+  background-image: var(--liquid-sheen);
+  border-color: rgba(255, 255, 255, 0.5);
+  -webkit-backdrop-filter: blur(24px) saturate(var(--liquid-saturation));
+  backdrop-filter: blur(24px) saturate(var(--liquid-saturation));
+  box-shadow:
+    inset 0 1px 0 var(--liquid-rim-light),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.16),
+    inset 1px 0 0 var(--liquid-chroma-red),
+    inset -1px 0 0 var(--liquid-chroma-cyan),
+    0 0 0 0.5px var(--liquid-edge),
+    var(--liquid-shadow);
+}
+
+html[data-glass-tier="solid"] :is(
+  .wb-side,
+  .wb-inspector,
+  .wb-brand-menu,
+  .wb-layout-menu,
+  .wb-collection-pop,
+  .sel-menu,
+  .search-flyout,
+  .nav-flyout,
+  .modal-box
+) {
+  background-color: #ffffff;
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: 0 0 0 0.5px var(--liquid-edge), 0 18px 44px rgba(0, 0, 0, 0.14);
+}
+
+/* 小浮层：更实的底，避免书封穿过菜单文字 */
+html[data-glass-tier="full"] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu),
+html[data-glass-tier="frost"] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu) {
+  --lg-opacity: 0.86;
+  background-color: rgb(var(--liquid-tint) / 0.86);
+}
+
+/* 表单弹窗与搜索浮层需要优先保证可读性 */
+html[data-glass-tier="full"] :is(.modal-box, .search-flyout),
+html[data-glass-tier="frost"] :is(.modal-box, .search-flyout) {
+  background-color: rgb(var(--liquid-tint) / 0.92);
+}
+
+html[data-glass-tier="full"] .nav-flyout,
+html[data-glass-tier="frost"] .nav-flyout {
+  background-color: rgb(var(--liquid-tint) / 0.94);
+}
+
+/* 遮罩也做成玻璃幕布；只做 blur，不折射 */
+html[data-glass-tier="full"] .modal,
+html[data-glass-tier="frost"] .modal {
+  background: rgba(20, 20, 24, 0.34);
+  -webkit-backdrop-filter: blur(8px) saturate(130%);
+  backdrop-filter: blur(8px) saturate(130%);
+}
+
+html[data-glass-tier="solid"] .modal {
+  background: rgba(0, 0, 0, 0.48);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 侧栏 / Inspector：暖白玻璃，保持原有尺寸与断点 */
+html[data-glass-tier="full"] :is(.wb-side, .wb-inspector),
+html[data-glass-tier="frost"] :is(.wb-side, .wb-inspector) {
+  --lg-tint: 247 246 243;
+  --lg-blur: 20px;
+  --wb-panel: rgba(247, 246, 243, 0.8);
+  background-color: rgb(247 246 243 / 0.8);
+  background-image:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.14) 34%, rgba(247, 246, 243, 0.04) 64%, rgba(255, 255, 255, 0.22));
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+    0 0 0 0.5px rgba(0, 0, 0, 0.07),
+    0 18px 46px rgba(24, 24, 28, 0.12);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+html[data-glass-tier="solid"] :is(.wb-side, .wb-inspector) {
+  --wb-panel: #f7f6f3;
+  background-color: #f7f6f3;
+}
+
+/* 恢复书架面板自身抽屉/滑入动画的节奏；玻璃只负责底色与阴影过渡 */
+html[data-glass-tier] .wb-side.lg-surface {
+  transition:
+    opacity 0.28s ease,
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color var(--liquid-duration) var(--ease, ease),
+    box-shadow var(--liquid-duration) var(--ease, ease);
+}
+html[data-glass-tier] .wb-inspector.lg-surface {
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color var(--liquid-duration) var(--ease, ease),
+    box-shadow var(--liquid-duration) var(--ease, ease);
+}
+
+html[data-glass-tier="full"] .wb-side-head,
+html[data-glass-tier="frost"] .wb-side-head {
+  background: rgba(247, 246, 243, 0.86);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+
+/* 搜索浮层是整屏面板：降低模糊半径，避免移动端整屏合成过重；
+   它不挂 .lg-surface，以免覆盖 style.css 里的高度/可见性开合过渡。 */
+html[data-glass-tier="full"] .search-flyout,
+html[data-glass-tier="frost"] .search-flyout {
+  --lg-blur: 20px;
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+}
+
+/* 选择组件：触发器由 .lg-surface 承担玻璃，菜单层用低成本面板 */
+.sel-menu.lg-surface {
+  --lg-opacity: 0.88;
+}
+
+/* ---------- 书架浮层控件的玻璃特写 ---------- */
+
+html[data-glass-tier="full"] :is(
+  .wb-brand,
+  .wb-circle,
+  .wb-search,
+  .wb-view,
+  .wb-sort .sel-trigger
+).lg-surface,
+html[data-glass-tier="frost"] :is(
+  .wb-brand,
+  .wb-circle,
+  .wb-search,
+  .wb-view,
+  .wb-sort .sel-trigger
+).lg-surface {
+  --lg-opacity: 0.7;
+  --lg-blur: 5px;
+  --liquid-chroma: 0.55;
+  background-color: rgb(var(--liquid-tint) / 0.7);
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.18) 34%, rgba(255, 255, 255, 0.04) 64%, rgba(255, 255, 255, 0.34)),
+    var(--liquid-sheen);
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1.5px 0 rgba(255, 255, 255, 0.2),
+    inset 1px 0 0 var(--liquid-chroma-red),
+    inset -1px 0 0 var(--liquid-chroma-cyan),
+    0 0 0 0.5px rgba(0, 0, 0, 0.08),
+    0 10px 26px rgba(24, 24, 28, 0.16);
+}
+
+/* 封面从控件背后经过时，图标/标签保持深色足够对比 */
+html[data-glass-tier] :is(.wb-circle, .wb-search, .wb-sort .sel-trigger, .wb-view).lg-surface {
+  color: var(--wb-ink, #1d1d1f);
+}
+html[data-glass-tier] .wb-view.lg-surface button:not(.active) {
+  color: var(--wb-ink, #1d1d1f);
+}
+html[data-glass-tier] .wb-view.lg-surface button:active {
+  transform: scale(0.9);
+}
+html[data-glass-tier] .wb-view.lg-surface button {
+  transition: background 0.18s var(--ease, ease), color 0.18s var(--ease, ease),
+    transform 140ms var(--ease, ease);
+}
+
+/* 浮层菜单需要更实的底来保证书名/作者穿过时不干扰阅读；
+   但仍保留低模糊 + 边缘折射，避免变成纯白塑料卡片。 */
+html[data-glass-tier="full"] :is(
+  .wb-brand-menu,
+  .wb-layout-menu,
+  .wb-collection-pop,
+  .sel-menu
+).lg-surface.lg-refract {
+  --lg-opacity: 0.8;
+  --lg-blur: 8px;
+  --liquid-chroma: 0.5;
+  background-color: rgb(var(--liquid-tint) / 0.8);
+}
+
+html[data-glass-tier="full"] .wb-brand.lg-surface[aria-expanded="true"],
+html[data-glass-tier="frost"] .wb-brand.lg-surface[aria-expanded="true"],
+html[data-glass-tier="full"] .wb-circle.lg-surface[aria-expanded="true"],
+html[data-glass-tier="frost"] .wb-circle.lg-surface[aria-expanded="true"],
+html[data-glass-tier="full"] .wb-circle.lg-surface[aria-pressed="true"],
+html[data-glass-tier="frost"] .wb-circle.lg-surface[aria-pressed="true"],
+html[data-glass-tier="full"] .wb-sort .sel-trigger.lg-surface[aria-expanded="true"],
+html[data-glass-tier="frost"] .wb-sort .sel-trigger.lg-surface[aria-expanded="true"] {
+  --lg-opacity: 0.86;
+  background-color: rgb(var(--liquid-tint) / 0.86);
+}
+
+/* 视图切换胶囊内部的按钮保持原有黑/白选中态，不叠加玻璃 */
+.wb-view.lg-surface button {
+  transition: background 0.18s var(--ease, ease), color 0.18s var(--ease, ease);
+}
+
+/* 玻璃档位设置（书架视图设置菜单内） */
+.wb-glass-row { margin-top: 10px; align-items: center; }
+.wb-glass-seg { flex-wrap: nowrap; gap: 1px; }
+.wb-glass-seg button { font-size: 10.5px; padding: 0 6px; min-width: 0; }
+.wb-glass-note { margin: 0 0 2px; color: #946200; font-size: 10.5px; line-height: 1.45; }
+
+/* 搜索关闭按钮（书架沉浸页） */
+html[data-glass-tier="full"] .wb-search-close.lg-surface,
+html[data-glass-tier="frost"] .wb-search-close.lg-surface {
+  --lg-opacity: 0.78;
+  background-color: rgb(var(--liquid-tint) / 0.78);
+}
+
+/* 菜单里的行悬停只变底色，不改变玻璃的折射 */
+html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu) a:hover,
+html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu) button:hover {
+  background-color: rgba(255, 255, 255, 0.42);
+}
+
+/* ---------- 首页画廊浮层控件 ----------
+   首页 dotnav 是此前按 apple.com 1:1 验证过的悬浮控件；液态玻璃改版
+   只给它加一层低成本的磨砂与边缘高光，不改尺寸、圆点节奏和播放/暂停
+   行为。真正的 SVG 背景折射只用于书架工具栏和小菜单，避免整条控制条
+   成为高成本折射面。 */
+html[data-glass-tier="full"] .media-gallery-dotnav .dotnav-items,
+html[data-glass-tier="frost"] .media-gallery-dotnav .dotnav-items {
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 20px rgba(0, 0, 0, 0.14);
+}
+
+html[data-glass-tier="full"] .media-gallery-dotnav-iconcontrol,
+html[data-glass-tier="frost"] .media-gallery-dotnav-iconcontrol {
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+html[data-glass-tier="solid"] .media-gallery-dotnav .dotnav-items,
+html[data-glass-tier="solid"] .media-gallery-dotnav-iconcontrol {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* ---------- 登录页玻璃场景与卡片 ---------- */
+
+body.login-page {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: #eef1f7;
+}
+
+body.login-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 46%, transparent 0 304px, rgba(38, 68, 120, 0.24) 305px 307px, transparent 308px),
+    radial-gradient(circle at 50% 46%, transparent 0 428px, rgba(38, 68, 120, 0.13) 429px 431px, transparent 432px),
+    radial-gradient(58% 52% at 18% 16%, rgba(10, 132, 255, 0.4), transparent 64%),
+    radial-gradient(48% 44% at 84% 14%, rgba(255, 159, 10, 0.32), transparent 64%),
+    radial-gradient(52% 54% at 80% 84%, rgba(191, 90, 242, 0.3), transparent 64%),
+    radial-gradient(46% 48% at 20% 88%, rgba(48, 209, 88, 0.24), transparent 64%),
+    linear-gradient(135deg, #f7f9fd 0%, #eef1f7 48%, #f8f5ef 100%);
+}
+
+body.login-page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(37, 58, 96, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 58, 96, 0.16) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.46) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.46) 1px, transparent 1px);
+  background-size: 168px 168px, 168px 168px, 56px 56px, 56px 56px;
+  opacity: 0.72;
+  -webkit-mask-image: radial-gradient(82% 78% at 50% 46%, #000 26%, transparent 100%);
+  mask-image: radial-gradient(82% 78% at 50% 46%, #000 26%, transparent 100%);
+}
+
+body.login-page .account-page {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-glass-tier="full"] .account-page,
+html[data-glass-tier="frost"] .account-page {
+  background-color: rgb(var(--liquid-tint) / 0.78);
+  background-image: var(--liquid-sheen);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px 0 var(--liquid-rim-light),
+    inset 1px 0 0 var(--liquid-chroma-red),
+    inset -1px 0 0 var(--liquid-chroma-cyan),
+    0 0 0 0.5px var(--liquid-edge),
+    var(--liquid-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+
+/* 登录卡是页面里唯一的大玻璃展示面：低 tint/低模糊，才能看见边缘弯折；
+   表单输入仍保持不透明白底。 */
+html[data-glass-tier="full"] .account-page.lg-surface,
+html[data-glass-tier="frost"] .account-page.lg-surface {
+  --lg-opacity: 0.4;
+  --lg-blur: 0.75px;
+  --liquid-refraction: 30;
+  --liquid-chroma: 0.65;
+  background-color: rgb(var(--liquid-tint) / 0.4);
+  background-image:
+    radial-gradient(120% 92% at 50% 36%, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.1) 62%, rgba(255, 255, 255, 0.02) 100%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.2), transparent 44%, rgba(255, 255, 255, 0.12));
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.94),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.24),
+    inset 1px 0 0 var(--liquid-chroma-red),
+    inset -1px 0 0 var(--liquid-chroma-cyan),
+    0 0 0 0.5px rgba(0, 0, 0, 0.1),
+    0 28px 70px rgba(24, 28, 40, 0.22);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(170%);
+  backdrop-filter: blur(var(--lg-blur)) saturate(170%);
+  backdrop-filter: var(--lg-filter, blur(0px)) blur(var(--lg-blur)) saturate(170%);
+}
+
+html[data-glass-tier="solid"] .account-page {
+  background-color: #fff;
+  border: 1px solid var(--hairline, rgba(0, 0, 0, 0.12));
+  border-radius: 24px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.account-page input {
+  background: #fff;
+}
+
+/* ---------- 动效与无障碍 ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-glass-tier] .lg-surface {
+    transition: none;
+    animation: none;
+  }
+  button.lg-surface:active,
+  a.lg-surface:active {
+    transform: none;
+  }
+}
+
+/* 系统级“减少透明度”：即使 JS 未生效也回退到近实色 */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-glass-tier] .lg-surface,
+  html[data-glass-tier] :is(
+    .wb-side,
+    .wb-inspector,
+    .wb-brand-menu,
+    .wb-layout-menu,
+    .wb-collection-pop,
+    .sel-menu,
+    .search-flyout,
+    .nav-flyout,
+    .modal-box,
+    .account-page
+  ) {
+    background-color: rgba(255, 255, 255, 0.97);
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html[data-glass-tier] .modal {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* 不支持 backdrop-filter 的内核：近实色，保证文字可读 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-glass-tier] .lg-surface {
+    background-color: rgba(255, 255, 255, 0.97);
+    background-image: none;
+  }
+}

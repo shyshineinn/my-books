@@ -62,6 +62,13 @@
     el.title = el.textContent;
   }
 
+  const SIDEBAR_KEY = 'shelf.sidebar';
+  // 这份偏好只代表**桌面端**那一栏要不要占位。手机端侧栏是抽屉,
+  // 开合是一次性的,不该写进这个键(否则在手机上拉开通道,下次坐回电脑前会莫名多出一栏)。
+  function desktopSidebarOpen() {
+    try { return localStorage.getItem(SIDEBAR_KEY) !== 'closed'; } catch { return true; }
+  }
+
   function setSidebarOpen(open, { persist = true } = {}) {
     const wb = $('#shelfWorkbench');
     if (!wb) return;
@@ -72,7 +79,7 @@
       btn.setAttribute('aria-label', open ? '隐藏资料库' : '显示资料库');
     }
     if (persist) {
-      try { localStorage.setItem('shelf.sidebar', open ? 'open' : 'closed'); } catch { /* ignore */ }
+      try { localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed'); } catch { /* ignore */ }
     }
   }
 
@@ -160,7 +167,7 @@
     ensureFill();
   }
 
-  async function filterChanged({ refreshFacets = false, reload = false } = {}) {
+  async function filterChanged({ refreshFacets = false, reload = false, restoreId = 0 } = {}) {
     const seq = ++viewSeq;
     syncSortUI();
     syncSearchPill();
@@ -183,6 +190,11 @@
       updateEmpty();
       updateCount();
       ensureFill();
+      // 编辑后服务端重查(restoreId):书仍在结果里就恢复选中与详情面板。
+      // 不在就是不再符合筛选(或已落到后面的页),此时按原样收起。
+      if (restoreId && state().books.some((b) => b.id === restoreId)) {
+        S.actions.selectOnly(restoreId);
+      }
     } catch (err) {
       if (seq !== viewSeq) return;
       if (state().vl && /虚拟书库/.test(String(err.message || ''))) {
@@ -286,9 +298,48 @@
     closeLayoutMenu();
   }
 
+  function syncGlassUI() {
+    const glass = window.LiquidGlass;
+    if (!glass || typeof glass.getStats !== 'function') return;
+    const stats = glass.getStats();
+    $$('#wbGlassMode [data-glass-mode]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.glassMode === glass.mode);
+    });
+    const note = $('#wbGlassNote');
+    if (!note) return;
+    let message = '';
+    if (glass.mode === 'solid') message = '已关闭透明与模糊。';
+    else if (glass.mode === 'frost') message = '柔和档：磨砂材质，无实时背景折射。';
+    else if (glass.mode === 'full' && stats.tier !== 'full') {
+      message = `此浏览器不支持实时折射，已使用${stats.tierLabel}。`;
+    } else if (glass.mode === 'auto' && stats.tier === 'frost') {
+      message = '当前环境自动使用磨砂（无实时折射）。';
+    } else if (glass.mode === 'auto' && stats.tier === 'solid') {
+      message = '当前环境自动使用纯色（减少透明度或性能不足）。';
+    }
+    note.hidden = !message;
+    note.textContent = message;
+  }
+
+  function bindGlassSetting() {
+    const group = $('#wbGlassMode');
+    if (group) {
+      group.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-glass-mode]');
+        if (!btn || !window.LiquidGlass || !window.LiquidGlass.setMode) return;
+        window.LiquidGlass.setMode(btn.dataset.glassMode);
+        syncGlassUI();
+      });
+    }
+    document.addEventListener('glass-tier-changed', syncGlassUI);
+    document.addEventListener('glass-ready', syncGlassUI);
+    syncGlassUI();
+  }
+
   function bindChrome() {
     if (typeof initCustomSelect === 'function') initCustomSelect($('#wbSort'));
     syncSortUI();
+    bindGlassSetting();
 
     $('#wbBrand').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -360,7 +411,7 @@
     });
 
     $('#wbSidebarToggle').addEventListener('click', () => {
-      setSidebarOpen($('#shelfWorkbench').classList.contains('sidebar-collapsed'));
+      setSidebarOpen($('#shelfWorkbench').classList.contains('sidebar-collapsed'), { persist: !isMobile() });
     });
     $('#wbScrim').addEventListener('click', () => closeSidebar());
 
@@ -394,6 +445,11 @@
           closeSidebar();
           return;
         }
+        if (S.inspectorPop) {
+          S.inspectorPop = false;
+          S.inspector.render();
+          return;
+        }
         if (state().inspectorOpen) { S.inspector.hide(); return; }
         if (state().selection.size) { S.actions.clearSelection(); return; }
       }
@@ -403,9 +459,7 @@
       }
     });
 
-    let saved = 'open';
-    try { saved = localStorage.getItem('shelf.sidebar') || 'open'; } catch { /* ignore */ }
-    setSidebarOpen(!isMobile() && saved !== 'closed', { persist: false });
+    setSidebarOpen(!isMobile() && desktopSidebarOpen(), { persist: false });
 
     let wasMobile = isMobile();
     let wasLandscape = window.innerWidth > window.innerHeight;
@@ -417,11 +471,12 @@
         closeSidebar();
       }
       if (now !== wasMobile) {
-        // 跨断点时同样收起;回到桌面宽度时恢复桌面侧栏偏好,
-        // 但若详情/弹窗/搜索正打开,则保持收起,避免叠加。
+        // 跨断点一律先收起;回到桌面宽度才按**当前**偏好恢复侧栏 ——
+        // 不能用进页面时读到的旧值,否则本次会话里刚收起/展开的选择不作数。
+        // 详情/弹窗/搜索浮层正打开时保持收起,避免三栏叠在一起。
         if (now || state().inspectorOpen || document.body.classList.contains('modal-open')
           || document.body.classList.contains('search-open')) closeSidebar();
-        else setSidebarOpen(saved !== 'closed', { persist: false });
+        else setSidebarOpen(desktopSidebarOpen(), { persist: false });
         wasMobile = now;
         if (state().view === 'list') {
           S.grid.render(state().books);

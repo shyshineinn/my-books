@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#f5f5f7">
+  <title>Liquid Glass Lab · My books</title>
+  <link rel="icon" type="image/png" href="/logo.png?v=2">
+  <link rel="stylesheet" href="/css/style.css?v=110">
+  <link rel="stylesheet" href="/css/liquid-glass.css?v=2">
+  <style>
+    .lab-page { max-width: 1240px; margin: 0 auto; padding: 28px 20px 72px; }
+    .lab-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 18px; }
+    .lab-head h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
+    .lab-head p { margin: 6px 0 0; max-width: 660px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+    .lab-badge { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 12px; border-radius: 999px; background: #fff; border: 1px solid var(--hairline); font-size: 12px; font-weight: 600; }
+    .lab-badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #86868b; }
+    .lab-badge[data-tier="full"]::before { background: #1f9d55; box-shadow: 0 0 0 4px rgba(31, 157, 85, 0.14); }
+    .lab-badge[data-tier="frost"]::before { background: #0066cc; box-shadow: 0 0 0 4px rgba(0, 102, 204, 0.12); }
+    .lab-badge[data-tier="solid"]::before { background: #6e6e73; }
+
+    .lab-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 14px 0 20px; }
+    .lab-mode { border: 1px solid var(--hairline); border-radius: 999px; min-height: 34px; padding: 0 14px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+    .lab-mode.active { background: #1d1d1f; border-color: #1d1d1f; color: #fff; }
+    .lab-mode-note { color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+    .lab-mode-note[data-warn="1"] { color: #b25000; }
+
+    .lab-stage {
+      --scene-shift: 0px;
+      position: relative;
+      height: min(66vw, 560px);
+      min-height: 420px;
+      border-radius: 26px;
+      overflow: hidden;
+      background: #061a3a;
+      box-shadow: 0 24px 70px rgba(20, 22, 30, 0.22);
+      isolation: isolate;
+    }
+    .lab-stage-bg {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -120px;
+      width: calc(100% + 240px);
+      height: 100%;
+      object-fit: cover;
+      transform: translate3d(var(--scene-shift), 0, 0);
+      transition: transform 80ms linear;
+      user-select: none;
+      pointer-events: none;
+    }
+    .lab-mover {
+      position: absolute;
+      right: 12%;
+      top: 20%;
+      width: clamp(150px, 22vw, 250px);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: conic-gradient(from 0deg, #ff2d55, #ffcc00, #34c759, #00d5ff, #ff2d55);
+      opacity: 0.72;
+      filter: blur(0.2px);
+      pointer-events: none;
+      transform: translateZ(0);
+    }
+    .lab-stage.is-moving .lab-mover { animation: lab-mover 9s linear infinite; }
+    @keyframes lab-mover {
+      from { transform: rotate(0deg) translateX(34px) rotate(0deg); }
+      to { transform: rotate(360deg) translateX(34px) rotate(-360deg); }
+    }
+
+    .lab-books { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); display: flex; gap: 12px; align-items: end; z-index: 1; }
+    .lab-book { width: clamp(56px, 8vw, 88px); aspect-ratio: 2 / 3; border-radius: 5px; box-shadow: 0 12px 26px rgba(0, 0, 0, 0.32); display: flex; align-items: flex-end; padding: 9px 8px; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.25; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4); }
+    .lab-book:nth-child(1) { background: linear-gradient(160deg, #e85d3f, #5d1c2e); margin-bottom: 16px; }
+    .lab-book:nth-child(2) { background: linear-gradient(160deg, #f1d27a, #8b5f16); color: #221b0a; text-shadow: none; margin-bottom: 30px; }
+    .lab-book:nth-child(3) { background: linear-gradient(160deg, #4ab7d8, #0b3552); margin-bottom: 4px; }
+    .lab-book:nth-child(4) { background: linear-gradient(160deg, #9c8cff, #2e1d6b); margin-bottom: 22px; }
+    .lab-book:nth-child(5) { background: linear-gradient(160deg, #58c47a, #123d2b); margin-bottom: 9px; }
+
+    .lab-float { position: absolute; z-index: 3; left: clamp(16px, 7%, 72px); top: 50%; width: max-content; max-width: calc(100% - 32px); }
+    .lab-cluster { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .lab-circle { width: 84px; height: 84px; border: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 300; color: #1d1d1f; --lg-opacity: 0.26; --lg-blur: 2px; --liquid-refraction: 28; --liquid-chroma: 0.7; }
+    .lab-pill { min-height: 52px; padding: 0 24px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 600; color: #1d1d1f; --lg-opacity: 0.32; --lg-blur: 2.5px; --liquid-refraction: 26; --liquid-chroma: 0.65; }
+    .lab-pill.lab-frost { --lg-opacity: 0.56; }
+    .lab-drag-handle { min-height: 34px; padding: 0 14px; border: 0; border-radius: 999px; font-size: 11px; font-weight: 600; color: #1d1d1f; --lg-opacity: 0.62; cursor: grab; touch-action: none; }
+    .lab-drag-handle:active { cursor: grabbing; }
+
+    .lab-menu { position: absolute; z-index: 4; top: calc(100% + 12px); left: 0; width: 224px; padding: 7px; border-radius: 16px; --lg-opacity: 0.68; --lg-blur: 6px; }
+    .lab-menu[hidden] { display: none !important; }
+    .lab-menu button { display: block; width: 100%; min-height: 36px; padding: 0 11px; border: 0; border-radius: 10px; background: transparent; color: #1d1d1f; font-size: 13px; text-align: left; }
+    .lab-menu button:hover { background: rgba(255, 255, 255, 0.5); }
+
+    .lab-toolbar { position: absolute; z-index: 3; top: 18px; left: 18px; right: 18px; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+    .lab-toolbar > * { pointer-events: auto; }
+    .lab-tb-brand { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border: 0; border-radius: 999px; font-size: 12px; font-weight: 600; color: #1d1d1f; --lg-opacity: 0.44; --lg-blur: 3px; }
+    .lab-tb-brand img { width: 16px; height: 16px; border-radius: 4px; }
+    .lab-tb-circle { width: 34px; height: 34px; border: 0; border-radius: 50%; color: #1d1d1f; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; --lg-opacity: 0.44; --lg-blur: 3px; }
+    .lab-tb-search { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; height: 34px; min-width: 150px; padding: 0 13px; border: 0; border-radius: 999px; color: #333; font-size: 12px; --lg-opacity: 0.44; --lg-blur: 3px; }
+    .lab-tb-seg { display: inline-flex; gap: 2px; padding: 2px; border: 0; border-radius: 999px; --lg-opacity: 0.44; --lg-blur: 3px; }
+    .lab-tb-seg span { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; font-size: 11px; color: #555; }
+    .lab-tb-seg span.on { background: #1d1d1f; color: #fff; }
+    .lab-tb-sort { display: inline-flex; align-items: center; height: 34px; padding: 0 26px 0 12px; border: 0; border-radius: 999px; color: #333; font-size: 11px; --lg-opacity: 0.44; --lg-blur: 3px; position: relative; }
+    .lab-tb-sort::after { content: '⌄'; position: absolute; right: 11px; top: 50%; transform: translateY(-55%); font-size: 12px; }
+
+    .lab-readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 18px; }
+    .lab-stat { background: #fff; border: 1px solid var(--hairline); border-radius: 14px; padding: 13px 15px; min-width: 0; }
+    .lab-stat b { display: block; font-size: 11px; color: var(--ink-3); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 5px; }
+    .lab-stat span { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+    .lab-stat code { font-size: 11.5px; }
+
+    .lab-stress { margin-top: 30px; }
+    .lab-stress h2 { font-size: 20px; letter-spacing: -0.02em; margin: 0 0 4px; }
+    .lab-stress p { margin: 0 0 14px; color: var(--ink-2); font-size: 12.5px; }
+    .lab-stress-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .lab-mini { min-height: 34px; padding: 0 13px; border: 1px solid var(--hairline); border-radius: 999px; background: #fff; color: var(--ink); font-size: 12px; }
+    .lab-mini.active { background: #1d1d1f; border-color: #1d1d1f; color: #fff; }
+    .lab-fps { margin-left: auto; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .lab-stress-stage { position: relative; height: 360px; border-radius: 20px; overflow: hidden; background: #0b0f18; }
+    .lab-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; background-image: var(--liquid-sheen), linear-gradient(140deg, #15254a, #5b1d45 52%, #b8492d); background-size: cover; }
+    .lab-scroll::-webkit-scrollbar { display: none; }
+    .lab-row { display: flex; align-items: center; gap: 14px; padding: 10px 18px; color: rgba(255, 255, 255, 0.92); border-bottom: 1px solid rgba(255, 255, 255, 0.16); }
+    .lab-row i { width: 34px; height: 50px; border-radius: 4px; flex: 0 0 auto; background: linear-gradient(150deg, #ffcc00, #ff2d55); }
+    .lab-row:nth-child(3n) i { background: linear-gradient(150deg, #00d5ff, #0a84ff); }
+    .lab-row:nth-child(3n + 2) i { background: linear-gradient(150deg, #34c759, #0b3552); }
+    .lab-row b { font-size: 13px; font-weight: 600; display: block; }
+    .lab-row small { color: rgba(255, 255, 255, 0.66); font-size: 11px; }
+    .lab-chips { position: absolute; z-index: 2; top: 16px; left: 14px; right: 14px; display: flex; flex-wrap: wrap; gap: 8px; pointer-events: none; }
+    .lab-chip { height: 42px; padding: 0 16px; border: 0; border-radius: 999px; display: inline-flex; align-items: center; color: #1d1d1f; font-size: 12px; font-weight: 600; --lg-opacity: 0.46; --lg-blur: 3px; pointer-events: auto; }
+    .lab-chip:nth-child(3n) { height: 46px; }
+    .lab-chip:nth-child(4n) { padding: 0 26px; }
+
+    .lab-note { margin-top: 22px; padding: 14px 16px; border-left: 3px solid #0066cc; background: #f5f9ff; border-radius: 8px; color: #34495e; font-size: 12.5px; line-height: 1.7; }
+    .lab-note code { font-size: 12px; }
+    .lab-foot { margin-top: 24px; color: var(--ink-3); font-size: 11.5px; line-height: 1.7; }
+
+    @media (max-width: 720px) {
+      .lab-page { padding: 18px 12px 48px; }
+      .lab-stage { height: 470px; min-height: 0; border-radius: 20px; }
+      .lab-float { left: 14px; top: 30%; }
+      .lab-circle { width: 68px; height: 68px; font-size: 24px; }
+      .lab-pill { min-height: 46px; padding: 0 17px; font-size: 12.5px; }
+      .lab-toolbar { left: 10px; right: 10px; top: 10px; gap: 5px; }
+      .lab-tb-search { min-width: 0; width: 96px; }
+      .lab-tb-seg { display: none; }
+      .lab-books { gap: 7px; }
+      .lab-stress-stage { height: 320px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lab-stage.is-moving .lab-mover { animation: none; }
+      .lab-stage-bg { transition: none; }
+    }
+  </style>
+</head>
+<body data-page="glass-lab">
+  <main class="lab-page">
+    <header class="lab-head">
+      <div>
+        <h1>Liquid Glass Lab</h1>
+        <p>独立验证页：把玻璃放在高对比度网格、彩色场景、书封和移动色块之上，检查背景线条是否在边缘真实弯折、中心是否清晰、色散是否可见，以及无折射时是否诚实回退为磨砂。</p>
+      </div>
+      <span class="lab-badge" id="labBadge" data-tier="frost">检测中…</span>
+    </header>
+
+    <div class="lab-controls" role="group" aria-label="渲染档位">
+      <button type="button" class="lab-mode" data-mode="auto">自动</button>
+      <button type="button" class="lab-mode" data-mode="full">完整（实时折射）</button>
+      <button type="button" class="lab-mode" data-mode="frost">磨砂（无折射）</button>
+      <button type="button" class="lab-mode" data-mode="solid">纯色</button>
+      <span class="lab-mode-note" id="labModeNote" role="status" aria-live="polite"></span>
+    </div>
+
+    <section class="lab-stage" id="labStage" aria-label="玻璃效果验证舞台">
+      <img class="lab-stage-bg" id="labScene" src="/glass-lab-scene.svg?v=1" alt="">
+      <div class="lab-mover" aria-hidden="true"></div>
+      <div class="lab-books" aria-hidden="true">
+        <div class="lab-book">GLASS<br>LAB I</div>
+        <div class="lab-book">PRISM<br>NOTES</div>
+        <div class="lab-book">OPTICS<br>VOL II</div>
+        <div class="lab-book">CAUSTIC<br>STORIES</div>
+        <div class="lab-book">REFRACT<br>ATLAS</div>
+      </div>
+
+      <div class="lab-toolbar" aria-label="书架上工具栏预览">
+        <button type="button" class="lab-tb-brand" data-glass="refract"><img src="/logo-mark.png?v=4" alt=""><span>My books</span><span aria-hidden="true">⌄</span></button>
+        <button type="button" class="lab-tb-circle" data-glass="refract" aria-label="视图设置">☰</button>
+        <button type="button" class="lab-tb-circle" data-glass="refract" aria-label="添加书籍">＋</button>
+        <button type="button" class="lab-tb-search" data-glass="refract" aria-label="搜索">⌕ <span>搜索</span></button>
+        <span class="lab-tb-seg" data-glass="refract" aria-label="显示方式"><span class="on">▦</span><span>☷</span></span>
+        <button type="button" class="lab-tb-sort" data-glass="refract">最近更新</button>
+      </div>
+
+      <div class="lab-float" id="labFloat">
+        <div class="lab-cluster">
+          <button type="button" class="lab-circle" data-glass="refract" aria-label="玻璃圆钮">＋</button>
+          <button type="button" class="lab-pill" data-glass="refract" id="labMenuBtn" aria-expanded="false" aria-controls="labMenu">打开玻璃菜单</button>
+          <button type="button" class="lab-pill lab-frost" data-glass="frost">毛玻璃对照</button>
+          <button type="button" class="lab-drag-handle" data-glass="refract" id="labDragHandle">拖动</button>
+        </div>
+        <div class="lab-menu" data-glass="refract" id="labMenu" role="menu" hidden>
+          <button type="button" role="menuitem">最近更新</button>
+          <button type="button" role="menuitem">最近添加</button>
+          <button type="button" role="menuitem">按书名排序</button>
+          <button type="button" role="menuitem">按作者排序</button>
+          <button type="button" role="menuitem">视图设置…</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="lab-controls" style="margin-top:14px">
+      <label class="lab-mode-note" for="labShift">背景横向位移</label>
+      <input id="labShift" type="range" min="-120" max="120" step="1" value="0" style="width:min(320px,70vw)">
+      <label class="lab-mode-note"><input id="labMotion" type="checkbox"> 背景色块旋转</label>
+    </div>
+
+    <div class="lab-readout">
+      <div class="lab-stat"><b>当前档位</b><span id="labTier">—</span></div>
+      <div class="lab-stat"><b>实时折射</b><span id="labRefract">—</span></div>
+      <div class="lab-stat"><b>SVG backdrop 支持</b><span id="labSupport">—</span></div>
+      <div class="lab-stat"><b>滤镜 / 折射组件</b><span id="labFilters">—</span></div>
+      <div class="lab-stat"><b>运行环境</b><span id="labEnv">—</span></div>
+      <div class="lab-stat"><b>降级策略</b><span id="labFallback">—</span></div>
+    </div>
+
+    <section class="lab-stress" id="labStress">
+      <h2>滚动与数量压力测试</h2>
+      <p>玻璃层保持静止，下方列表滚动 / 背景动画运行时观察是否卡顿；相同几何的滤镜会复用，不重复生成。</p>
+      <div class="lab-stress-bar">
+        <button type="button" class="lab-mini" data-chips="1">1 个</button>
+        <button type="button" class="lab-mini active" data-chips="5">5 个</button>
+        <button type="button" class="lab-mini" data-chips="10">10 个</button>
+        <button type="button" class="lab-mini" data-chips="20">20 个</button>
+        <button type="button" class="lab-mini" id="labClearChips">清空</button>
+        <button type="button" class="lab-mini" id="labFpsBtn">测 2 秒 FPS</button>
+        <span class="lab-fps" id="labFps">FPS —</span>
+      </div>
+      <div class="lab-stress-stage" id="labStressStage">
+        <div class="lab-scroll" id="labScroll"></div>
+        <div class="lab-chips" id="labChips"></div>
+      </div>
+    </section>
+
+    <p class="lab-note">
+      <strong>真实性与降级：</strong>“完整”档在 Chromium 上把 SVG <code>feDisplacementMap</code> 滤镜放进
+      <code>backdrop-filter</code>，采样的是浏览器实时合成的背景，滚动、移动色块与背景位移都会跟着弯折；
+      不会克隆页面 DOM，也不复制背景图。Safari / Firefox / iOS 上所有 WebKit 内核不支持该组合，页面会显示磨砂材质，
+      <strong>没有背景形变，也不会假装有</strong>。如果按钮在降级后不可读或可点性受影响，请以磨砂/纯色为准并记录问题。
+    </p>
+    <p class="lab-foot">仅用于开发验证，不进入导航、不注册 Service Worker。可用 <code>?glass=full|frost|solid</code> 强制档位截图。</p>
+  </main>
+
+  <script defer src="/js/liquid-glass.js?v=1"></script>
+  <script>
+    (function () {
+      const $ = (sel) => document.querySelector(sel);
+      const $$ = (sel) => [...document.querySelectorAll(sel)];
+      const stage = $('#labStage');
+      const chips = $('#labChips');
+      const scroll = $('#labScroll');
+      const menu = $('#labMenu');
+      const menuBtn = $('#labMenuBtn');
+
+      for (let i = 0; i < 40; i += 1) {
+        const row = document.createElement('div');
+        row.className = 'lab-row';
+        const title = ['折射与色散', '光学玻璃笔记', 'Prism Atlas', 'The Clear Volume', 'Caustic Patterns'][i % 5];
+        const author = ['Demo Author', 'Glass Lab', 'Optics Study'][i % 3];
+        row.innerHTML = `<i aria-hidden="true"></i><span><b>${title} ${i + 1}</b><small>${author} · 演示条目，不是真实书库数据</small></span>`;
+        scroll.appendChild(row);
+      }
+
+      function setChips(count) {
+        chips.innerHTML = '';
+        for (let i = 0; i < count; i += 1) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'lab-chip';
+          chip.dataset.glass = 'refract';
+          chip.textContent = `玻璃 ${i + 1}`;
+          chip.style.width = `${64 + (i % 4) * 14}px`;
+          chips.appendChild(chip);
+        }
+        $$('[data-chips]').forEach((b) => b.classList.toggle('active', Number(b.dataset.chips) === count));
+      }
+
+      function syncModes() {
+        const mode = window.LiquidGlass && window.LiquidGlass.mode ? window.LiquidGlass.mode : 'auto';
+        $$('[data-mode]').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+      }
+
+      function syncStats() {
+        const api = window.LiquidGlass;
+        if (!api || !api.getStats) return;
+        const s = api.getStats();
+        const env = s.environment || {};
+        const badge = $('#labBadge');
+        badge.dataset.tier = s.tier;
+        badge.textContent = `${s.tierLabel}`;
+        $('#labTier').textContent = `${s.tier} · 模式 ${s.mode}`;
+        $('#labRefract').innerHTML = s.tier === 'full'
+          ? '<strong>已启用</strong>：实时采样背景，边缘位移 + 色散'
+          : s.tier === 'frost'
+            ? '<strong>未启用</strong>：仅 blur + saturate + 边缘高光'
+            : '<strong>未启用</strong>：不透明表面';
+        $('#labSupport').textContent = `backdrop: ${env.supportsBackdrop ? '支持' : '不支持'} · url(): ${env.supportsUrl ? '声明支持' : '不支持'} · ${env.isWebKit ? 'WebKit' : env.isFirefox ? 'Firefox' : 'Chromium'}`;
+        $('#labFilters').textContent = `${s.filters} 个滤镜资源 / ${s.refracting} 个折射组件（共 ${s.surfaces} 个玻璃表面）`;
+        $('#labEnv').textContent = `${(env.ua || '').includes('Chrome/') ? 'Chromium 内核' : '非 Chromium'} · 内存 ${env.deviceMemory || '未知'}GB · 核心 ${env.cores || '未知'} · 触摸 ${env.coarse ? '是' : '否'}`;
+        $('#labFallback').textContent = s.tier === 'full'
+          ? '当前浏览器通过验证，使用完整档；同时限制折射组件数量'
+          : env.reducedTransparency
+            ? '系统开启“减少透明度”，已回退纯色'
+            : env.isWebKit || env.isFirefox
+              ? '该内核不支持 url() 形式的 backdrop-filter，使用磨砂材质'
+              : '未通过完整折射能力检测，使用磨砂材质';
+        const requested = api.mode;
+        const note = $('#labModeNote');
+        if (requested === 'full' && s.tier !== 'full') {
+          note.dataset.warn = '1';
+          note.textContent = `已请求完整折射，但当前环境只支持 ${s.tierLabel}；不会伪造折射。`;
+        } else if (requested === 'frost') {
+          note.dataset.warn = '0';
+          note.textContent = '手动使用磨砂：用于对照“只有模糊、没有背景形变”的效果。';
+        } else if (requested === 'solid') {
+          note.dataset.warn = '0';
+          note.textContent = '已关闭透明与模糊。';
+        } else {
+          note.dataset.warn = '0';
+          note.textContent = '自动按内核能力与设备性能选择。';
+        }
+        syncModes();
+      }
+
+      function measureFps() {
+        const label = $('#labFps');
+        label.textContent = 'FPS 测量中…';
+        scroll.scrollTop = 0;
+        const start = performance.now();
+        let frames = 0;
+        let last = start;
+        let direction = 1;
+        function tick(now) {
+          frames += 1;
+          const delta = now - last;
+          last = now;
+          if (delta > 0) {
+            scroll.scrollTop += direction * Math.min(24, delta * 0.12);
+            if (scroll.scrollTop <= 0) direction = 1;
+            else if (scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 1) direction = -1;
+          }
+          if (now - start < 2000) {
+            requestAnimationFrame(tick);
+            return;
+          }
+          const fps = frames / ((now - start) / 1000);
+          label.textContent = `FPS ${fps.toFixed(1)}（滚动 + ${chips.children.length} 个玻璃组件）`;
+        }
+        requestAnimationFrame(tick);
+      }
+
+      $$('[data-mode]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!window.LiquidGlass || !window.LiquidGlass.setMode) return;
+          window.LiquidGlass.setMode(btn.dataset.mode);
+          syncStats();
+        });
+      });
+
+      menuBtn.addEventListener('click', () => {
+        const open = menu.hidden;
+        menu.hidden = !open;
+        menuBtn.setAttribute('aria-expanded', String(open));
+      });
+      document.addEventListener('click', (e) => {
+        if (menu.hidden) return;
+        if (e.target.closest('#labMenu') || e.target.closest('#labMenuBtn')) return;
+        menu.hidden = true;
+        menuBtn.setAttribute('aria-expanded', 'false');
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !menu.hidden) {
+          menu.hidden = true;
+          menuBtn.setAttribute('aria-expanded', 'false');
+          menuBtn.focus();
+        }
+      });
+
+      $('#labShift').addEventListener('input', (e) => {
+        stage.style.setProperty('--scene-shift', `${e.target.value}px`);
+      });
+      $('#labMotion').addEventListener('change', (e) => {
+        stage.classList.toggle('is-moving', e.target.checked);
+      });
+
+      const float = $('#labFloat');
+      const handle = $('#labDragHandle');
+      let drag = null;
+      handle.addEventListener('pointerdown', (e) => {
+        drag = { x: e.clientX, y: e.clientY, left: float.offsetLeft, top: float.offsetTop };
+        handle.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+      handle.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const maxX = stage.clientWidth - float.offsetWidth - 12;
+        const maxY = stage.clientHeight - float.offsetHeight - 12;
+        const left = Math.min(maxX, Math.max(12, drag.left + e.clientX - drag.x));
+        const top = Math.min(maxY, Math.max(60, drag.top + e.clientY - drag.y));
+        float.style.left = `${left}px`;
+        float.style.top = `${top}px`;
+      });
+      handle.addEventListener('pointerup', () => { drag = null; });
+      handle.addEventListener('pointercancel', () => { drag = null; });
+
+      $$('[data-chips]').forEach((btn) => {
+        btn.addEventListener('click', () => setChips(Number(btn.dataset.chips)));
+      });
+      $('#labClearChips').addEventListener('click', () => setChips(0));
+      $('#labFpsBtn').addEventListener('click', measureFps);
+
+      document.addEventListener('glass-tier-changed', syncStats);
+      window.addEventListener('load', () => {
+        setChips(5);
+        syncStats();
+        setInterval(syncStats, 1000);
+      });
+    })();
+  </script>
+</body>
+</html>

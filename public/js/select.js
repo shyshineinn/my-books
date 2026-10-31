@@ -35,6 +35,8 @@ function initCustomSelect(select) {
   menu.className = 'sel-menu';
   menu.setAttribute('role', 'listbox');
   menu.hidden = true;
+  menu.dataset.glass = 'refract';
+  trigger.dataset.glass = select.dataset.glassTrigger || 'frost';
 
   wrap.appendChild(trigger);
   wrap.appendChild(menu);

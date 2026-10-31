@@ -29,6 +29,22 @@
   [上游原文](https://github.com/mebjas/html5-qrcode/blob/v2.3.8/LICENSE)。
 - 此构建包含 ZXing 解码实现；相关上游项目为 [zxing-js/library](https://github.com/zxing-js/library)。
 
+## Liquid Glass 位移贴图
+
+- 文件：`public/js/liquid-glass.js`（本项目重写，无 npm/运行时依赖）、
+  `public/vendor/liquid-glass/LICENSE`。
+- 思路来源：[tomagranate/liquid-glass](https://github.com/tomagranate/liquid-glass)，
+  包名 `@tomagranate/liquid-glass`，MIT，版权 (c) 2026 Tom。
+  改编的是 `generateDisplacementMap` / `sdfRoundRect` 的圆角矩形 SDF 思路；
+  实现改为 Chromium `backdrop-filter: url(#filter)` 的实时背景折射，
+  并补充滤镜池、降级、生命周期与测试，不包含上游的 React/WebGL 代码。
+- 参考验证：[dpawlikowski/liquid-glass](https://github.com/dpawlikowski/liquid-glass)
+  （MIT，0.3.0）用于确认 SVG 滤镜进入 `backdrop-filter` 的可行性，以及
+  “实时背景”与“静态背景复制层”必须区分；本项目未采用其 feTurbulence 动画。
+- 许可：[MIT 全文](public/vendor/liquid-glass/LICENSE)；MIT 与 GPL-3.0-only 兼容。
+- 未采用的候选：[rdev/liquid-glass-react](https://github.com/rdev/liquid-glass-react)
+  （React-only）与 dpawlikowski 的静态 scene 复制层（Safari/Firefox 无实时折射）。
+
 ## 安卓来源
 
 配套安卓改版基于 [Huangder/Lumi_Books](https://github.com/huangder/Lumi_Books)。
