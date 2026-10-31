@@ -132,41 +132,13 @@ function bindHashReveal() {
   setTimeout(revealSectionFromHash, 0);
 }
 
-/* ============ 详情弹窗 ============ */
-// 系列行(A3):显示「系列 #n」,点一下跳书架按该系列筛选
-function seriesHtml(book) {
-  const label = book.series_label || '';
-  if (!label) return '';
-  return `<div class="detail-row"><span class="k">系列</span><span class="v">`
-    + `<a class="detail-link" href="/shelf?q=${encodeURIComponent('series:' + book.series)}">${esc(label)}</a>`
-    + '</span></div>';
-}
-
-// 标识符行(A5):ISBN / 豆瓣之外的其它类型,能构造外链的给链接。
-// ISBN 与豆瓣由各自专用行展示,这里跳过以免重复。
-function identifiersHtml(book) {
-  const list = (book && book.identifier_list) || [];
-  const rest = list.filter((x) => !['isbn', 'douban', 'douban_id'].includes(String(x.type).toLowerCase()));
-  if (!rest.length) return '';
-  const body = rest.map((x) => (x.url
-    ? `<a class="detail-link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.label)} ↗</a>`
-    : `${esc(x.label)}:${esc(x.value)}`)).join(' · ');
-  return `<div class="detail-row"><span class="k">标识符</span><span class="v detail-ids">${body}</span></div>`;
-}
-
-// 详情页的自定义字段行:按注册表顺序列出已填值的字段。
-// 用 custom_display(服务端渲染好的展示文本),多值已拼成顿号。
-function customFieldsDetailHtml(book) {
-  const cols = state.customColumns || [];
-  const disp = (book && book.custom_display) || {};
-  const rows = cols
-    .filter((c) => disp[c.label])
-    .map((c) => `<div class="detail-row"><span class="k">${esc(c.name)}</span><span class="v">${esc(disp[c.label])}</span></div>`);
-  return rows.length ? rows.join('') : '';
-}
+/* ============ 统一书籍详情 ============ */
+// Inspector 与其他页面的详情抽屉共用 book-details.js；这里只负责
+// 全局抽屉的宿主生命周期、完整编辑回跳和页面刷新。
+let detailViewController = null;
+let detailClosedHandler = null;
 
 async function openDetail(id) {
-  await bootReady;   // 自定义字段定义要先备好,详情弹窗才渲染得出自定义字段行
   let book;
   try {
     book = await api('/api/books/' + id);
@@ -174,58 +146,55 @@ async function openDetail(id) {
     toast(e.message, true);
     return;
   }
+  const modal = $('#bookDetailModal');
+  const host = $('#bookDetailHost');
+  if (!modal || !host || !window.BookDetails) {
+    toast('详情组件未加载', true);
+    return;
+  }
+  if (detailViewController) {
+    detailViewController.destroy();
+    detailViewController = null;
+  }
+  if (detailClosedHandler) {
+    document.removeEventListener('modals-closed', detailClosedHandler);
+    detailClosedHandler = null;
+  }
 
-  const tags = JSON.parse(book.tags || '[]');
-  const logs = JSON.parse(book.read_logs || '[]');
-  // 阅读记录为唯一展示来源;仅旧数据(无记录但有日期)兜底显示起止日期行
-  const legacyDates = !logs.length && (book.start_date || book.finish_date)
-    ? [book.start_date ? `开始于 ${book.start_date}` : '', book.finish_date ? `读完于 ${book.finish_date}` : ''].filter(Boolean)
-    : [];
-
-  // 出版信息(豆瓣抓取落库的字段;此前只入库不展示)
-  const pubBits = [book.publisher, book.pub_year].filter(Boolean);
-  const rating = Number(book.rating) || 0;
-  $('#detailBody').innerHTML = `
-    <div class="detail-cover">${coverHtml(book)}</div>
-    <div class="detail-info">
-      <h2>${esc(book.title)}</h2>
-      ${book.author ? `<div class="detail-author">${esc(book.author)}</div>` : ''}
-      <div class="card-meta">
-        <span class="status-inline ${book.status}">${STATUS_LABEL[book.status]}</span>
-        ${rating > 0 ? `<span class="detail-rating" title="豆瓣评分 ${rating} / 10">${starHtml(rating)}<b>${rating}</b></span>` : ''}
-      </div>
-      <div class="detail-rows">
-        ${legacyDates.length ? `<div class="detail-row"><span class="k">日期</span><span class="v">${esc(legacyDates.join(' · '))}</span></div>` : ''}
-        ${logs.length ? `<div class="detail-row"><span class="k">阅读记录</span><span class="v detail-logs">${logs.map((l) => `<span class="log-chip">${esc(l.start || '开始未记')}${l.finish ? ' 至 ' + esc(l.finish) : ' · 进行中'}</span>`).join('')}</span></div>` : ''}
-        ${tags.length ? `<div class="detail-row"><span class="k">标签</span><span class="v detail-tags">${tags.map((t) => `<span class="tag-chip">${esc(t)}</span>`).join('')}</span></div>` : ''}
-        ${seriesHtml(book)}
-        ${pubBits.length ? `<div class="detail-row"><span class="k">出版</span><span class="v">${esc(pubBits.join(' · '))}</span></div>` : ''}
-        ${identifiersHtml(book)}
-        ${book.isbn ? `<div class="detail-row"><span class="k">ISBN</span><span class="v detail-isbn">${esc(book.isbn)}</span></div>` : ''}
-        ${book.douban_id ? `<div class="detail-row"><span class="k">豆瓣</span><span class="v"><a class="detail-link" href="https://book.douban.com/subject/${esc(book.douban_id)}/" target="_blank" rel="noopener noreferrer">查看豆瓣条目 ↗</a></span></div>` : ''}
-      </div>
-      ${customFieldsDetailHtml(book)}
-      ${book.summary ? `<div class="detail-block"><div class="detail-block-k">简介</div><p class="detail-block-v">${esc(book.summary)}</p></div>` : ''}
-      ${book.files && book.files.length ? `<div class="detail-block"><div class="detail-block-k">电子书文件</div><div class="detail-files">${book.files.map((f) => `
-        <a class="detail-file-link" href="${esc(f.download_url || `/books-files/${f.path}`)}" download="《${esc(book.title)}》.${esc(f.format.toLowerCase())}" title="下载 ${esc(f.format)} 文件(${fileSizeText(f.size)})">
-          <span class="ebook-tag">.${esc(f.format)}</span><span>${fileSizeText(f.size)}</span> ⬇
-        </a>`).join('')}</div></div>` : ''}
-      <button type="button" class="notes-entry" id="detailNotesEntry" title="打开读书心得">读书心得</button>
-      <div class="detail-actions">
-        <button type="button" class="btn btn-ghost" id="detailEdit">✎ 编辑</button>
-        <button type="button" class="btn btn-danger-tint" id="detailDelete">删除</button>
-      </div>
-    </div>`;
-
-  openModal('#detailModal');
-
-  $('#detailEdit').addEventListener('click', () => openBookModal(book));
-  $('#detailDelete').addEventListener('click', () => deleteBook(book.id, book.title));
-  // 心得是独立页面;无心得时心得页会给出"如何上传"的引导,入口始终保留(与旧版一致)
-  $('#detailNotesEntry').addEventListener('click', () => {
-    closeModals();
-    location.href = '/notes/' + book.id;
+  let closedHandler = null;
+  const controller = window.BookDetails.create(host, {
+    mode: 'dialog',
+    sheet: host,
+    onClose: () => {
+      controller.destroy();
+      if (detailViewController === controller) detailViewController = null;
+      closeModals();
+    },
+    onEdit: (current) => openBookModal(current, {
+      onSaved: async (savedId) => {
+        notifyBooksChanged();
+        await openDetail(savedId);
+      },
+    }),
+    onDelete: (current) => deleteBook(current.id, current.title),
+    onChanged: async () => {
+      invalidateSharedStats();
+      notifyBooksChanged();
+    },
   });
+  detailViewController = controller;
+  controller.setBook(book);
+  closedHandler = () => {
+    if (modal.classList.contains('hidden')) {
+      document.removeEventListener('modals-closed', closedHandler);
+      if (detailClosedHandler === closedHandler) detailClosedHandler = null;
+      controller.destroy();
+      if (detailViewController === controller) detailViewController = null;
+    }
+  };
+  detailClosedHandler = closedHandler;
+  document.addEventListener('modals-closed', closedHandler);
+  openModal('#bookDetailModal');
 }
 
 async function deleteBook(id, title) {
@@ -321,7 +290,9 @@ function resetBookFormSections(book, logs) {
   if (body) body.scrollTop = 0;
 }
 
-async function openBookModal(book) {
+let editAfterSave = null;
+
+async function openBookModal(book, options = {}) {
   // 自定义字段控件要按最新定义生成。定义可能还没拉完(首屏),或已被
   // /tags 页改过(跨页戳失效)—— 这里统一 await 一次,避免"字段偶尔不显示"。
   await bootReady;
@@ -336,6 +307,7 @@ async function openBookModal(book) {
       book = await api('/api/books/' + book.id);
     } catch { /* 拉取失败:保持传入对象,后续提交仍受服务端局部更新保护 */ }
   }
+  editAfterSave = book && book.id && typeof options.onSaved === 'function' ? options.onSaved : null;
   closeModals();
   $('#modalTitle').textContent = book ? '编辑书籍' : '添加书籍';
   // 「按 ISBN 批量添加」只在新增时出现(编辑单本时没有意义)
@@ -1183,7 +1155,18 @@ $('#bookForm').addEventListener('submit', async (e) => {
     }
     closeModals();
     invalidateSharedStats();
-    notifyBooksChanged();
+    const afterSave = id && editAfterSave;
+    editAfterSave = null;
+    if (afterSave) {
+      try {
+        await afterSave(Number(id));
+      } catch (err) {
+        toast(err.message, true);
+        notifyBooksChanged();
+      }
+    } else {
+      notifyBooksChanged();
+    }
   } catch (e2) {
     errEl.textContent = e2.message;
   } finally {

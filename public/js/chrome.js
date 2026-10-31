@@ -424,7 +424,7 @@ function overlaysHtml() {
               </div>
               <div class="field">
                 <label>状态</label>
-                <div class="seg" id="fStatus">
+                <div class="seg seg--track" id="fStatus">
                   <button type="button" data-value="wish">想读</button>
                   <button type="button" data-value="reading">在读</button>
                   <button type="button" data-value="done">已读</button>
@@ -550,12 +550,9 @@ function overlaysHtml() {
     </div>
   </div>
 
-  <!-- 书籍详情弹窗 -->
-  <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
-    <div class="modal-box detail-box">
-      <button type="button" class="icon-btn detail-close" data-close aria-label="关闭">✕</button>
-      <div class="detail-body" id="detailBody"></div>
-    </div>
+  <!-- 统一书籍详情抽屉：Inspector / 其他页面共用 book-details.js -->
+  <div id="bookDetailModal" class="modal book-detail-modal hidden" role="dialog" aria-modal="true" aria-label="书籍详情">
+    <div class="modal-box book-detail-sheet" id="bookDetailHost"></div>
   </div>
 
   <!-- 按 ISBN 批量添加弹窗(对标 calibre 的 Add books from ISBN 对话框):

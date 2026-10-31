@@ -134,7 +134,13 @@ function initCustomSelect(select) {
 
   function onKey(e) {
     const list = opts();
-    if (e.key === 'Escape') { e.preventDefault(); close(); trigger.focus(); return; }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+      trigger.focus();
+      return;
+    }
     if (e.key === 'Tab') { close(); return; }
     if (!list.length) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); highlight(activeIdx + 1); return; }

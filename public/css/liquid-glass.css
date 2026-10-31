@@ -15,26 +15,26 @@
 
 :root {
   --liquid-tint: 255 255 255;
-  --liquid-opacity: 0.62;
-  --liquid-blur: 16px;
-  --liquid-saturation: 180%;
-  --liquid-refraction: 18;
-  --liquid-chroma: 0.45;
-  --liquid-rim-light: rgba(255, 255, 255, 0.72);
-  --liquid-shadow: 0 14px 38px rgba(24, 24, 28, 0.14), 0 2px 8px rgba(24, 24, 28, 0.06);
-  --liquid-shadow-soft: 0 10px 30px rgba(24, 24, 28, 0.12);
-  --liquid-shadow-hover: 0 18px 44px rgba(24, 24, 28, 0.2);
+  --liquid-opacity: 0.76;
+  --liquid-blur: 12px;
+  --liquid-saturation: 140%;
+  --liquid-refraction: 12;
+  --liquid-chroma: 0.12;
+  --liquid-rim-light: rgba(255, 255, 255, 0.58);
+  --liquid-shadow: 0 10px 30px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+  --liquid-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.07);
+  --liquid-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.1);
   --liquid-radius: 18px;
-  --liquid-duration: 220ms;
-  --liquid-chroma-red: rgba(255, 92, 122, 0.16);
-  --liquid-chroma-cyan: rgba(72, 214, 255, 0.2);
-  --liquid-edge: rgba(0, 0, 0, 0.1);
-  --liquid-edge-strong: rgba(0, 0, 0, 0.16);
-  --liquid-sheen: linear-gradient(152deg,
-    rgba(255, 255, 255, 0.46) 0%,
-    rgba(255, 255, 255, 0.1) 38%,
-    rgba(255, 255, 255, 0.04) 62%,
-    rgba(255, 255, 255, 0.2) 100%);
+  --liquid-duration: 200ms;
+  --liquid-chroma-red: rgba(255, 80, 120, 0.1);
+  --liquid-chroma-cyan: rgba(70, 210, 255, 0.12);
+  --liquid-edge: rgba(0, 0, 0, 0.08);
+  --liquid-edge-strong: rgba(0, 0, 0, 0.14);
+  --liquid-sheen: linear-gradient(150deg,
+    rgba(255, 255, 255, 0.3) 0%,
+    rgba(255, 255, 255, 0.06) 42%,
+    rgba(255, 255, 255, 0.02) 64%,
+    rgba(255, 255, 255, 0.14) 100%);
 }
 
 html[data-glass-tier="solid"] {
@@ -61,8 +61,8 @@ html[data-glass-tier="frost"] .lg-surface {
   background-image: var(--liquid-sheen);
   border-color: var(--liquid-rim-light);
   box-shadow:
-    inset 0 1px 0 var(--liquid-rim-light),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
     inset 1px 0 0 var(--liquid-chroma-red),
     inset -1px 0 0 var(--liquid-chroma-cyan),
     0 0 0 0.5px var(--liquid-edge),
@@ -97,10 +97,10 @@ html[data-glass-tier="solid"] .lg-surface {
    顶栏/侧栏等大面板不参与悬停材质变化 */
 html[data-glass-tier="full"] .lg-surface.lg-refract:is(button, a, .wb-view):hover,
 html[data-glass-tier="frost"] .lg-surface:is(button, a, .wb-view):hover {
-  --lg-opacity: calc(var(--liquid-opacity) + 0.08);
+  --lg-opacity: calc(var(--liquid-opacity) + 0.05);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.14),
     inset 1px 0 0 var(--liquid-chroma-red),
     inset -1px 0 0 var(--liquid-chroma-cyan),
     0 0 0 0.5px var(--liquid-edge),
@@ -121,19 +121,18 @@ a.lg-surface:focus-visible {
 /* 顶栏：保留 Apple 的搜索/菜单展开态（不透明 #fafafc），只在常态显示玻璃 */
 html[data-glass-tier="full"] .topbar.lg-surface,
 html[data-glass-tier="frost"] .topbar.lg-surface {
-  --lg-opacity: 0.72;
+  --lg-opacity: 0.78;
   --lg-blur: 20px;
-  --liquid-refraction: 10;
-  --liquid-chroma: 0.2;
+  --liquid-refraction: 8;
+  --liquid-chroma: 0.06;
   transition: background-color 0.279s cubic-bezier(0.4, 0, 0.6, 1),
     box-shadow var(--liquid-duration) var(--ease, ease);
-  background-color: rgb(var(--liquid-tint) / 0.72);
-  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.04));
+  background-color: rgb(var(--liquid-tint) / 0.78);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.03));
   border-color: transparent;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
-    0 1px 0 rgba(0, 0, 0, 0.04);
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05);
 }
 
 html[data-glass-tier="solid"] .topbar.lg-surface {
@@ -177,7 +176,6 @@ html[data-glass-tier="full"] :is(
   .wb-inspector,
   .wb-brand-menu,
   .wb-layout-menu,
-  .wb-collection-pop,
   .sel-menu,
   .search-flyout,
   .nav-flyout,
@@ -188,7 +186,6 @@ html[data-glass-tier="frost"] :is(
   .wb-inspector,
   .wb-brand-menu,
   .wb-layout-menu,
-  .wb-collection-pop,
   .sel-menu,
   .search-flyout,
   .nav-flyout,
@@ -214,7 +211,6 @@ html[data-glass-tier="solid"] :is(
   .wb-inspector,
   .wb-brand-menu,
   .wb-layout-menu,
-  .wb-collection-pop,
   .sel-menu,
   .search-flyout,
   .nav-flyout,
@@ -228,8 +224,8 @@ html[data-glass-tier="solid"] :is(
 }
 
 /* 小浮层：更实的底，避免书封穿过菜单文字 */
-html[data-glass-tier="full"] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu),
-html[data-glass-tier="frost"] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu) {
+html[data-glass-tier="full"] :is(.wb-brand-menu, .wb-layout-menu, .sel-menu),
+html[data-glass-tier="frost"] :is(.wb-brand-menu, .wb-layout-menu, .sel-menu) {
   --lg-opacity: 0.86;
   background-color: rgb(var(--liquid-tint) / 0.86);
 }
@@ -259,28 +255,28 @@ html[data-glass-tier="solid"] .modal {
   backdrop-filter: none;
 }
 
-/* 侧栏 / Inspector：暖白玻璃，保持原有尺寸与断点 */
+/* 侧栏 / Inspector：冷白磨砂面板，保持原有尺寸与断点 */
 html[data-glass-tier="full"] :is(.wb-side, .wb-inspector),
 html[data-glass-tier="frost"] :is(.wb-side, .wb-inspector) {
-  --lg-tint: 247 246 243;
+  --lg-tint: 255 255 255;
   --lg-blur: 20px;
-  --wb-panel: rgba(247, 246, 243, 0.8);
-  background-color: rgb(247 246 243 / 0.8);
-  background-image:
-    linear-gradient(155deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.14) 34%, rgba(247, 246, 243, 0.04) 64%, rgba(255, 255, 255, 0.22));
-  border-color: rgba(255, 255, 255, 0.7);
+  --lg-opacity: 0.84;
+  --wb-panel: rgba(255, 255, 255, 0.84);
+  background-color: rgb(255 255 255 / 0.84);
+  background-image: var(--liquid-sheen);
+  border-color: rgba(255, 255, 255, 0.52);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.2),
-    0 0 0 0.5px rgba(0, 0, 0, 0.07),
-    0 18px 46px rgba(24, 24, 28, 0.12);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    var(--liquid-shadow);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
 }
 
 html[data-glass-tier="solid"] :is(.wb-side, .wb-inspector) {
-  --wb-panel: #f7f6f3;
-  background-color: #f7f6f3;
+  --wb-panel: var(--surface-2, #f2f2f5);
+  background-color: var(--surface-2, #f2f2f5);
 }
 
 /* 恢复书架面板自身抽屉/滑入动画的节奏；玻璃只负责底色与阴影过渡 */
@@ -300,9 +296,9 @@ html[data-glass-tier] .wb-inspector.lg-surface {
 
 html[data-glass-tier="full"] .wb-side-head,
 html[data-glass-tier="frost"] .wb-side-head {
-  background: rgba(247, 246, 243, 0.86);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  backdrop-filter: blur(16px) saturate(150%);
+  background: rgba(255, 255, 255, 0.88);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
 }
 
 /* 搜索浮层是整屏面板：降低模糊半径，避免移动端整屏合成过重；
@@ -335,21 +331,19 @@ html[data-glass-tier="frost"] :is(
   .wb-view,
   .wb-sort .sel-trigger
 ).lg-surface {
-  --lg-opacity: 0.7;
-  --lg-blur: 5px;
-  --liquid-chroma: 0.55;
-  background-color: rgb(var(--liquid-tint) / 0.7);
-  background-image:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.18) 34%, rgba(255, 255, 255, 0.04) 64%, rgba(255, 255, 255, 0.34)),
-    var(--liquid-sheen);
-  border-color: rgba(255, 255, 255, 0.72);
+  --lg-opacity: 0.78;
+  --lg-blur: 8px;
+  --liquid-chroma: 0.12;
+  background-color: rgb(var(--liquid-tint) / 0.78);
+  background-image: var(--liquid-sheen);
+  border-color: rgba(255, 255, 255, 0.48);
   box-shadow:
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.96),
-    inset 0 -1.5px 0 rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
     inset 1px 0 0 var(--liquid-chroma-red),
     inset -1px 0 0 var(--liquid-chroma-cyan),
-    0 0 0 0.5px rgba(0, 0, 0, 0.08),
-    0 10px 26px rgba(24, 24, 28, 0.16);
+    0 0 0 0.5px rgba(0, 0, 0, 0.07),
+    var(--liquid-shadow-soft);
 }
 
 /* 封面从控件背后经过时，图标/标签保持深色足够对比 */
@@ -372,13 +366,12 @@ html[data-glass-tier] .wb-view.lg-surface button {
 html[data-glass-tier="full"] :is(
   .wb-brand-menu,
   .wb-layout-menu,
-  .wb-collection-pop,
   .sel-menu
 ).lg-surface.lg-refract {
-  --lg-opacity: 0.8;
-  --lg-blur: 8px;
-  --liquid-chroma: 0.5;
-  background-color: rgb(var(--liquid-tint) / 0.8);
+  --lg-opacity: 0.88;
+  --lg-blur: 12px;
+  --liquid-chroma: 0.1;
+  background-color: rgb(var(--liquid-tint) / 0.88);
 }
 
 html[data-glass-tier="full"] .wb-brand.lg-surface[aria-expanded="true"],
@@ -389,13 +382,16 @@ html[data-glass-tier="full"] .wb-circle.lg-surface[aria-pressed="true"],
 html[data-glass-tier="frost"] .wb-circle.lg-surface[aria-pressed="true"],
 html[data-glass-tier="full"] .wb-sort .sel-trigger.lg-surface[aria-expanded="true"],
 html[data-glass-tier="frost"] .wb-sort .sel-trigger.lg-surface[aria-expanded="true"] {
-  --lg-opacity: 0.86;
-  background-color: rgb(var(--liquid-tint) / 0.86);
+  --lg-opacity: 0.92;
+  background-color: var(--selected-bg);
+  border-color: var(--selected-edge);
+  box-shadow: var(--selected-shadow);
 }
 
-/* 视图切换胶囊内部的按钮保持原有黑/白选中态，不叠加玻璃 */
+/* 视图切换胶囊内部的按钮统一使用 .seg 的选中 token（深色图标 + 细蓝边） */
 .wb-view.lg-surface button {
-  transition: background 0.18s var(--ease, ease), color 0.18s var(--ease, ease);
+  transition: background-color 0.18s var(--ease, ease), border-color 0.18s var(--ease, ease),
+    box-shadow 0.18s var(--ease, ease), color 0.18s var(--ease, ease), transform 140ms var(--ease, ease);
 }
 
 /* 玻璃档位设置（书架视图设置菜单内） */
@@ -412,8 +408,8 @@ html[data-glass-tier="frost"] .wb-search-close.lg-surface {
 }
 
 /* 菜单里的行悬停只变底色，不改变玻璃的折射 */
-html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu) a:hover,
-html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .sel-menu) button:hover {
+html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .sel-menu) a:hover,
+html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .sel-menu) button:hover {
   background-color: rgba(255, 255, 255, 0.42);
 }
 
@@ -424,20 +420,20 @@ html[data-glass-tier] :is(.wb-brand-menu, .wb-layout-menu, .wb-collection-pop, .
    成为高成本折射面。 */
 html[data-glass-tier="full"] .media-gallery-dotnav .dotnav-items,
 html[data-glass-tier="frost"] .media-gallery-dotnav .dotnav-items {
-  border-radius: 999px;
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  backdrop-filter: blur(14px) saturate(160%);
+  border-radius: var(--radius-pill, 999px);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.08),
-    0 8px 20px rgba(0, 0, 0, 0.14);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 html[data-glass-tier="full"] .media-gallery-dotnav-iconcontrol,
 html[data-glass-tier="frost"] .media-gallery-dotnav-iconcontrol {
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  backdrop-filter: blur(14px) saturate(160%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 html[data-glass-tier="solid"] .media-gallery-dotnav .dotnav-items,
@@ -447,45 +443,13 @@ html[data-glass-tier="solid"] .media-gallery-dotnav-iconcontrol {
   box-shadow: none;
 }
 
-/* ---------- 登录页玻璃场景与卡片 ---------- */
+/* ---------- 登录页：与全站一致的冷白磨砂卡片 ---------- */
 
 body.login-page {
   min-height: 100vh;
   overflow-x: hidden;
-  background: #eef1f7;
-}
-
-body.login-page::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
   background:
-    radial-gradient(circle at 50% 46%, transparent 0 304px, rgba(38, 68, 120, 0.24) 305px 307px, transparent 308px),
-    radial-gradient(circle at 50% 46%, transparent 0 428px, rgba(38, 68, 120, 0.13) 429px 431px, transparent 432px),
-    radial-gradient(58% 52% at 18% 16%, rgba(10, 132, 255, 0.4), transparent 64%),
-    radial-gradient(48% 44% at 84% 14%, rgba(255, 159, 10, 0.32), transparent 64%),
-    radial-gradient(52% 54% at 80% 84%, rgba(191, 90, 242, 0.3), transparent 64%),
-    radial-gradient(46% 48% at 20% 88%, rgba(48, 209, 88, 0.24), transparent 64%),
-    linear-gradient(135deg, #f7f9fd 0%, #eef1f7 48%, #f8f5ef 100%);
-}
-
-body.login-page::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(37, 58, 96, 0.16) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(37, 58, 96, 0.16) 1px, transparent 1px),
-    linear-gradient(rgba(255, 255, 255, 0.46) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.46) 1px, transparent 1px);
-  background-size: 168px 168px, 168px 168px, 56px 56px, 56px 56px;
-  opacity: 0.72;
-  -webkit-mask-image: radial-gradient(82% 78% at 50% 46%, #000 26%, transparent 100%);
-  mask-image: radial-gradient(82% 78% at 50% 46%, #000 26%, transparent 100%);
+    radial-gradient(120% 80% at 50% -10%, #ffffff 0%, var(--canvas, #f5f5f7) 55%);
 }
 
 body.login-page .account-page {
@@ -495,54 +459,27 @@ body.login-page .account-page {
 
 html[data-glass-tier="full"] .account-page,
 html[data-glass-tier="frost"] .account-page {
-  background-color: rgb(var(--liquid-tint) / 0.78);
+  background-color: rgb(255 255 255 / 0.82);
   background-image: var(--liquid-sheen);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: var(--radius-xl, 24px);
   box-shadow:
-    inset 0 1px 0 var(--liquid-rim-light),
-    inset 1px 0 0 var(--liquid-chroma-red),
-    inset -1px 0 0 var(--liquid-chroma-cyan),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
     0 0 0 0.5px var(--liquid-edge),
     var(--liquid-shadow);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
-  backdrop-filter: blur(24px) saturate(160%);
-}
-
-/* 登录卡是页面里唯一的大玻璃展示面：低 tint/低模糊，才能看见边缘弯折；
-   表单输入仍保持不透明白底。 */
-html[data-glass-tier="full"] .account-page.lg-surface,
-html[data-glass-tier="frost"] .account-page.lg-surface {
-  --lg-opacity: 0.4;
-  --lg-blur: 0.75px;
-  --liquid-refraction: 30;
-  --liquid-chroma: 0.65;
-  background-color: rgb(var(--liquid-tint) / 0.4);
-  background-image:
-    radial-gradient(120% 92% at 50% 36%, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.1) 62%, rgba(255, 255, 255, 0.02) 100%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.2), transparent 44%, rgba(255, 255, 255, 0.12));
-  border-color: rgba(255, 255, 255, 0.72);
-  box-shadow:
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.94),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.24),
-    inset 1px 0 0 var(--liquid-chroma-red),
-    inset -1px 0 0 var(--liquid-chroma-cyan),
-    0 0 0 0.5px rgba(0, 0, 0, 0.1),
-    0 28px 70px rgba(24, 28, 40, 0.22);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(170%);
-  backdrop-filter: blur(var(--lg-blur)) saturate(170%);
-  backdrop-filter: var(--lg-filter, blur(0px)) blur(var(--lg-blur)) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
 }
 
 html[data-glass-tier="solid"] .account-page {
-  background-color: #fff;
-  border: 1px solid var(--hairline, rgba(0, 0, 0, 0.12));
-  border-radius: 24px;
+  background-color: var(--surface, #ffffff);
+  border: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.08));
+  border-radius: var(--radius-xl, 24px);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .account-page input {
-  background: #fff;
+  background: var(--surface, #ffffff);
 }
 
 /* ---------- 动效与无障碍 ---------- */
@@ -566,8 +503,7 @@ html[data-glass-tier="solid"] .account-page {
     .wb-inspector,
     .wb-brand-menu,
     .wb-layout-menu,
-    .wb-collection-pop,
-    .sel-menu,
+      .sel-menu,
     .search-flyout,
     .nav-flyout,
     .modal-box,

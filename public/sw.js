@@ -12,7 +12,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v167';
+const CACHE_VERSION = 'v169';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -23,26 +23,27 @@ const IMG_LIMIT = 60;
 // 注意:**不缓存 / *.html 与 /notes/*** —— HTML 必须每次向服务器验证,
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/css/style.css?v=110',
-  '/css/shelf-workbench.css?v=34',
-  '/css/liquid-glass.css?v=2',
-  '/js/chrome.js?v=37',
+  '/css/style.css?v=112',
+  '/css/shelf-workbench.css?v=36',
+  '/css/liquid-glass.css?v=3',
+  '/js/chrome.js?v=38',
   '/js/base.js?v=1',
   '/js/api.js?v=1',
   '/js/cover.js?v=1',
-  '/js/select.js?v=2',
-  '/js/modal.js?v=1',
+  '/js/select.js?v=3',
+  '/js/modal.js?v=2',
   '/js/overlay.js?v=1',
-  '/js/common.js?v=42',
+  '/js/common.js?v=43',
+  '/js/book-details.js?v=1',
   '/js/liquid-glass.js?v=1',
   '/js/scanner.js?v=2',
   '/js/page-home.js?v=3',
   '/js/shelf/store.js?v=35',
   '/js/shelf/sidebar.js?v=35',
   '/js/shelf/grid.js?v=35',
-  '/js/shelf/inspector.js?v=36',
+  '/js/shelf/inspector.js?v=37',
   '/js/shelf/actions.js?v=35',
-  '/js/shelf/main.js?v=36',
+  '/js/shelf/main.js?v=37',
   '/js/page-rank.js?v=2',
   '/js/page-stats.js?v=4',
   '/js/page-tags.js?v=8',

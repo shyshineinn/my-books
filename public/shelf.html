@@ -11,9 +11,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=110">
-  <link rel="stylesheet" href="/css/shelf-workbench.css?v=34">
-  <link rel="stylesheet" href="/css/liquid-glass.css?v=2">
+  <link rel="stylesheet" href="/css/style.css?v=112">
+  <link rel="stylesheet" href="/css/shelf-workbench.css?v=36">
+  <link rel="stylesheet" href="/css/liquid-glass.css?v=3">
 </head>
 <body data-page="shelf">
   <main class="wb" id="shelfWorkbench" data-density="standard" data-cover-info="0">
@@ -46,7 +46,7 @@
               <option value="finish">读完日期</option>
             </select>
           </div>
-          <div class="seg wb-view" id="wbViewToggle" role="group" aria-label="显示方式" data-glass="refract">
+          <div class="seg seg--track wb-view" id="wbViewToggle" role="group" aria-label="显示方式" data-glass="refract">
             <button type="button" data-view="grid" class="active" aria-label="封面网格" title="封面网格">
               <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.2"/><rect x="9" y="1" width="6" height="6" rx="1.2"/><rect x="1" y="9" width="6" height="6" rx="1.2"/><rect x="9" y="9" width="6" height="6" rx="1.2"/></g></svg>
             </button>
@@ -61,17 +61,17 @@
             <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v12M2 8h12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           </button>
 
-          <div class="wb-layout-menu" id="wbLayoutMenu" data-glass="refract" hidden>
+          <div class="wb-layout-menu" id="wbLayoutMenu" data-glass="frost" hidden>
           <div class="wb-layout-row">
             <span class="wb-layout-label">显示</span>
-            <div class="seg wb-layout-seg" id="wbLayoutView">
+            <div class="seg seg--track wb-layout-seg" id="wbLayoutView">
               <button type="button" data-layout-view="grid">网格</button>
               <button type="button" data-layout-view="list">列表</button>
             </div>
           </div>
           <div class="wb-layout-row">
             <span class="wb-layout-label">封面密度</span>
-            <div class="seg wb-layout-seg" id="wbDensity">
+            <div class="seg seg--track wb-layout-seg" id="wbDensity">
               <button type="button" data-density="compact">紧凑</button>
               <button type="button" data-density="standard">标准</button>
               <button type="button" data-density="large">宽松</button>
@@ -82,7 +82,7 @@
           </label>
           <div class="wb-layout-row wb-glass-row">
             <span class="wb-layout-label">玻璃效果</span>
-            <div class="seg wb-layout-seg wb-glass-seg" id="wbGlassMode" role="group" aria-label="玻璃效果">
+            <div class="seg seg--track wb-layout-seg wb-glass-seg" id="wbGlassMode" role="group" aria-label="玻璃效果">
               <button type="button" data-glass-mode="auto">自动</button>
               <button type="button" data-glass-mode="full">完整</button>
               <button type="button" data-glass-mode="frost">柔和</button>
@@ -121,6 +121,7 @@
     </section>
 
     <aside class="wb-inspector" id="wbInspector" aria-label="书籍详情" data-glass="frost" hidden></aside>
+    <div class="wb-inspector-scrim" id="wbInspectorScrim" aria-hidden="true"></div>
     <div class="wb-scrim" id="wbScrim" aria-hidden="true"></div>
 
     <div class="wb-chrome">
@@ -207,21 +208,22 @@
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
   </button>
 
-  <script defer src="/js/chrome.js?v=37"></script>
+  <script defer src="/js/chrome.js?v=38"></script>
   <script defer src="/js/base.js?v=1"></script>
   <script defer src="/js/api.js?v=1"></script>
   <script defer src="/js/cover.js?v=1"></script>
-  <script defer src="/js/select.js?v=2"></script>
-  <script defer src="/js/modal.js?v=1"></script>
+  <script defer src="/js/select.js?v=3"></script>
+  <script defer src="/js/modal.js?v=2"></script>
   <script defer src="/js/overlay.js?v=1"></script>
-  <script defer src="/js/common.js?v=42"></script>
+  <script defer src="/js/common.js?v=43"></script>
   <script defer src="/js/liquid-glass.js?v=1"></script>
+  <script defer src="/js/book-details.js?v=1"></script>
   <script defer src="/js/scanner.js?v=2"></script>
   <script defer src="/js/shelf/store.js?v=35"></script>
   <script defer src="/js/shelf/sidebar.js?v=35"></script>
   <script defer src="/js/shelf/grid.js?v=35"></script>
-  <script defer src="/js/shelf/inspector.js?v=36"></script>
+  <script defer src="/js/shelf/inspector.js?v=37"></script>
   <script defer src="/js/shelf/actions.js?v=35"></script>
-  <script defer src="/js/shelf/main.js?v=36"></script>
+  <script defer src="/js/shelf/main.js?v=37"></script>
 </body>
 </html>

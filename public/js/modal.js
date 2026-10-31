@@ -37,9 +37,19 @@ function closeModals() {
   if (target && typeof target.focus === 'function' && document.contains(target)) {
     target.focus({ preventScroll: true });
   }
+  document.dispatchEvent(new CustomEvent('modals-closed'));
 }
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (!visibleModal()) return;
+    // 自定义下拉优先关闭自己的菜单，不连带关闭整个弹窗。
+    if (document.querySelector('.sel-menu:not([hidden])')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeModals();
+    return;
+  }
   if (e.key !== 'Tab') return;
   const modal = visibleModal();
   if (!modal) return;

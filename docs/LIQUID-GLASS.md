@@ -1,5 +1,10 @@
 # My Books · Liquid Glass 实施报告
 
+> **2026-10-31 后续更新**：设计系统统一与详情重构已覆盖本报告的控件、登录页与弹窗章节，
+> 登录页彩虹背景已删除，按钮改为统一 control token。当前状态以
+> [`LIQUID-GLASS-UNIFICATION.md`](LIQUID-GLASS-UNIFICATION.md) 为准；本报告保留
+> 折射引擎、性能与 Glass Lab 的原始记录。
+
 - 日期：2026-10-31
 - 分支：`feat/liquid-glass-design-system`
 - 基线：`8acd1843c188b7a5aebbf02819a41dd6300ce2c2`（远端 `main` 同日核对无新提交）

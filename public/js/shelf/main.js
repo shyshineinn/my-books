@@ -414,6 +414,7 @@
       setSidebarOpen($('#shelfWorkbench').classList.contains('sidebar-collapsed'), { persist: !isMobile() });
     });
     $('#wbScrim').addEventListener('click', () => closeSidebar());
+    $('#wbInspectorScrim').addEventListener('click', () => S.inspector.hide());
 
     $('#wbInspectorToggle').addEventListener('click', () => S.inspector.toggle());
     $('#shelfSearchBtn').addEventListener('click', () => {
@@ -439,15 +440,15 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && e.defaultPrevented) return;
       if (e.key === 'Escape') {
-        closeBrandMenu();
-        closeLayoutMenu();
-        if (isMobile() && !$('#shelfWorkbench').classList.contains('sidebar-collapsed')) {
-          closeSidebar();
+        // Escape 一次只关最上面一层：先菜单，再侧栏/详情，最后清选择。
+        const menuOpen = !$('#wbBrandMenu').hidden || !$('#wbLayoutMenu').hidden;
+        if (menuOpen) {
+          closeBrandMenu();
+          closeLayoutMenu();
           return;
         }
-        if (S.inspectorPop) {
-          S.inspectorPop = false;
-          S.inspector.render();
+        if (isMobile() && !$('#shelfWorkbench').classList.contains('sidebar-collapsed')) {
+          closeSidebar();
           return;
         }
         if (state().inspectorOpen) { S.inspector.hide(); return; }
@@ -532,7 +533,11 @@
       const target = e.target.closest('[data-id]');
       if (!target) return;
       e.preventDefault();
-      if (typeof window.openDetail === 'function') window.openDetail(Number(target.dataset.id));
+      // 双击不再打开旧的 detailModal；直接进入唯一的完整编辑 Sheet。
+      const id = Number(target.dataset.id);
+      const book = state().books.find((b) => b.id === id)
+        || (state().inspectorBook && state().inspectorBook.id === id ? state().inspectorBook : null);
+      if (book && S.inspector.editBook) S.inspector.editBook(book);
     });
 
     const isEditable = (el) => !!(el && el.closest
