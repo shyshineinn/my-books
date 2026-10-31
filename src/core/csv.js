@@ -13,6 +13,7 @@
  *
  * **toCsv 与 parseCsv 必须互逆** —— 导出的文件必须能原样导回来。
  * 这一点由 test/csv.test.js 的往返用例钉死。
+ * 单元格内的**多个值**(标签/藏书集/作者)同样要互逆,见下面 joinList / splitList。
  * ============================================================ */
 
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
@@ -118,4 +119,50 @@ function parseCsv(text) {
   return { headers, rows };
 }
 
-module.exports = { toCsv, parseCsv, escapeCell, unescapeCell };
+/* ---------- 一个单元格里的多个值(标签 / 藏书集 / 作者) ---------- */
+
+// 多值单元格靠分隔符连接,但名字本身就可能含分隔符:标签「科幻, 悬疑」、
+// 作者「Herbert, Frank」直接拼进去,导回来会被拆成两个 —— 往返就破了。
+// 所以写出时先把分隔符(和反斜杠自己)用 \ 转义,读回时只在**未转义**的分隔符处切。
+// 只转义「确实是分隔符」的位置:`C:\路径` 这种反斜杠后面不是分隔符,原样保留,
+// 手工写的旧 CSV 不会因为反斜杠被吃掉。
+const LIST_SEP_RE = /[,，、;；&/]/;
+const ESCAPABLE_RE = /[\\,，、;；&/]/g;
+
+function escapeListItem(name) {
+  return String(name == null ? '' : name).replace(ESCAPABLE_RE, '\\$&');
+}
+
+// joiner 默认 ', '(标签/藏书集沿用导出既有格式);作者用「、」保持原样不变。
+function joinList(names, joiner = ', ') {
+  return (Array.isArray(names) ? names : [])
+    .map((name) => String(name == null ? '' : name).trim())
+    .filter(Boolean)
+    .map(escapeListItem)
+    .join(joiner);
+}
+
+function splitList(cell) {
+  const text = String(cell == null ? '' : cell);
+  const items = [];
+  let current = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (ch === '\\' && (next === '\\' || LIST_SEP_RE.test(next || ''))) {
+      current += next;
+      i += 1;
+      continue;
+    }
+    if (LIST_SEP_RE.test(ch)) {
+      items.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  items.push(current);
+  return items.map((s) => s.trim()).filter(Boolean);
+}
+
+module.exports = { toCsv, parseCsv, escapeCell, unescapeCell, joinList, splitList };

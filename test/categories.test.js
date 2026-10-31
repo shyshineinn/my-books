@@ -15,9 +15,10 @@ const path = require('node:path');
 const os = require('node:os');
 
 const { openDb, migrations } = require('../src/db/index.js');
+const books = require('../src/db/books.js');
 const categories = require('../src/db/categories.js');
 const search = require('../src/db/search.js');
-const { splitAuthors } = require('../src/core/book.js');
+const { splitAuthors, parseBook, mergeUpdate } = require('../src/core/book.js');
 
 const tmpDirs = [];
 function tempDir() {
@@ -95,7 +96,7 @@ test('v23:历史作者空格重复在重建后合并为一位作者', () => {
   db.close();
 });
 
-test('addBook:每位作者/每个标签各建一行,缓存为派生(、连接 + 首作者 sort)', () => {
+test('addBook:每位作者/每个标签各建一行,缓存为派生(、连接 + 排序键串)', () => {
   const db = freshDb();
   const a = addBook(db, { title: '书A', author: '余华、莫言', tags: ['获奖', '小说'] });
   addBook(db, { title: '书B', author: '余华', tags: ['小说'] });
@@ -106,7 +107,7 @@ test('addBook:每位作者/每个标签各建一行,缓存为派生(、连接 + 
   assert.equal(tagByName(db, '获奖').count, 1);
 
   assert.equal(a.author, '余华、莫言');
-  assert.equal(a.author_sort, '余华');
+  assert.equal(a.author_sort, '余华 & 莫言', '排序键串与 core/book.js 的 authorsToSortString 一致');
   assert.deepEqual(cacheTags(a), ['小说', '获奖'], '标签缓存按名排序');
   db.close();
 });
@@ -271,9 +272,62 @@ test('rebuildAll:幂等,并把未经同步的裸插入行归一化', () => {
   // 裸书的中文逗号作者被拆开,重复标签去重
   const 裸 = db.prepare("SELECT * FROM books WHERE title = '裸书'").get();
   assert.equal(裸.author, '王五、赵六');
-  assert.equal(裸.author_sort, '王五');
+  assert.equal(裸.author_sort, '王五 & 赵六');
   assert.deepEqual(cacheTags(裸), ['散文', '诗']);
   assert.equal(authorByName(db, '王五').count, 1);
+  db.close();
+});
+
+/* ---------- author_sort 只有一套规则 ---------- */
+
+test('author_sort:改名/合并/重建后仍是倒装键,不退回首位作者原文', () => {
+  const db = freshDb();
+  const 沙丘 = addBook(db, { title: '沙丘', author: 'Frank Herbert、Brian Herbert', tags: ['科幻'] });
+  assert.equal(沙丘.author_sort, 'Herbert, Frank & Herbert, Brian', '新增路径按 authorsToSortString');
+
+  // 批量重算路径(分类变更走这里):早期实现写回首位作者原文,同一列两套语义
+  categories.renameTag(db, categories.listTags(db).find((t) => t.name === '科幻').id, '奇幻');
+  assert.equal(sortOf(db, '沙丘'), 'Herbert, Frank & Herbert, Brian', '改标签后排序键不变');
+
+  const smithId = categories.listAuthors(db).find((a) => a.name === 'Frank Herbert').id;
+  categories.renameAuthor(db, smithId, 'Frank Herbertson');
+  assert.equal(sortOf(db, '沙丘'), 'Herbertson, Frank & Herbert, Brian', '作者改名后按新名重算');
+
+  categories.rebuildAll(db);
+  assert.equal(sortOf(db, '沙丘'), 'Herbertson, Frank & Herbert, Brian', '重建缓存结果一致(幂等)');
+  db.close();
+});
+
+test('sort=author 按姓排:Smith 组而不是 John 组', () => {
+  const db = freshDb();
+  addBook(db, { title: '按名排的起点', author: 'Aaron Ackland' });
+  addBook(db, { title: '约翰的书', author: 'John Smith' });
+
+  // NOCASE 升序:Ackland, Aaron < Smith, John
+  assert.deepEqual(search.searchBooks(db, { sort: 'author' }).map((b) => b.title),
+    ['按名排的起点', '约翰的书']);
+  db.close();
+});
+
+function sortOf(db, title) {
+  return db.prepare('SELECT author_sort FROM books WHERE title = ?').get(title).author_sort;
+}
+
+test('只改状态的更新不会重拆作者:带逗号的名字仍是同一位作者', () => {
+  const db = freshDb();
+  const created = books.addBook(
+    parseBook({ title: '沙丘', authors: ['Herbert, Frank', 'Doe, Jane'], tags: ['科幻'] }).values,
+    null, db,
+  );
+  assert.deepEqual(categories.authorNamesForBook(db, created.id), ['Herbert, Frank', 'Doe, Jane']);
+
+  // 请求体只提状态:作者信息不该被"顺手重算",缓存串一旦重拆就成两位作者
+  const body = { status: 'done' };
+  const merged = mergeUpdate(created, parseBook({ title: '沙丘', author: '不该被采用', status: 'done' }).values, body);
+  const after = books.updateBook(created.id, merged, null, db);
+  assert.equal(after.status, 'done');
+  assert.equal(after.author, 'Herbert, Frank、Doe, Jane');
+  assert.deepEqual(categories.authorNamesForBook(db, after.id), ['Herbert, Frank', 'Doe, Jane']);
   db.close();
 });
 

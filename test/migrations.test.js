@@ -105,6 +105,46 @@ test('v8:存量 5 分制评分折算为 10 分制(×2,封顶 10;0 分不动)', (
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('v24:被 v23 压平的 author_sort 修回倒装键,且不推 revision / 不刷新更新时间', () => {
+  const dir = tempDir();
+  const db = openDb(dir, { seedDemo: false });
+  db.exec('DELETE FROM book_authors; DELETE FROM authors; DELETE FROM books;');
+
+  // 手工摆出 v23 之后的现场:排序键是首位作者原文,authors.sort 也是原文
+  const stamp = '2024-05-05T00:00:00.000Z';
+  const uuid = require('node:crypto').randomUUID();
+  const book = db.prepare(`
+    INSERT INTO books (title, author, author_sort, status, tags, read_logs, uuid, created_at, updated_at)
+    VALUES ('沙丘', 'Frank Herbert、Brian Herbert', 'Frank Herbert', 'done', '[]', '[]', ?, ?, ?)
+  `).run(uuid, stamp, stamp);
+  const frank = db.prepare("INSERT INTO authors (name, sort) VALUES ('Frank Herbert', 'Frank Herbert')").run().lastInsertRowid;
+  const brian = db.prepare("INSERT INTO authors (name, sort) VALUES ('Brian Herbert', 'Brian Herbert')").run().lastInsertRowid;
+  db.prepare('INSERT INTO book_authors (book, author, position) VALUES (?, ?, 0)').run(book.lastInsertRowid, frank);
+  db.prepare('INSERT INTO book_authors (book, author, position) VALUES (?, ?, 1)').run(book.lastInsertRowid, brian);
+
+  const before = db.prepare('SELECT revision, updated_at FROM books WHERE id = ?').get(book.lastInsertRowid);
+  const changesBefore = db.prepare('SELECT COUNT(*) AS n FROM sync_changes').get().n;
+
+  db.exec('PRAGMA user_version = 23');          // v24 位于索引 23,只重放这一步
+  const res = runMigrations(db, dir);
+  assert.deepEqual(res, { from: 23, to: 24, ran: 1 });
+
+  const 书 = db.prepare('SELECT author_sort, revision, updated_at FROM books WHERE id = ?').get(book.lastInsertRowid);
+  assert.equal(书.author_sort, 'Herbert, Frank & Herbert, Brian');
+  assert.equal(db.prepare('SELECT sort FROM authors WHERE id = ?').get(frank).sort, 'Herbert, Frank', 'authors.sort 一并回填');
+  assert.equal(书.revision, before.revision, '修派生缓存不该推书目版本');
+  assert.equal(书.updated_at, before.updated_at, '也不该把更新时间刷成今天(默认排序就是它)');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sync_changes').get().n, changesBefore, '不该给安卓端制造全量变更');
+
+  // 临时禁用的触发器必须原样装回:正常改一行,版本还是要 +1
+  db.prepare("UPDATE books SET status = 'wish' WHERE id = ?").run(book.lastInsertRowid);
+  assert.equal(db.prepare('SELECT revision FROM books WHERE id = ?').get(book.lastInsertRowid).revision,
+    before.revision + 1, 'books_revision 触发器应已恢复');
+
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('失败回滚:迁移抛异常时 user_version 与半成品变更全部回退', () => {
   const dir = tempDir();
   const db = openDb(dir, { seedDemo: true });

@@ -64,13 +64,16 @@ async function handleImportCsv(req, res) {
     // 实测踩过:只在 createBook/mergeBook 里校验时,dry_run 与"全判重复"
     // 两种情况根本走不到那里,非法列名被静默忽略。
     const cols = dbCustom.listColumns(db);
-    const byLabel = new Map(cols.map((c) => [c.label, c]));
+    // mapHeaders 把 `#列名` 统一转成小写,而库内 label 是用户原样写的(自定义字段的
+    // label 在库里就是 COLLATE NOCASE 唯一)。两边都按小写对齐,否则 `#Pages`
+    // 会撞上库里已存在的 `Pages` 却被判"不存在"。
+    const byLabelKeyed = new Map(cols.map((c) => [String(c.label).toLowerCase(), c]));
 
     const head = dbImport.parseHeaders(text);
-    const unknownCustom = head.custom.filter((label) => !byLabel.has(label));
+    const unknownCustom = head.custom.filter((item) => !byLabelKeyed.get(String(item.label).toLowerCase()));
     if (unknownCustom.length) {
       return res.status(400).json({
-        error: `CSV 里的自定义字段不存在:${unknownCustom.join(', ')}(请先在 /tags 页创建)`,
+        error: `CSV 里的自定义字段不存在:${unknownCustom.map((item) => item.label).join(', ')}(请先在 /tags 页创建)`,
         code: 'VALIDATION',
       });
     }
@@ -79,11 +82,11 @@ async function handleImportCsv(req, res) {
       listExisting: () => dbImport.listExisting(db),
       isbnOf: dbImport.makeIsbnOf(db),
       createBook: (body, custom, meta) => {
-        const clean = validateCustom(byLabel, custom);
+        const clean = validateCustom(byLabelKeyed, custom);
         return dbImport.createBook(body, clean, db, meta && meta.collections);
       },
       mergeBook: (id, body, custom, opts, meta) => {
-        const clean = validateCustom(byLabel, custom);
+        const clean = validateCustom(byLabelKeyed, custom);
         return dbImport.mergeBook(id, body, clean, opts, db, meta && meta.collections);
       },
     }, {
@@ -106,12 +109,15 @@ async function handleImportCsv(req, res) {
 // 把 CSV 的 #label 原始值规范化成可入库的字符串。
 // 未知 label 直接抛错(在事务外抛,整行不会写进去) ——
 // 静默丢弃会让"列名打错"表现为"这个字段没导进来",很难排查。
+// byLabel 的键是**小写 label**(mapHeaders 把 `#列名` 折成小写,库内 label
+// 与它大小写可能不同);返回值改用库内 label 原样作键,因为 setValues
+// 按 label 精确匹配建 —— 沿用 CSV 的小写键会让 `#Pages` 静默不写入。
 function validateCustom(byLabel, raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   const labels = Object.keys(src);
   if (!labels.length) return null;
 
-  const unknown = labels.filter((l) => !byLabel.has(l));
+  const unknown = labels.filter((l) => !byLabel.get(keyOf(l)));
   if (unknown.length) {
     throw Object.assign(
       new Error(`CSV 里的自定义字段不存在:${unknown.join(', ')}(请先在 /tags 页创建)`),
@@ -121,14 +127,18 @@ function validateCustom(byLabel, raw) {
 
   const values = {};
   for (const label of labels) {
-    const col = byLabel.get(label);
+    const col = byLabel.get(keyOf(label));
     const r = coreCustom.normalizeValue(col, src[label]);
     if (!r.ok) {
       throw Object.assign(new Error(r.error), { code: 'VALIDATION' });
     }
-    if (r.value !== '') values[label] = r.value;
+    if (r.value !== '') values[col.label] = r.value;
   }
   return Object.keys(values).length ? values : null;
+}
+
+function keyOf(label) {
+  return String(label == null ? '' : label).trim().toLowerCase();
 }
 
 router.post('/api/import.csv', handleImportCsv);

@@ -12,9 +12,15 @@
  * ============================================================ */
 
 const { splitAuthors } = require('../core/book');
+const { authorToAuthorSort } = require('../core/sort_keys');
 const { inClause, scopeClause } = require('../core/sql');
 
 const AUTHOR_JOIN = '、';
+// author_sort 的连接符与排序键算法都与 core/book.js(authorsToSortString)同一套:
+// 「John Smith」→「Smith, John」,多作者用 ' & ' 连接;中文名原样。
+// 算法落在 authors.sort 列上,派生缓存两条写入路径(单本 JS / 批量 SQL)都读它,
+// 避免出现"新增按倒装键、改名后退回原文"这种同列两义。
+const AUTHOR_SORT_JOIN = ' & ';
 
 // 从 books.tags 缓存(JSON 串)取出标签名数组,容错坏 JSON
 function parseTagNames(tagsJson) {
@@ -32,7 +38,12 @@ function ensureTag(db, name) {
 }
 
 function ensureAuthor(db, name) {
-  db.prepare('INSERT OR IGNORE INTO authors (name, sort) VALUES (?, ?)').run(name, name);
+  // ON CONFLICT 分支专治历史遗留:authors.sort 早期按「原文 = 排序键」写入,
+  // 每次重建链接都顺手把它拉回算法结果,老库不需要单独跑一遍修复也能自愈。
+  db.prepare(`
+    INSERT INTO authors (name, sort) VALUES (?, ?)
+    ON CONFLICT(name) DO UPDATE SET sort = excluded.sort
+  `).run(name, authorToAuthorSort(name));
   return db.prepare('SELECT id FROM authors WHERE name = ?').get(name).id;
 }
 
@@ -68,12 +79,56 @@ function authorNamesForBook(db, bookId) {
   `).all(bookId).map((r) => r.name);
 }
 
+// 批量版:每本书的作者**整名**数组(按 position)。
+// CSV 导出必须用它 —— 拿 books.author 缓存串再去 splitAuthors 拆一遍,
+// 「Herbert, Frank」这种名字就会被当成两位作者,导回来就回不去了。
+function authorNamesForBooks(handleDb, ids) {
+  const list = [...new Set((ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  const out = new Map();
+  if (!list.length) return out;
+  for (let i = 0; i < list.length; i += 500) {
+    const clause = inClause('ba.book', list.slice(i, i + 500));
+    const rows = handleDb.prepare(`
+      SELECT ba.book AS book, a.name AS name
+      FROM book_authors ba JOIN authors a ON a.id = ba.author
+      WHERE ${clause.sql}
+      ORDER BY ba.book, ba.position, a.name COLLATE NOCASE
+    `).all(...clause.params);
+    for (const row of rows) {
+      if (!out.has(row.book)) out.set(row.book, []);
+      out.get(row.book).push(row.name);
+    }
+  }
+  return out;
+}
+
+// 排序键按 position 顺序取 authors.sort,与 author 缓存同一排序
+function authorSortForBook(db, bookId) {
+  return db.prepare(`
+    SELECT a.sort FROM book_authors ba JOIN authors a ON a.id = ba.author
+    WHERE ba.book = ? ORDER BY ba.position, a.name COLLATE NOCASE
+  `).all(bookId).map((r) => r.sort).filter(Boolean).join(AUTHOR_SORT_JOIN);
+}
+
+// authors.sort 的派生 SQL 片段(关联子查询,外层必须写作 `FROM books`/别名 b 的表)。
+// GROUP_CONCAT 的空值天然跳过,所以 NULLIF 负责把「排序键为空」的作者摘出去。
+function authorSortExpr() {
+  return `COALESCE((
+    SELECT GROUP_CONCAT(sort_key, '${AUTHOR_SORT_JOIN}') FROM (
+      SELECT NULLIF(a.sort, '') AS sort_key
+      FROM book_authors ba JOIN authors a ON a.id = ba.author
+      WHERE ba.book = books.id
+      ORDER BY ba.position, a.name COLLATE NOCASE
+    )
+  ), '')`;
+}
+
 // 依据链接表重算某本书的 tags / author / author_sort 缓存
 function recomputeBookCaches(db, bookId) {
   const tags = tagNamesForBook(db, bookId);
   const authors = authorNamesForBook(db, bookId);
   db.prepare('UPDATE books SET tags = ?, author = ?, author_sort = ? WHERE id = ?')
-    .run(JSON.stringify(tags), authors.join(AUTHOR_JOIN), authors[0] || '', bookId);
+    .run(JSON.stringify(tags), authors.join(AUTHOR_JOIN), authorSortForBook(db, bookId), bookId);
 }
 
 // 分类操作影响面可能很大(改名一个常用标签 = 上千本书),缓存重算走集合式 UPDATE,
@@ -110,17 +165,32 @@ function refreshAuthorCaches(db, ids) {
             ORDER BY ba.position, a.name COLLATE NOCASE
           )
         ), ''),
-        author_sort = COALESCE((
-          SELECT name FROM (
-            SELECT a.name AS name
-            FROM book_authors ba JOIN authors a ON a.id = ba.author
-            WHERE ba.book = books.id
-            ORDER BY ba.position, a.name COLLATE NOCASE
-          ) LIMIT 1
-        ), '')
+        author_sort = ${authorSortExpr()}
       WHERE ${clause.sql}
     `).run(...clause.params);
   }
+}
+
+// 全库回填 author_sort(迁移用)。带 <> 过滤:值没变的行不写,
+// 免得一次修复把整库 updated_at/revision 全推一遍。
+function refreshAllAuthorSortCaches(db) {
+  const expr = authorSortExpr();
+  db.prepare(`UPDATE books SET author_sort = ${expr} WHERE author_sort <> ${expr}`).run();
+}
+
+// 回填 authors.sort:旧版本按「原文当排序键」写入,改名/合并路径又不会重写它。
+// ensureAuthor 的 upsert 只能覆盖被再次链接的作者,这里一次清干净。
+function backfillAuthorSort(db) {
+  const rows = db.prepare('SELECT id, name, sort FROM authors').all();
+  const update = db.prepare('UPDATE authors SET sort = ? WHERE id = ?');
+  let changed = 0;
+  for (const row of rows) {
+    const want = authorToAuthorSort(row.name);
+    if (row.sort === want) continue;
+    update.run(want, row.id);
+    changed += 1;
+  }
+  return changed;
 }
 
 /* ---------- 受影响书的 FTS 增量重建 ---------- */
@@ -388,6 +458,11 @@ module.exports = {
   syncBookTags,
   syncBookAuthors,
   recomputeBookCaches,
+  authorSortForBook,
+  authorNamesForBook,
+  authorNamesForBooks,
+  backfillAuthorSort,
+  refreshAllAuthorSortCaches,
   listTags,
   listAuthors,
   searchTags,

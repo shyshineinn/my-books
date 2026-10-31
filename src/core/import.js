@@ -47,7 +47,7 @@
  *   error     写入异常
  * ============================================================ */
 
-const { parseCsv } = require('./csv');
+const { parseCsv, splitList } = require('./csv');
 const { isbnKey } = require('./isbn');
 
 const MAX_ROWS = 500;
@@ -161,11 +161,13 @@ function mapHeaders(headers) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// 单元格 → 多个标签名。分隔符本身可以出现在名字里,只要写出时转义过
+// (本站 CSV 导出就用 joinList 转义);没转义的照旧按分隔符拆,
+// 手工整理过的 CSV 不会因为不认识反斜杠而丢内容。
+// 作者同理:拆出的数组交给 parseBook 的 body.authors,它只归一化不再二次拆分,
+// 「Herbert, Frank」才不会被当成两位作者。
 function splitTags(raw) {
-  return String(raw == null ? '' : raw)
-    .split(/[,，、;；]+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  return splitList(raw);
 }
 
 // 标识符串 `type:value; type2:value2` → 对象
@@ -205,6 +207,13 @@ function rowToBook(headers, row, { fields, custom }) {
     const raw = cell(f.index).trim();
     if (raw === '') continue;                   // 空单元格 = 不提供该字段
     switch (f.field) {
+      case 'author': {
+        const names = splitList(raw);
+        if (!names.length) break;               // 整格只有分隔符 = 没填
+        body.authors = names;                   // 交给 parseBook 时不再二次拆
+        body.author = names.join('、');         // 查重比对用,与库内缓存同形
+        break;
+      }
       case 'tags': body.tags = splitTags(raw); break;
       case 'collections': {
         for (const name of splitTags(raw)) {

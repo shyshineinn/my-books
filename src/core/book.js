@@ -158,6 +158,10 @@ function parseBook(body) {
       title_sort: titleSort(title),
       author: authors.join(AUTHOR_JOIN),
       author_sort: authorsToSortString(authors),
+      // authors = 拆分后的**整名**数组。缓存串 author 用「、」连接,
+      // 名字里本来就带逗号时(「Herbert, Frank」)再拿 author 去 splitAuthors 会被拆成两位,
+      // 所以链接表必须以这份数组为准,而不是从缓存串反推。
+      authors,
       status,
       summary: String(body.summary || '').trim().slice(0, 1000),
       tags: JSON.stringify(tags),
@@ -196,6 +200,9 @@ function mergeUpdate(existing, values, body) {
   if (!('author' in body) && !('authors' in body)) {
     merged.author = existing.author;
     merged.author_sort = existing.author_sort;
+    // null = 「作者没被提起,链接表原样保留」:缓存串拆不回整名,
+    // 绝不能在这里顺手重拆一遍(否则带逗号的名字会被拆成两位作者)。
+    merged.authors = null;
   }
   // 书名变了要重算排序键(前端正常会传 title,但脚本可能只改标题_sort 之外的东西)
   if (!('title' in body)) merged.title_sort = existing.title_sort;

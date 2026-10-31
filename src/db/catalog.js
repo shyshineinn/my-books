@@ -12,6 +12,8 @@ const customFields = require('./custom_fields');
 const identifiers = require('./identifiers');
 const bookFiles = require('./book_files');
 const collections = require('./collections');
+const categories = require('./categories');
+const { joinList } = require('../core/csv');
 
 const STATUS_LABEL = { wish: '想读', reading: '在读', done: '已读' };
 
@@ -55,19 +57,25 @@ function buildCatalog(handleDb, query = {}) {
   // 书一多就是 N+1 查询 —— CSV 导出会随书量线性变慢)。
   const fileMap = bookFiles.listFormatsForBooks(handleDb, ids);
   const collectionMap = collections.listNamesForBooks(handleDb, ids);
+  const authorMap = categories.authorNamesForBooks(handleDb, ids);
 
   const data = rows.map((r) => {
     const customValues = custom[r.id] || {};
+    // 作者整名优先取真源链接表;极端情况(手工改库、链接缺失)才退回缓存串,
+    // 并把整串当**一个**名字转义 —— 绝不再按分隔符拆一遍。
+    const linkedAuthors = authorMap.get(r.id);
     return [
       r.id,
       r.title,
       r.title_sort,
-      r.author,
+      joinList(linkedAuthors && linkedAuthors.length ? linkedAuthors : [r.author], '、'),
       r.author_sort,
       r.status,
       STATUS_LABEL[r.status] || r.status,
-      parseTags(r.tags).join(', '),
-      (collectionMap.get(r.id) || []).join(', '),
+      // 标签与藏书集同样是"一个单元格多个值":joinList 会把名字里的分隔符转义掉,
+      // 导入侧 splitList 只在未转义的分隔符处切,名字带逗号也能原样回来。
+      joinList(parseTags(r.tags)),
+      joinList(collectionMap.get(r.id) || []),
       r.series,
       Number(r.series_index) || '',
       Number(r.rating) || '',

@@ -440,6 +440,15 @@ function migrateV15(db, dataDir) {
   db.exec('DROP TABLE IF EXISTS settings');
 }
 
+// books_revision:凡是没自己改 revision 的 UPDATE,都自动 +1 并刷新 updated_at。
+// DDL 单独放一份:v24 修复派生缓存时要临时禁用它,结束后必须原样重建。
+const BOOKS_REVISION_TRIGGER = `
+    CREATE TRIGGER IF NOT EXISTS books_revision AFTER UPDATE ON books WHEN NEW.revision = OLD.revision BEGIN
+      UPDATE books SET revision = OLD.revision + 1,
+        updated_at = CASE WHEN NEW.updated_at = OLD.updated_at THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE NEW.updated_at END
+        WHERE id = NEW.id;
+    END;`;
+
 // v16:书目版本与持久删除记录。触发器覆盖批量操作、分类、文件、自定义字段等写入路径。
 function migrateV16(db) {
   if (!db.prepare('PRAGMA table_info(books)').all().some((column) => column.name === 'revision')) {
@@ -456,11 +465,7 @@ function migrateV16(db) {
       revision INTEGER NOT NULL, deleted_at TEXT NOT NULL
     );
     INSERT OR IGNORE INTO book_deletions SELECT id, uuid, revision, deleted_at FROM books WHERE deleted_at IS NOT NULL;
-    CREATE TRIGGER IF NOT EXISTS books_revision AFTER UPDATE ON books WHEN NEW.revision = OLD.revision BEGIN
-      UPDATE books SET revision = OLD.revision + 1,
-        updated_at = CASE WHEN NEW.updated_at = OLD.updated_at THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE NEW.updated_at END
-        WHERE id = NEW.id;
-    END;
+    ${BOOKS_REVISION_TRIGGER}
     CREATE TRIGGER IF NOT EXISTS books_soft_delete_event AFTER UPDATE OF deleted_at ON books WHEN NEW.deleted_at IS NOT NULL BEGIN
       INSERT INTO book_deletions(id, uuid, revision, deleted_at)
         VALUES(NEW.id, NEW.uuid, MAX(NEW.revision, OLD.revision + 1), NEW.deleted_at)
@@ -616,8 +621,25 @@ function migrateV23(db) {
   require('./search').reindexAll(db);
 }
 
+// v24:把 author_sort 拉回 A8 的图书馆倒装键。
+// v23 的 rebuildAll 用「首位作者原文」重算缓存,把「Smith, John & Doe, Jane」压回
+// 「John Smith」,按作者排序因此和新增/编辑路径不一致。
+// 修复分两步:先回填 authors.sort(旧数据按原文写入),再重算 books.author_sort。
+// 全程临时禁用 books_revision:派生缓存的修正不该让整库 revision/updated_at 跳变
+// (那会把「最近更新」的排序打平,并触发安卓端全量重同步)。
+function migrateV24(db) {
+  const categories = require('./categories');
+  categories.backfillAuthorSort(db);
+  db.exec('DROP TRIGGER IF EXISTS books_revision;');
+  try {
+    categories.refreshAllAuthorSortCaches(db);
+  } finally {
+    db.exec(BOOKS_REVISION_TRIGGER);
+  }
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21, migrateV22, migrateV23];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21, migrateV22, migrateV23, migrateV24];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

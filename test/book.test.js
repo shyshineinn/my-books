@@ -149,6 +149,27 @@ test('空起止的记录条目被过滤', () => {
 
 /* ---------- mergeUpdate:PUT 局部更新语义 ---------- */
 
+test('作者名里的逗号属于名字本身:values.authors 交出整名数组', () => {
+  const { values } = parseBook({ title: '沙丘', authors: ['Herbert, Frank', 'Doe, Jane'] });
+  assert.deepEqual(values.authors, ['Herbert, Frank', 'Doe, Jane']);
+  assert.equal(values.author, 'Herbert, Frank、Doe, Jane');
+  assert.equal(values.author_sort, 'Herbert, Frank & Doe, Jane');
+
+  // 字符串入口照旧按分隔符拆(表单里「甲、乙」的写法不受影响)
+  const byString = parseBook({ title: 'x', author: '甲、乙' });
+  assert.deepEqual(byString.values.authors, ['甲', '乙']);
+});
+
+test('mergeUpdate:没提作者就把 authors 置 null,链接表不许被重拆', () => {
+  const existing = { author: 'Herbert, Frank', author_sort: 'Herbert, Frank' };
+  const { values } = parseBook({ title: 'x', author: '随便谁', status: 'done' });
+  const merged = mergeUpdate(existing, values, { status: 'done' });
+  // 缓存串拆不回整名:'Herbert, Frank' 若被再拆一次就变成两位作者
+  assert.equal(merged.authors, null);
+  assert.equal(merged.author, existing.author);
+  assert.equal(merged.author_sort, existing.author_sort);
+});
+
 test('mergeUpdate:未提供的字段保留数据库旧值', () => {
   const existing = {
     summary: '旧简介', cover: '/uploads/a.png',

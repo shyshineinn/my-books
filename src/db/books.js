@@ -102,17 +102,18 @@ function searchSeries(handleDb = db, {
 function addBook(values, customValues = null, handleDb = db) {
   return inTransaction(handleDb, () => {
     const ts = now();
-    // identifiers 不是 books 表的列(它落 book_identifiers 表),必须从命名参数里
-    // 剔掉 —— node:sqlite 对**多余的命名参数**是严格报错的(ERR_INVALID_STATE:
-    // Unknown named parameter),不像某些驱动会忽略。
-    const { identifiers: idMap, ...cols } = values;
+    // identifiers 不是 books 表的列(它落 book_identifiers 表),authors 是整名数组
+    // (链接表用,也不是列),都必须从命名参数里剔掉 —— node:sqlite 对**多余的命名参数**
+    // 是严格报错的(ERR_INVALID_STATE: Unknown named parameter),不像某些驱动会忽略。
+    const { identifiers: idMap, authors, ...cols } = values;
     const result = handleDb.prepare(`
       INSERT INTO books (title, title_sort, author, author_sort, status, summary, tags, start_date, finish_date, cover, read_count, read_logs, publisher, pub_year, isbn, rating, douban_id, series, series_index, uuid, created_at, updated_at)
       VALUES (@title, @title_sort, @author, @author_sort, @status, @summary, @tags, @start_date, @finish_date, @cover, @read_count, @read_logs, @publisher, @pub_year, @isbn, @rating, @douban_id, @series, @series_index, @uuid, @ts, @ts)
     `).run({ ...cols, uuid: crypto.randomUUID(), ts });
     const created = getBook(result.lastInsertRowid, handleDb);
     categories.syncBookTags(handleDb, created.id, categories.parseTagNames(created.tags));
-    categories.syncBookAuthors(handleDb, created.id, splitAuthors(created.author));
+    // 作者链接以 parseBook 的整名数组为准;老调用方没给时才退回拆缓存串
+    categories.syncBookAuthors(handleDb, created.id, authors || splitAuthors(created.author));
     if (customValues) customFields.setValues(handleDb, created.id, customValues);
     // 标识符:isbn/douban 双写进 book_identifiers,其余类型也在这一步落库
     if (idMap) identifiers.setIdentifiers(handleDb, created.id, idMap);
@@ -130,8 +131,8 @@ function updateBook(id, merged, customValues = null, handleDb = db) {
   const oldRow = getBook(id, handleDb);
   if (!oldRow) return null;
   return inTransaction(handleDb, () => {
-    // 同上:identifiers 不是 books 表的列,剔出命名参数(否则 node:sqlite 报错)
-    const { identifiers: idMap, ...cols } = merged;
+    // 同上:identifiers 与 authors 不是 books 表的列,剔出命名参数(否则 node:sqlite 报错)
+    const { identifiers: idMap, authors, ...cols } = merged;
     handleDb.prepare(`
       UPDATE books SET title = @title, title_sort = @title_sort, author = @author, author_sort = @author_sort, status = @status,
         summary = @summary, tags = @tags, start_date = @start_date, finish_date = @finish_date,
@@ -143,7 +144,9 @@ function updateBook(id, merged, customValues = null, handleDb = db) {
     `).run({ ...cols, ts: now(), id });
     const updated = getBook(id, handleDb);
     categories.syncBookTags(handleDb, id, categories.parseTagNames(updated.tags));
-    categories.syncBookAuthors(handleDb, id, splitAuthors(updated.author));
+    // authors = null/undefined 表示"这次没提作者"(mergeUpdate 的局部更新语义),
+    // 链接表原样保留;给了数组就按整名替换(空数组 = 清空作者)。
+    if (authors) categories.syncBookAuthors(handleDb, id, authors);
     if (customValues) customFields.setValues(handleDb, id, customValues);
     // identifiers 为 null 表示"请求体没提这件事" → 完全不动;
     // 传了对象才按"未出现的类型保持不动"处理(见 db/identifiers.js 注释)
