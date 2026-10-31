@@ -11,12 +11,13 @@ const books = require('./books');
 const customFields = require('./custom_fields');
 const identifiers = require('./identifiers');
 const bookFiles = require('./book_files');
+const collections = require('./collections');
 
 const STATUS_LABEL = { wish: '想读', reading: '在读', done: '已读' };
 
 const FIXED_HEADERS = [
   'id', 'title', 'title_sort', 'author', 'author_sort',
-  'status', 'status_label', 'tags', 'series', 'series_index', 'rating',
+  'status', 'status_label', 'tags', 'collections', 'series', 'series_index', 'rating',
   'publisher', 'pub_year', 'isbn', 'douban_id',
   'start_date', 'finish_date', 'read_count', 'read_logs',
   'summary', 'cover', 'uuid',
@@ -53,6 +54,7 @@ function buildCatalog(handleDb, query = {}) {
   // 一次查完所有书的文件格式(早期版本在这里写 for 循环逐本 listFiles,
   // 书一多就是 N+1 查询 —— CSV 导出会随书量线性变慢)。
   const fileMap = bookFiles.listFormatsForBooks(handleDb, ids);
+  const collectionMap = collections.listNamesForBooks(handleDb, ids);
 
   const data = rows.map((r) => {
     const customValues = custom[r.id] || {};
@@ -65,6 +67,7 @@ function buildCatalog(handleDb, query = {}) {
       r.status,
       STATUS_LABEL[r.status] || r.status,
       parseTags(r.tags).join(', '),
+      (collectionMap.get(r.id) || []).join(', '),
       r.series,
       Number(r.series_index) || '',
       Number(r.rating) || '',

@@ -53,6 +53,44 @@ function listSeries(handleDb = db, { scopeIds = null } = {}) {
   `).all(...(scope ? scope.params : []));
 }
 
+// 系列侧栏的分页/搜索版本:与作者/标签同一套 q/limit/offset 契约。
+// 默认全量 listSeries 保持不变,管理页和旧客户端不受影响。
+function escapeLike(value) {
+  return String(value).replace(/[\\%_]/g, (ch) => '\\' + ch);
+}
+
+function searchSeries(handleDb = db, {
+  scopeIds = null, q = '', limit = 100, offset = 0,
+} = {}) {
+  const scope = scopeClause('id', scopeIds);
+  const clauses = ["series <> ''", 'deleted_at IS NULL'];
+  const params = [];
+  if (scope) { clauses.push(scope.sql); params.push(...scope.params); }
+  const text = String(q || '').trim();
+  if (text) {
+    clauses.push("series LIKE ? ESCAPE '\\'");
+    params.push(`%${escapeLike(text)}%`);
+  }
+  const where = `WHERE ${clauses.join(' AND ')}`;
+  const total = handleDb.prepare(`
+    SELECT COUNT(*) AS n FROM (
+      SELECT series FROM books ${where} GROUP BY series COLLATE NOCASE
+    )
+  `).get(...params).n;
+  const items = handleDb.prepare(`
+    SELECT series AS name,
+           COUNT(*) AS count,
+           MIN(series_index) AS min_index,
+           MAX(series_index) AS max_index
+    FROM books
+    ${where}
+    GROUP BY series COLLATE NOCASE
+    ORDER BY series COLLATE NOCASE, series
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+  return { items, total };
+}
+
 // 新增书籍:values 来自 core/parseBook 的规范化输出。
 // customValues(可选)= { label: 规范化字符串 },来自 core/normalizeBookValues。
 // 主表 + 标签/作者链接 + 自定义值 + FTS 索引必须同生共死,故整体裹事务
@@ -414,5 +452,6 @@ module.exports = {
   purgeExpired,
   collectAssets,
   listSeries,
+  searchSeries,
   TRASH_RETENTION_DAYS,
 };

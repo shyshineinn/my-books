@@ -176,6 +176,19 @@ test('B13 splitTags 支持中英文分隔符', () => {
   assert.deepEqual(splitTags(''), []);
 });
 
+test('B14 藏书集列:英文/中文表头与 100 字校验', () => {
+  const m = mapHeaders(['title', 'collections']);
+  assert.deepEqual(m.fields.map((f) => f.field), ['title', 'collections']);
+  const parsed = rowToBook(['title', 'collections'], ['书', '待读、精读，待读'], m);
+  assert.deepEqual(parsed.errors, []);
+  assert.deepEqual(parsed.collections, ['待读', '精读', '待读']);
+
+  const cn = mapHeaders(['书名', '藏书集']);
+  assert.equal(rowToBook(['书名', '藏书集'], ['书', '科幻'], cn).collections[0], '科幻');
+  const bad = rowToBook(['title', 'collections'], ['书', 'x'.repeat(101)], m);
+  assert.ok(bad.errors.some((e) => e.includes('100')));
+});
+
 /* ============================================================
  * C. 查重(照 calibre find_identical_books)
  * ============================================================ */
@@ -467,19 +480,33 @@ function freshDb() {
   const dir = tempDir();
   const db = openDb(dir);
   db.exec('DELETE FROM books; DELETE FROM book_tags; DELETE FROM tags; DELETE FROM book_authors; DELETE FROM authors;');
+  db.exec('DELETE FROM book_collections; DELETE FROM collections');
   db.exec("INSERT INTO books_fts(books_fts) VALUES('delete-all')");
   // 句柄预绑定的包装:任何漏传都会报错,而不是静默写进生产库
   const bound = {
     db,
-    createBook: (body, custom) => {
+    createBook: (body, custom, meta) => {
       assert.ok(db, 'db 句柄必须存在');
-      return dbImport.createBook(body, custom, db);
+      return dbImport.createBook(body, custom, db, meta && meta.collections);
     },
-    mergeBook: (id, body, custom, opts) => dbImport.mergeBook(id, body, custom, opts || {}, db),
+    mergeBook: (id, body, custom, opts, meta) => dbImport.mergeBook(
+      id, body, custom, opts || {}, db, meta && meta.collections,
+    ),
     listExisting: () => dbImport.listExisting(db),
     isbnOf: dbImport.makeIsbnOf(db),
   };
   return { dir, ...bound };
+}
+
+function importDeps(db) {
+  return {
+    listExisting: () => dbImport.listExisting(db),
+    isbnOf: dbImport.makeIsbnOf(db),
+    createBook: (body, custom, meta) => dbImport.createBook(body, custom, db, meta && meta.collections),
+    mergeBook: (id, body, custom, opts, meta) => dbImport.mergeBook(
+      id, body, custom, opts || {}, db, meta && meta.collections,
+    ),
+  };
 }
 
 test('E1 createBook:走 parseBook,日期由阅读记录推导', () => {
@@ -568,6 +595,55 @@ test('E8 mergeBook:目标不存在返回 null', () => {
   db.close(); fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('E8b 导入 collections 列:自动建集、去重、多集成员', () => {
+  const { dir, db } = freshDb();
+  const out = importCsv(importDeps(db), {
+    text: 'title,author,collections\n甲,作者A,"待读, 精读, 待读"\n乙,作者B,待读\n',
+  });
+  assert.equal(out.summary.created, 2, JSON.stringify(out.results));
+  const sets = db.prepare(`
+    SELECT c.name, COUNT(bc.book_id) AS n
+    FROM collections c LEFT JOIN book_collections bc ON bc.collection_id = c.id
+    GROUP BY c.id ORDER BY c.name
+  `).all();
+  assert.deepEqual(sets.map((r) => `${r.name}:${r.n}`), ['待读:2', '精读:1']);
+  const bookId = db.prepare('SELECT id FROM books WHERE title = ?').get('甲').id;
+  const names = db.prepare(`
+    SELECT c.name FROM book_collections bc JOIN collections c ON c.id = bc.collection_id
+    WHERE bc.book_id = ? ORDER BY c.name
+  `).all(bookId).map((r) => r.name);
+  assert.deepEqual(names, ['待读', '精读']);
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('E8c 合并导入也加入藏书集;ignore 跳过时不改成员', () => {
+  const { dir, db } = freshDb();
+  const row = dbImport.createBook({ title: '书', author: '某人' }, null, db);
+  const deps = importDeps(db);
+  const csv = 'title,author,collections\n书,某人,新集\n';
+
+  const merged = importCsv(deps, { text: csv, duplicateAction: 'add_formats_to_existing' });
+  assert.equal(merged.summary.merged, 1, JSON.stringify(merged.results));
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM books').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM book_collections WHERE book_id = ?').get(row.id).n, 1);
+
+  const ignored = importCsv(deps, { text: csv, duplicateAction: 'ignore' });
+  assert.equal(ignored.summary.duplicate, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM collections').get().n, 1);
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('E8d 非法藏书集名让整本新建回滚', () => {
+  const { dir, db } = freshDb();
+  assert.throws(
+    () => dbImport.createBook({ title: '回滚测试' }, null, db, ['x'.repeat(101)]),
+    (err) => err.code === 'VALIDATION',
+  );
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM books').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM collections').get().n, 0);
+  db.close(); fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('E9 端到端:导出 → 导入到空库 → 内容一致', () => {
   const { dir, db } = freshDb();
   // 造两本
@@ -584,8 +660,10 @@ test('E9 端到端:导出 → 导入到空库 → 内容一致', () => {
   const out = importCsv({
     listExisting: () => dbImport.listExisting(db),
     isbnOf: dbImport.makeIsbnOf(db),
-    createBook: (b, c) => dbImport.createBook(b, c, db),
-    mergeBook: (id, b, c, o) => dbImport.mergeBook(id, b, c, o, db),
+    createBook: (b, c, meta) => dbImport.createBook(b, c, db, meta && meta.collections),
+    mergeBook: (id, b, c, o, meta) => dbImport.mergeBook(
+      id, b, c, o, db, meta && meta.collections,
+    ),
   }, { text: csv, duplicateAction: 'add_formats_to_existing', dryRun: true });
 
   assert.equal(out.summary.merged, 2, JSON.stringify(out.summary));
@@ -599,8 +677,10 @@ test('E10 端到端:导入到空库能建出新书', () => {
   const out = importCsv({
     listExisting: () => dbImport.listExisting(db),
     isbnOf: dbImport.makeIsbnOf(db),
-    createBook: (b, c) => dbImport.createBook(b, c, db),
-    mergeBook: (id, b, c, o) => dbImport.mergeBook(id, b, c, o, db),
+    createBook: (b, c, meta) => dbImport.createBook(b, c, db, meta && meta.collections),
+    mergeBook: (id, b, c, o, meta) => dbImport.mergeBook(
+      id, b, c, o, db, meta && meta.collections,
+    ),
   }, { text: csv, duplicateAction: 'add' });
 
   assert.equal(out.summary.created, 1, JSON.stringify(out.results));

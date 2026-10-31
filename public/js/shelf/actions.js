@@ -31,6 +31,7 @@
   function syncSelection() {
     if (state().selection.size <= 1) S.multiPop = false;
     S.grid.updateSelection();
+    S.grid.applyRoving();
     refreshBulkBar();
     S.inspector.loadSelection();
   }
@@ -47,9 +48,10 @@
     s.selection.clear();
     s.selection.add(id);
     s.anchorId = id;
+    s.focusId = id;
     s.selectMode = false;
-    if (window.matchMedia('(max-width: 899px)').matches) {
-      $('#shelfWorkbench').classList.add('sidebar-collapsed');
+    if (window.matchMedia('(max-width: 819px)').matches && S.hooks.closeSidebar) {
+      S.hooks.closeSidebar();
     }
     syncSelection();
     if (openInspector && !s.inspectorOpen) {
@@ -60,10 +62,11 @@
 
   function toggleSelected(id) {
     const s = state();
-    s.selectMode = true;
     if (s.selection.has(id)) s.selection.delete(id);
     else s.selection.add(id);
+    s.selectMode = s.selection.size > 0;
     s.anchorId = id;
+    s.focusId = id;
     syncSelection();
   }
 
@@ -76,6 +79,7 @@
     const from = anchor < 0 ? to : anchor;
     s.selection = new Set(ids.slice(Math.min(from, to), Math.max(from, to) + 1));
     s.selectMode = true;
+    s.focusId = id;
     syncSelection();
   }
 

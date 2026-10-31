@@ -9,6 +9,7 @@ const express = require('express');
 
 const { db } = require('../db/index');
 const categories = require('../db/categories');
+const { facetOptions } = require('./facet-params');
 
 const router = express.Router();
 
@@ -37,16 +38,41 @@ function inTx(fn) {
   }
 }
 
+// 侧栏大列表:默认不传参数仍是全量(兼容页面/工具与旧客户端);
+// 一旦出现 q/limit/offset,就按分页契约返回数组 + X-Total-Count。
+// 管理端写操作默认仍附带最新全量列表(兼容旧调用);
+// 大库页面传 with_list=0,只拿操作结果,再自行按搜索/分页拉取。
+function includeFacetList(req) {
+  const value = req.query.with_list;
+  return value !== '0' && value !== 'false';
+}
+
+function facetList(req, res, search) {
+  let options;
+  try { options = facetOptions(req.query); } catch (err) { return respond(err, res); }
+  if (!options.filtered) return res.json(search.full(req.vlScope));
+  const result = search.paged(req.vlScope, options);
+  res.set('X-Total-Count', String(result.total));
+  return res.json(result.items);
+}
+
 /* ---------- 标签 ---------- */
 // 列表读取支持虚拟书库作用域(?vl=);写操作后的回包仍给全量(管理视图)
-router.get('/api/tags', (req, res) => res.json(categories.listTags(db, { scopeIds: req.vlScope })));
+router.get('/api/tags', (req, res) => facetList(req, res, {
+  full: (scopeIds) => categories.listTags(db, { scopeIds }),
+  paged: (scopeIds, options) => categories.searchTags(db, {
+    scopeIds, q: options.q, limit: options.limit, offset: options.offset,
+  }),
+}));
 
 router.post('/api/tags/rename', (req, res) => {
   const id = parseId(req.body.id);
   if (id === null) return res.status(400).json({ error: 'id 应为正整数', code: 'VALIDATION' });
   try {
     const tagId = inTx(() => categories.renameTag(db, id, req.body.name));
-    res.json({ ok: true, id: tagId, tags: categories.listTags(db) });
+    const body = { ok: true, id: tagId };
+    if (includeFacetList(req)) body.tags = categories.listTags(db);
+    res.json(body);
   } catch (err) { return respond(err, res); }
 });
 
@@ -56,7 +82,9 @@ router.post('/api/tags/merge', (req, res) => {
   if (from === null || to === null) return res.status(400).json({ error: 'from/to 应为正整数', code: 'VALIDATION' });
   try {
     inTx(() => categories.mergeTags(db, from, to));
-    res.json({ ok: true, tags: categories.listTags(db) });
+    const body = { ok: true };
+    if (includeFacetList(req)) body.tags = categories.listTags(db);
+    res.json(body);
   } catch (err) { return respond(err, res); }
 });
 
@@ -65,19 +93,28 @@ router.delete('/api/tags/:id', (req, res) => {
   if (id === null) return res.status(400).json({ error: 'id 应为正整数', code: 'VALIDATION' });
   try {
     inTx(() => { categories.removeTag(db, id); categories.pruneOrphans(db); });
-    res.json({ ok: true, tags: categories.listTags(db) });
+    const body = { ok: true };
+    if (includeFacetList(req)) body.tags = categories.listTags(db);
+    res.json(body);
   } catch (err) { return respond(err, res); }
 });
 
 /* ---------- 作者 ---------- */
-router.get('/api/authors', (req, res) => res.json(categories.listAuthors(db, { scopeIds: req.vlScope })));
+router.get('/api/authors', (req, res) => facetList(req, res, {
+  full: (scopeIds) => categories.listAuthors(db, { scopeIds }),
+  paged: (scopeIds, options) => categories.searchAuthors(db, {
+    scopeIds, q: options.q, limit: options.limit, offset: options.offset,
+  }),
+}));
 
 router.post('/api/authors/rename', (req, res) => {
   const id = parseId(req.body.id);
   if (id === null) return res.status(400).json({ error: 'id 应为正整数', code: 'VALIDATION' });
   try {
     const authorId = inTx(() => categories.renameAuthor(db, id, req.body.name));
-    res.json({ ok: true, id: authorId, authors: categories.listAuthors(db) });
+    const body = { ok: true, id: authorId };
+    if (includeFacetList(req)) body.authors = categories.listAuthors(db);
+    res.json(body);
   } catch (err) { return respond(err, res); }
 });
 
@@ -87,7 +124,9 @@ router.post('/api/authors/merge', (req, res) => {
   if (from === null || to === null) return res.status(400).json({ error: 'from/to 应为正整数', code: 'VALIDATION' });
   try {
     inTx(() => categories.mergeAuthors(db, from, to));
-    res.json({ ok: true, authors: categories.listAuthors(db) });
+    const body = { ok: true };
+    if (includeFacetList(req)) body.authors = categories.listAuthors(db);
+    res.json(body);
   } catch (err) { return respond(err, res); }
 });
 
@@ -96,7 +135,9 @@ router.delete('/api/authors/:id', (req, res) => {
   if (id === null) return res.status(400).json({ error: 'id 应为正整数', code: 'VALIDATION' });
   try {
     inTx(() => { categories.removeAuthor(db, id); categories.pruneOrphans(db); });
-    res.json({ ok: true, authors: categories.listAuthors(db) });
+    const body = { ok: true };
+    if (includeFacetList(req)) body.authors = categories.listAuthors(db);
+    res.json(body);
   } catch (err) { return respond(err, res); }
 });
 

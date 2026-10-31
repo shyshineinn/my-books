@@ -67,6 +67,7 @@ const HEADER_MAP = {
   series: 'series', 系列: 'series',
   series_index: 'series_index', 系列序号: 'series_index',
   tags: 'tags', 标签: 'tags',
+  collections: 'collections', collection: 'collections', 藏书集: 'collections',
   summary: 'summary', 简介: 'summary',
   cover: 'cover', 封面: 'cover',
   start_date: 'start_date', 开始日期: 'start_date',
@@ -198,12 +199,20 @@ function rowToBook(headers, row, { fields, custom }) {
   const cell = (index) => String(row[index] == null ? '' : row[index]);
   const body = {};
   const customValues = {};
+  const collectionNames = [];
 
   for (const f of fields) {
     const raw = cell(f.index).trim();
     if (raw === '') continue;                   // 空单元格 = 不提供该字段
     switch (f.field) {
       case 'tags': body.tags = splitTags(raw); break;
+      case 'collections': {
+        for (const name of splitTags(raw)) {
+          if (name.length > 100) errors.push(`藏书集「${name}」不能超过 100 字`);
+          else collectionNames.push(name);
+        }
+        break;
+      }
       case 'rating': body.rating = clampRating(raw); break;
       case 'status': {
         const st = STATUS_ALIAS[raw.toLowerCase()] || STATUS_ALIAS[raw];
@@ -232,7 +241,7 @@ function rowToBook(headers, row, { fields, custom }) {
   }
 
   if (!String(body.title || '').trim()) errors.push('书名不能为空');
-  return { errors, body, custom: customValues };
+  return { errors, body, custom: customValues, collections: collectionNames };
 }
 
 /* ---------- 查重(calibre find_identical_books 的移植) ---------- */
@@ -336,8 +345,8 @@ function splitAuthorNames(raw) {
  * @param deps {
  *   listExisting()                  → 库内全部在架书 [{id,title,author,isbn}]
  *   isbnOf(row)                     → 该书归一化后的 ISBN(查重用)
- *   createBook(body, custom)        → { id, title }(新建)
- *   mergeBook(bookId, body, custom, {overwrite}) → { id } | null(合并进已有)
+ *   createBook(body, custom, { collections })        → { id, title }(新建)
+ *   mergeBook(bookId, body, custom, {overwrite}, { collections }) → { id } | null(合并进已有)
  *   normalizeCustom(customValues)   → { ok, errors, values }(可选;校验自定义字段)
  * }
  * @param opts { text, duplicateAction, automergeAction, dryRun }
@@ -375,7 +384,7 @@ function importCsv(deps, { text, duplicateAction = 'add', automergeAction = 'ign
     const rowNo = i + 2;                          // +2:表头占第 1 行,数据从第 2 行起
     const out = { row: rowNo, status: '', title: '', bookId: null, existing: null, reason: '', error: '' };
 
-    const { errors, body, custom } = rowToBook(headers, row, mapped);
+    const { errors, body, custom, collections } = rowToBook(headers, row, mapped);
     out.title = String(body.title || '').trim();
 
     if (errors.length) {
@@ -421,7 +430,9 @@ function importCsv(deps, { text, duplicateAction = 'add', automergeAction = 'ign
 
     try {
       if (shouldMerge) {
-        const merged = deps.mergeBook(target.id, body, custom, { overwrite: am === 'overwrite' });
+        const merged = deps.mergeBook(
+          target.id, body, custom, { overwrite: am === 'overwrite' }, { collections },
+        );
         if (!merged) {
           out.status = 'error';
           out.error = '合并失败(目标书可能已被删除)';
@@ -433,7 +444,7 @@ function importCsv(deps, { text, duplicateAction = 'add', automergeAction = 'ign
           addToIndex(index, merged);
         }
       } else {
-        const created = deps.createBook(body, custom);
+        const created = deps.createBook(body, custom, { collections });
         out.status = 'created';
         out.bookId = created.id;
         addToIndex(index, created);

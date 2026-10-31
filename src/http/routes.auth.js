@@ -17,7 +17,7 @@ router.post('/api/auth/login', async (req, res, next) => {
     if (!sameOrigin(req)) return res.status(403).json({ error: '请求来源不匹配', code: 'ORIGIN_REJECTED' });
     if (!auth.initialized()) return res.status(503).json({ error: '请先在服务器运行 npm run setup', code: 'SETUP_REQUIRED' });
     if (!rateCheck(req, res)) return;
-    const { username, password, token, device_name } = req.body || {};
+    const { username, password, token, device_name, device_key } = req.body || {};
     const master = loadToken();
     const valid = typeof token === 'string' && token.length <= 1024 && master && safeEqual(token, master)
       || await authStore.verifyPassword(username, password);
@@ -25,7 +25,7 @@ router.post('/api/auth/login', async (req, res, next) => {
       rateFail(req);
       return res.status(401).json({ error: '用户名、密码或管理员令牌不正确', code: 'AUTH_REQUIRED' });
     }
-    const session = authStore.issueSession(device_name);
+    const session = authStore.issueSession(device_name, device_key);
     rateClear(req);
     // 反代 TLS 通过 PUBLIC_URL 配置；直连 TLS 使用 req.secure。
     const secure = req.secure || process.env.MYBOOKS_PUBLIC_URL?.startsWith('https://');

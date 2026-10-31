@@ -4683,3 +4683,108 @@ body.menu-open { overflow: hidden; }
 .scan-manual input:focus { outline: none; border-color: #0066cc; box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.18); }
 .scan-manual .btn { flex: 0 0 auto; padding: 10px 18px; }
 
+
+/* ============================================================
+   添加/编辑书籍表单 —— 基础 / 详细信息 / 阅读记录
+   固定头尾,中间独立滚动;手机全屏 Sheet。
+   ============================================================ */
+#bookModal .modal-box {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#bookModal .modal-head { flex: 0 0 auto; }
+#bookModal #bookForm { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#bookModal .book-form-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 4px 8px 0;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+#bookModal .book-form-body::-webkit-scrollbar { display: none; }
+#bookModal .form-foot {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding-top: 14px;
+  background: var(--card);
+}
+#bookModal .form-grid {
+  flex: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+#bookModal .field-full { grid-column: 1 / -1; }
+#bookModal .isbn-input-row { flex-wrap: wrap; }
+#bookModal .isbn-input-row .btn { min-height: 40px; }
+
+.form-section + .form-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline-soft);
+}
+.form-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.form-section-title { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+.form-section-hint { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+.form-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 0 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.form-section-toggle .form-section-title { flex: 0 0 auto; }
+.form-section-toggle .form-section-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.form-section-chevron { flex: 0 0 auto; color: var(--ink-3); transition: transform 0.2s var(--ease); }
+.form-section-toggle[aria-expanded="true"] .form-section-chevron { transform: rotate(180deg); }
+.form-section-content { padding-top: 2px; }
+.form-section-content[hidden] { display: none !important; }
+.form-secondary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+
+@media (max-width: 819px), (orientation: landscape) and (max-height: 560px) and (max-width: 1024px) {
+  #bookModal {
+    align-items: stretch;
+    padding: 0;
+  }
+  #bookModal .modal-box {
+    width: 100%;
+    max-width: none;
+    height: 100vh;
+    height: 100svh;
+    border-radius: 0;
+    padding: 0;
+  }
+  #bookModal .modal-head {
+    margin: 0;
+    padding: max(14px, env(safe-area-inset-top)) 16px 12px;
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  #bookModal .book-form-body { padding: 14px 16px 16px; }
+  #bookModal .form-foot {
+    margin: 0;
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--hairline-soft);
+  }
+  #bookModal .form-grid { gap: 13px; }
+  #bookModal .form-section-head { margin-bottom: 10px; }
+}
+
+@media (max-width: 360px) {
+  #bookModal .form-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .form-section-chevron { transition: none; }
+}

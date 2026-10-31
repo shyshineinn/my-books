@@ -58,15 +58,23 @@ function createAuthStore(file = path.join(DATA_DIR, 'auth.json')) {
       const expected = admin ? Buffer.from(admin.hash, 'hex') : Buffer.alloc(64);
       return expected.length === result.length && crypto.timingSafeEqual(result, expected) && admin?.username === username;
     },
-    issueSession(label) {
+    issueSession(label, deviceKey = '') {
       const state = read();
       state.sessions = state.sessions.filter((s) => s.expiresAt > Date.now());
+      const keyHash = String(deviceKey || '').trim()
+        ? digest(String(deviceKey).trim().slice(0, 200))
+        : '';
+      if (keyHash) {
+        // 同一浏览器重复登录:替换旧会话,避免设备列表堆积。
+        state.sessions = state.sessions.filter((s) => s.deviceKeyHash !== keyHash);
+      }
       if (state.sessions.length >= 100) throw Object.assign(new Error('设备数量已达上限，请先撤销不用的设备'), { status: 409 });
       const token = crypto.randomBytes(32).toString('base64url');
       const session = {
         id: crypto.randomUUID(), tokenHash: digest(token),
         label: String(label || '设备').trim().slice(0, 100),
         createdAt: new Date().toISOString(), expiresAt: Date.now() + SESSION_MS,
+        ...(keyHash ? { deviceKeyHash: keyHash } : {}),
       };
       state.sessions.push(session);
       write(state);
@@ -78,7 +86,8 @@ function createAuthStore(file = path.join(DATA_DIR, 'auth.json')) {
       return read().sessions.find((s) => s.tokenHash === hash && s.expiresAt > Date.now()) || null;
     },
     listSessions() {
-      return read().sessions.filter((s) => s.expiresAt > Date.now()).map(({ tokenHash, ...session }) => session);
+      return read().sessions.filter((s) => s.expiresAt > Date.now())
+        .map(({ tokenHash, deviceKeyHash, ...session }) => session);
     },
     revoke(id) {
       const state = read();

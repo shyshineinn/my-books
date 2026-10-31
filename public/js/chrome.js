@@ -393,110 +393,147 @@ function overlaysHtml() {
       </div>
       <form id="bookForm" novalidate>
         <input type="hidden" id="bookId">
-        <input type="hidden" id="fPublisher">
-        <input type="hidden" id="fPubYear">
-        <input type="hidden" id="fRating">
         <input type="hidden" id="fDoubanId">
-        <div class="douban-fetch-row">
-          <button type="button" id="doubanFetchBtn" class="btn btn-ghost douban-btn">从豆瓣填充元数据</button>
-          <button type="button" id="isbnBatchBtn" class="btn btn-ghost">按 ISBN 批量添加</button>
-          <span id="doubanStatus" class="douban-status"></span>
-        </div>
-        <div id="doubanCandidates" class="douban-candidates hidden"></div>
-        <div class="form-grid">
-          <div class="field field-full">
-            <label for="fTitle">书名 <i class="req">*</i></label>
-            <input type="text" id="fTitle" maxlength="120" required>
-          </div>
-          <div class="field">
-            <label for="fAuthor">作者</label>
-            <input type="text" id="fAuthor" maxlength="80">
-          </div>
-          <div class="field">
-            <label>状态</label>
-            <div class="seg" id="fStatus">
-              <button type="button" data-value="wish">想读</button>
-              <button type="button" data-value="reading">在读</button>
-              <button type="button" data-value="done">已读</button>
+        <div class="book-form-body" id="bookFormBody">
+          <section class="form-section" data-form-section="basic">
+            <div class="form-section-head">
+              <h3 class="form-section-title">基础信息</h3>
+              <span class="form-section-hint">ISBN、书名、作者与阅读状态</span>
             </div>
-          </div>
-          <div class="field">
-            <label for="fTags">分类标签</label>
-            <input type="text" id="fTags" list="tagSuggestions">
-            <datalist id="tagSuggestions"></datalist>
-          </div>
-          <div class="field">
-            <label for="fSeries">系列 <span class="label-sub">可写「基地 [3]」直接带序号</span></label>
-            <input type="text" id="fSeries" list="seriesSuggestions" maxlength="200" placeholder="如:基地 [3]">
-            <datalist id="seriesSuggestions"></datalist>
-          </div>
-          <div class="field">
-            <label for="fSeriesIndex">系列序号 <span class="label-sub">可留空;支持小数(2.5)</span></label>
-            <input type="number" id="fSeriesIndex" step="0.1" min="0" placeholder="如:3">
-          </div>
-          <div class="field field-full">
-            <label for="fIsbn">ISBN <span class="label-sub">书籍条形码上的 13 位数字,可扫码或手输</span></label>
-            <div class="isbn-input-row">
-              <input type="text" id="fIsbn" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="如 9787536692930">
-              <button type="button" id="isbnScanBtn" class="btn btn-ghost" title="用摄像头扫描书籍条形码">扫码</button>
+            <div class="form-grid">
+              <div class="field field-full">
+                <label for="fIsbn">ISBN <span class="label-sub">书籍条形码上的 13 位数字；先填 ISBN 再补全更准确</span></label>
+                <div class="isbn-input-row">
+                  <input type="text" id="fIsbn" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="如 9787536692930">
+                  <button type="button" id="isbnScanBtn" class="btn btn-ghost" title="用摄像头扫描书籍条形码">扫码</button>
+                  <button type="button" id="doubanFetchBtn" class="btn btn-ghost douban-btn">补全元数据</button>
+                </div>
+                <p class="field-hint">优先按 ISBN 精确匹配，没有 ISBN 时才按书名/作者补全。</p>
+              </div>
+              <div class="field field-full">
+                <label for="fTitle">书名 <i class="req">*</i></label>
+                <input type="text" id="fTitle" maxlength="120" required>
+              </div>
+              <div class="field">
+                <label for="fAuthor">作者</label>
+                <input type="text" id="fAuthor" maxlength="80">
+              </div>
+              <div class="field">
+                <label>状态</label>
+                <div class="seg" id="fStatus">
+                  <button type="button" data-value="wish">想读</button>
+                  <button type="button" data-value="reading">在读</button>
+                  <button type="button" data-value="done">已读</button>
+                </div>
+              </div>
+              <div class="field field-full">
+                <label for="fTags">分类标签</label>
+                <input type="text" id="fTags" list="tagSuggestions">
+                <datalist id="tagSuggestions"></datalist>
+              </div>
             </div>
-            <p class="field-hint">填好 ISBN 后点「从豆瓣填充元数据」会按 ISBN 精确匹配,比书名更准</p>
-          </div>
-          <div class="field field-full">
-            <label>阅读记录 <span class="label-sub">每次读的起止时间,开始/读完日期与读过次数据此自动生成</span></label>
-            <div id="readLogs" class="read-logs"></div>
-            <div id="readLogsSummary" class="read-logs-summary"></div>
-            <button type="button" id="addLogBtn" class="btn btn-ghost add-log-btn">＋ 添加一次阅读</button>
-          </div>
-          <div class="field field-full">
-            <label for="fSummary">图书简介 <span class="label-sub">这本书讲什么,可选</span></label>
-            <textarea id="fSummary" rows="3" maxlength="1000"></textarea>
-          </div>
-          <div class="field field-full">
-            <label for="fCoverUrl">封面图片</label>
-            <p class="field-hint">可粘贴图片链接，或上传本地图片（支持 png/jpg/gif/webp，不超过 5MB），保存后生效</p>
-            <div class="cover-editor">
-              <div id="coverPreview" class="cover-preview">暂无封面</div>
-              <div class="cover-actions">
-                <input type="text" id="fCoverUrl">
-                <div class="cover-btns">
-                  <label class="btn btn-ghost">
-                    <span class="cover-upload-text">上传本地图片</span>
-                    <input type="file" id="fCoverFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
-                  </label>
-                  <button type="button" id="coverRemove" class="btn btn-ghost">移除</button>
+            <div class="form-secondary-row">
+              <button type="button" id="isbnBatchBtn" class="btn btn-ghost">按 ISBN 批量添加</button>
+              <span id="doubanStatus" class="douban-status"></span>
+            </div>
+            <div id="doubanCandidates" class="douban-candidates hidden"></div>
+          </section>
+
+          <section class="form-section" data-form-section="details">
+            <button type="button" class="form-section-toggle" data-form-toggle="details" aria-expanded="false">
+              <span class="form-section-title">详细信息</span>
+              <span class="form-section-hint" data-form-hint="details">系列、出版、简介、封面与文件</span>
+              <svg class="form-section-chevron" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="form-section-content" data-form-content="details" hidden>
+              <div class="form-grid">
+                <div class="field">
+                  <label for="fSeries">系列 <span class="label-sub">可写「基地 [3]」带序号</span></label>
+                  <input type="text" id="fSeries" list="seriesSuggestions" maxlength="200" placeholder="如:基地 [3]">
+                  <datalist id="seriesSuggestions"></datalist>
+                </div>
+                <div class="field">
+                  <label for="fSeriesIndex">系列序号 <span class="label-sub">可留空</span></label>
+                  <input type="number" id="fSeriesIndex" step="0.1" min="0" placeholder="如:3">
+                </div>
+                <div class="field">
+                  <label for="fPublisher">出版社</label>
+                  <input type="text" id="fPublisher" maxlength="120">
+                </div>
+                <div class="field">
+                  <label for="fPubYear">出版年</label>
+                  <input type="text" id="fPubYear" maxlength="20" placeholder="如:2024">
+                </div>
+                <div class="field">
+                  <label for="fRating">评分 <span class="label-sub">0–10</span></label>
+                  <input type="number" id="fRating" min="0" max="10" step="0.1" placeholder="未评分">
+                </div>
+                <div class="field field-full">
+                  <label for="fSummary">图书简介 <span class="label-sub">可选</span></label>
+                  <textarea id="fSummary" rows="3" maxlength="1000"></textarea>
+                </div>
+                <div class="field field-full">
+                  <label for="fCoverUrl">封面图片</label>
+                  <p class="field-hint">粘贴图片链接或上传本地图片（png/jpg/gif/webp，不超过 5MB），保存后生效。</p>
+                  <div class="cover-editor">
+                    <div id="coverPreview" class="cover-preview">暂无封面</div>
+                    <div class="cover-actions">
+                      <input type="text" id="fCoverUrl">
+                      <div class="cover-btns">
+                        <label class="btn btn-ghost">
+                          <span class="cover-upload-text">上传本地图片</span>
+                          <input type="file" id="fCoverFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+                        </label>
+                        <button type="button" id="coverRemove" class="btn btn-ghost">移除</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="field field-full">
+                  <label>电子书文件 <span class="label-sub">epub / pdf / mobi / azw3 / txt，≤80MB；同格式会替换</span></label>
+                  <div class="ebook-editor">
+                    <div class="ebook-actions">
+                      <div class="cover-btns">
+                        <label class="btn btn-ghost">
+                          <span id="ebookUploadText">选择文件上传</span>
+                          <input type="file" id="fEbookFile" accept=".epub,.pdf,.mobi,.azw3,.txt" hidden>
+                        </label>
+                      </div>
+                      <div id="ebookInfo" class="ebook-info"><span class="ebook-info-empty">未上传文件</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="field field-full">
+                  <label>其它标识符 <span class="label-sub">如 goodreads / doi / amazon</span></label>
+                  <div id="idRows" class="id-rows"></div>
+                  <datalist id="idTypeSuggestions"></datalist>
+                  <button type="button" id="addIdRowBtn" class="btn btn-ghost add-log-btn">＋ 添加标识符</button>
+                </div>
+                <div class="field field-full" id="customFieldsSection" hidden>
+                  <label>自定义字段 <span class="label-sub">在「分类」页管理字段定义</span></label>
+                  <div class="form-grid" id="customFieldsBox"></div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="field field-full">
-            <label>电子书文件 <span class="label-sub">epub / pdf / mobi / azw3 / txt,≤80MB;每种格式一份,重复上传同格式会替换旧文件</span></label>
-            <div class="ebook-editor">
-              <div class="ebook-actions">
-                <div class="cover-btns">
-                  <label class="btn btn-ghost">
-                    <span id="ebookUploadText">选择文件上传</span>
-                    <input type="file" id="fEbookFile" accept=".epub,.pdf,.mobi,.azw3,.txt" hidden>
-                  </label>
+          </section>
+
+          <section class="form-section" data-form-section="reading">
+            <button type="button" class="form-section-toggle" data-form-toggle="reading" aria-expanded="false">
+              <span class="form-section-title">阅读记录</span>
+              <span class="form-section-hint" data-form-hint="reading">阅读日期与次数</span>
+              <svg class="form-section-chevron" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="form-section-content" data-form-content="reading" hidden>
+              <div class="form-grid">
+                <div class="field field-full">
+                  <label>阅读记录 <span class="label-sub">开始/读完日期与读过次数据此生成</span></label>
+                  <div id="readLogs" class="read-logs"></div>
+                  <div id="readLogsSummary" class="read-logs-summary"></div>
+                  <button type="button" id="addLogBtn" class="btn btn-ghost add-log-btn">＋ 添加一次阅读</button>
                 </div>
-                <div id="ebookInfo" class="ebook-info"><span class="ebook-info-empty">未上传文件</span></div>
               </div>
             </div>
-          </div>
-          <!-- 其它标识符(A5):除 ISBN / 豆瓣 id 外可加任意类型。
-               行由 common.js 动态增删;类型名自由填(如 goodreads / doi)。 -->
-          <div class="field field-full">
-            <label>其它标识符 <span class="label-sub">如 goodreads / doi / amazon;每类型一个值</span></label>
-            <div id="idRows" class="id-rows"></div>
-            <datalist id="idTypeSuggestions"></datalist>
-            <button type="button" id="addIdRowBtn" class="btn btn-ghost add-log-btn">＋ 添加标识符</button>
-          </div>
-          <!-- 自定义字段:控件由 common.js 按 custom_columns 注册表动态生成。
-               没有任何自定义字段时整块隐藏(不留空标题)。 -->
-          <div class="field field-full" id="customFieldsSection" hidden>
-            <label>自定义字段 <span class="label-sub">在「分类」页管理字段定义</span></label>
-            <div class="form-grid" id="customFieldsBox"></div>
-          </div>
+          </section>
         </div>
         <div class="form-foot">
           <span id="formError" class="form-error"></span>

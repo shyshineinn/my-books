@@ -602,8 +602,22 @@ function migrateV22(db) {
   `);
 }
 
+// v23:作者名空格归一化。合并 `[美] 约翰` / `[美]约翰` 这类历史重复,
+// 重建作者链接与书目缓存,让作者 facet 不再出现同人两项。
+function migrateV23(db) {
+  const { splitAuthors } = require('../core/book');
+  const rows = db.prepare('SELECT id, author FROM books').all();
+  const update = db.prepare('UPDATE books SET author = ? WHERE id = ?');
+  for (const row of rows) {
+    const normalized = splitAuthors(row.author).join('、');
+    if (normalized !== String(row.author || '')) update.run(normalized, row.id);
+  }
+  require('./categories').rebuildAll(db);
+  require('./search').reindexAll(db);
+}
+
 // 迁移注册表:顺序即版本，历史迁移保持不变。
-const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21, migrateV22];
+const migrations = [migrateV1, migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16, migrateV17, migrateV18, migrateV19, migrateV20, migrateV21, migrateV22, migrateV23];
 
 function runMigrations(db, dataDir) {
   const current = db.prepare('PRAGMA user_version').get().user_version;

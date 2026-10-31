@@ -11,9 +11,16 @@
  * 直接用它重渲染 —— 不再二次 GET,省一次往返也避免竞态。
  * ============================================================ */
 
+const PAGE_SIZE = 100;
 const cats = { tags: [], authors: [] };
+const catPage = {
+  tags: { q: '', total: 0, seq: 0, timer: null },
+  authors: { q: '', total: 0, seq: 0, timer: null },
+};
 const KIND_LABEL = { tags: '标签', authors: '作者' };
 let mergeCtx = null; // { kind, fromId, fromName }
+let mergeSeq = 0;
+let mergeTimer = null;
 
 // 自定义字段的三份视图:全部 / 生效中 / 已删除(可恢复)
 const fieldsState = { all: [], active: [], deleted: [] };
@@ -41,30 +48,65 @@ function renderList(kind, items) {
     </div>`).join('');
 }
 
-function renderAll() {
-  $('#tagsCount').textContent = `${cats.tags.length} 个`;
-  $('#authorsCount').textContent = `${cats.authors.length} 个`;
-  renderList('tags', cats.tags);
-  renderList('authors', cats.authors);
+function updateMore(kind) {
+  const btn = kind === 'tags' ? $('#tagsMore') : $('#authorsMore');
+  if (!btn) return;
+  btn.hidden = !catPage[kind].total || cats[kind].length >= catPage[kind].total;
+  if (btn.parentElement) btn.parentElement.hidden = btn.hidden;
 }
 
-async function load() {
+function renderAll() {
+  for (const kind of ['tags', 'authors']) {
+    const count = kind === 'tags' ? $('#tagsCount') : $('#authorsCount');
+    if (count) count.textContent = `${catPage[kind].total} 个`;
+    renderList(kind, cats[kind]);
+    updateMore(kind);
+  }
+}
+
+async function fetchKind(kind, q, offset) {
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+  if (q) params.set('q', q);
+  const { data, total } = await apiPage(`/api/${kind}?${params.toString()}`);
+  const items = Array.isArray(data) ? data : [];
+  return { items, total: total === null ? offset + items.length : total };
+}
+
+async function loadKind(kind, { append = false } = {}) {
+  const page = catPage[kind];
+  const q = page.q.trim();
+  const seq = ++page.seq;
+  const offset = append ? cats[kind].length : 0;
   try {
-    const [tags, authors] = await Promise.all([api('/api/tags'), api('/api/authors')]);
-    cats.tags = tags;
-    cats.authors = authors;
+    const result = await fetchKind(kind, q, offset);
+    if (seq !== page.seq || q !== page.q.trim()) return;
+    cats[kind] = append ? cats[kind].concat(result.items) : result.items;
+    page.total = result.total;
   } catch (e) {
+    if (seq !== page.seq) return;
     toast(e.message, true);
-    cats.tags = []; cats.authors = [];
+    if (!append) { cats[kind] = []; page.total = 0; }
   }
   renderAll();
 }
 
-// 服务端写操作后统一收尾:换列表、作废统计缓存、重渲染、提示
-function afterMutation(kind, list, msg) {
-  cats[kind] = list;
+async function load() {
+  await Promise.all(['tags', 'authors'].map((kind) => loadKind(kind)));
+}
+
+function onSearch(kind, value) {
+  const page = catPage[kind];
+  page.q = value;
+  page.seq += 1;
+  clearTimeout(page.timer);
+  page.timer = setTimeout(() => loadKind(kind), 250);
+}
+
+// 服务端写操作后统一收尾:作废统计缓存、按当前搜索/分页重新取第一页、提示。
+// 写接口仍返回全量列表(兼容旧调用),但页面不再整表渲染。
+async function afterMutation(kind, msg) {
   invalidateSharedStats();   // topTags 影响书架下拉与编辑框标签建议
-  renderAll();
+  await loadKind(kind);
   toast(msg);
 }
 
@@ -78,8 +120,8 @@ async function renameItem(kind, id) {
   if (!name) { toast(`${KIND_LABEL[kind]}名不能为空`, true); return; }
   if (name === item.name) return;             // 未改动
   try {
-    const res = await api(`/api/${kind}/rename`, { method: 'POST', body: JSON.stringify({ id: Number(id), name }) });
-    afterMutation(kind, res[kind], '已重命名,相关书籍已同步');
+    await api(`/api/${kind}/rename?with_list=0`, { method: 'POST', body: JSON.stringify({ id: Number(id), name }) });
+    await afterMutation(kind, '已重命名,相关书籍已同步');
   } catch (e) {
     toast(e.message, true);
   }
@@ -91,28 +133,60 @@ async function deleteItem(kind, id) {
   if (!item) return;
   if (!confirm(`删除${KIND_LABEL[kind]}「${item.name}」?将从 ${item.count} 本书上解除它(书籍本身保留),此操作不可恢复。`)) return;
   try {
-    const res = await api(`/api/${kind}/${id}`, { method: 'DELETE' });
-    afterMutation(kind, res[kind], '已删除');
+    await api(`/api/${kind}/${id}?with_list=0`, { method: 'DELETE' });
+    await afterMutation(kind, '已删除');
   } catch (e) {
     toast(e.message, true);
   }
 }
 
-/* ---------- 合并:弹窗选目标 ---------- */
+/* ---------- 合并:弹窗搜索目标 ---------- */
+function renderMergeTargets(items) {
+  const sel = $('#mergeTarget');
+  const fromId = mergeCtx ? Number(mergeCtx.fromId) : 0;
+  const targets = (items || []).filter((t) => Number(t.id) !== fromId);
+  if (!targets.length) {
+    sel.innerHTML = '<option value="">没有匹配的目标</option>';
+    $('#mergeConfirm').disabled = true;
+  } else {
+    sel.innerHTML = targets.map((t) => `<option value="${t.id}">${esc(t.name)}(${t.count})</option>`).join('');
+    sel.value = String(targets[0].id);
+    $('#mergeConfirm').disabled = false;
+  }
+  syncCustomSelect(sel);
+}
+
+async function searchMergeTargets(q) {
+  const ctx = mergeCtx;
+  if (!ctx) return;
+  const seq = ++mergeSeq;
+  const params = new URLSearchParams({ limit: '50' });
+  if (String(q || '').trim()) params.set('q', String(q).trim());
+  try {
+    const { data } = await apiPage(`/api/${ctx.kind}?${params.toString()}`);
+    if (seq !== mergeSeq || mergeCtx !== ctx) return;
+    renderMergeTargets(Array.isArray(data) ? data : []);
+  } catch (e) {
+    if (seq !== mergeSeq) return;
+    $('#mergeError').textContent = e.message;
+  }
+}
+
 function openMerge(kind, id) {
   const from = cats[kind].find((x) => String(x.id) === String(id));
   if (!from) return;
-  const targets = cats[kind].filter((x) => String(x.id) !== String(id));
-  if (!targets.length) { toast(`没有其他${KIND_LABEL[kind]}可合并到`, true); return; }
   mergeCtx = { kind, fromId: from.id, fromName: from.name };
+  mergeSeq += 1;
+  clearTimeout(mergeTimer);
   $('#mergeTitle').textContent = `合并${KIND_LABEL[kind]}`;
   $('#mergeDesc').textContent = `把「${from.name}」下的 ${from.count} 本书并入所选${KIND_LABEL[kind]},合并后「${from.name}」自动删除。`;
-  const sel = $('#mergeTarget');
-  sel.innerHTML = targets.map((t) => `<option value="${t.id}">${esc(t.name)}(${t.count})</option>`).join('');
-  sel.value = String(targets[0].id);
-  syncCustomSelect(sel);
+  $('#mergeSearch').value = '';
+  $('#mergeSearch').placeholder = `输入${KIND_LABEL[kind]}名称查找`;
   $('#mergeError').textContent = '';
+  renderMergeTargets(cats[kind]);
   openModal('#mergeModal');
+  searchMergeTargets('');
+  setTimeout(() => $('#mergeSearch').focus(), 60);
 }
 
 async function confirmMerge() {
@@ -121,12 +195,12 @@ async function confirmMerge() {
   const to = Number($('#mergeTarget').value);
   if (!to) return;
   try {
-    const res = await api(`/api/${kind}/merge`, {
+    await api(`/api/${kind}/merge?with_list=0`, {
       method: 'POST', body: JSON.stringify({ from: mergeCtx.fromId, to }),
     });
     mergeCtx = null;
     closeModals();
-    afterMutation(kind, res[kind], `「${fromName}」已并入目标${KIND_LABEL[kind]}`);
+    await afterMutation(kind, `「${fromName}」已并入目标${KIND_LABEL[kind]}`);
   } catch (e) {
     $('#mergeError').textContent = e.message;
   }
@@ -145,10 +219,34 @@ function bindList(kind, sel) {
   });
 }
 
+function bindSearch(kind, sel) {
+  $(sel).addEventListener('input', (e) => onSearch(kind, e.target.value));
+}
+
+function bindMore(kind, sel) {
+  $(sel).addEventListener('click', async () => {
+    const btn = $(sel);
+    if (btn.disabled) return;
+    btn.disabled = true;
+    await loadKind(kind, { append: true });
+    btn.disabled = false;
+  });
+}
+
 initCustomSelect($('#mergeTarget'));
 bindList('tags', '#tagsList');
 bindList('authors', '#authorsList');
+bindSearch('tags', '#tagsSearch');
+bindSearch('authors', '#authorsSearch');
+bindMore('tags', '#tagsMore');
+bindMore('authors', '#authorsMore');
 $('#mergeConfirm').addEventListener('click', confirmMerge);
+$('#mergeSearch').addEventListener('input', (e) => {
+  mergeSeq += 1;
+  clearTimeout(mergeTimer);
+  const q = e.target.value;
+  mergeTimer = setTimeout(() => searchMergeTargets(q), 250);
+});
 
 /* ============ 自定义字段管理(对标 calibre 自定义列) ============
  * 字段定义存在服务端(custom_columns 表),这里只做增删改的入口。

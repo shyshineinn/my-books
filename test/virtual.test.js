@@ -181,3 +181,29 @@ test('listSeries 支持作用域;未受影响时与改造前一致', () => {
   assert.deepEqual(books.listSeries(db, { scopeIds: [] }), []);
   db.close();
 });
+
+test('searchSeries:分页、关键词、作用域与默认全量兼容', () => {
+  const { db, ids } = seedDb();
+  db.prepare('UPDATE books SET series = ?, series_index = 1 WHERE id = ?').run('地球往事', ids.sf);
+  db.prepare('UPDATE books SET series = ?, series_index = 2 WHERE id = ?').run('地球往事', ids.living);
+  db.prepare('UPDATE books SET series = ?, series_index = 1 WHERE id = ?').run('其他系列', ids.draft);
+
+  const first = books.searchSeries(db, { limit: 1 });
+  assert.equal(first.total, 2);
+  assert.deepEqual(first.items.map((s) => `${s.name}:${s.count}`), ['其他系列:1']);
+  const second = books.searchSeries(db, { limit: 1, offset: 1 });
+  assert.deepEqual(second.items.map((s) => s.name), ['地球往事']);
+
+  const searched = books.searchSeries(db, { q: '地球' });
+  assert.equal(searched.total, 1);
+  assert.equal(searched.items[0].count, 2);
+  assert.equal(searched.items[0].max_index, 2);
+
+  const scoped = books.searchSeries(db, { q: '地球', scopeIds: [ids.sf] });
+  assert.equal(scoped.total, 1);
+  assert.equal(scoped.items[0].count, 1);
+  assert.deepEqual(books.searchSeries(db, { scopeIds: [] }), { items: [], total: 0 });
+
+  assert.deepEqual(books.listSeries(db).map((s) => s.name), ['其他系列', '地球往事'], '无参数仍走全量');
+  db.close();
+});

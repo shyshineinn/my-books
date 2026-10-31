@@ -21,6 +21,8 @@
 {"username":"your-admin-name","password":"your-own-password","device_name":"Android phone"}
 ```
 
+网页可额外传稳定的 `device_key`：同一浏览器重复登录会替换旧会话，避免设备列表堆积；
+不传时行为不变，安卓客户端无需修改。
 成功响应包含 `token` 与 `expires_at`；网页同时获得 HttpOnly Cookie。
 客户端将设备令牌放在 `Authorization: Bearer <device-token>`，不要放在 URL 或日志中。
 新接入使用独立设备会话，不在客户端内置旧版管理员令牌。
@@ -136,6 +138,38 @@ GET /api/rank/feed?size=8          -> {total, done, reread[]}
 
 书目详情响应中的 `collections` 字段给出该书所属分组。回收站里的书不计入分组计数；
 恢复后原有关系仍然保留。安卓同步协议不包含藏书集。
+
+### CSV 导入导出
+
+`GET /api/export.csv` 接受与 `/api/books` 相同的筛选参数（含 `collection=<id>`、`vl`），
+返回固定列 + 自定义字段；`collections` 列是所属手动藏书集名称，多个用逗号连接。
+`POST /api/import.csv` 首行必须是表头，至少包含 `title` / `书名`；支持 `collections` /
+`collection` / `藏书集` 列（逗号、顿号、分号分隔），导入时按名称自动创建藏书集并加入，
+重复成员幂等。`duplicate=ignore` 跳过的行不会改动藏书集；`dry_run=1` 仍只预览不写库。
+新建或合并书籍与藏书集归属在同一事务中提交，非法藏书集名称会整本回滚。
+
+### 作者、标签与系列列表
+
+`GET /api/authors`、`GET /api/tags` 与 `GET /api/series` 默认（不带参数）仍返回全量数组，
+兼容既有页面与工具。传入任一筛选/分页参数后，响应仍是数组，但匹配总数放在 `X-Total-Count`：
+
+| 参数 | 说明 |
+| --- | --- |
+| `q` | 名称子串，`%`/`_` 按字面量匹配；最多 200 字 |
+| `limit` | 返回条数，1~200，默认 200 |
+| `offset` | 起始偏移，非负整数 |
+| `vl` | 虚拟书库作用域，同其他分类接口 |
+
+```http
+GET /api/authors?q=王&limit=80
+X-Total-Count: 34
+```
+
+筛选与分页路径只统计在架书，排除 0 本作者/标签；作者与系列按名称排序，标签按引用数排序。
+系列项仍带 `min_index`/`max_index`/`label`。非法 `limit`/`offset` 返回 400 `VALIDATION`。
+
+标签/作者的 `rename`、`merge`、`delete` 写操作默认仍附带最新全量列表；大库管理端可带
+`?with_list=0`，只返回 `{ok:true,...}`，再按搜索/分页自行拉取。
 
 ## 附件与心得
 

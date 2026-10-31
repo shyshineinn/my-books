@@ -24,6 +24,7 @@ const identifiersRepo = require('./identifiers');
 const categories = require('./categories');
 const search = require('./search');
 const customFields = require('./custom_fields');
+const collectionsRepo = require('./collections');
 const { parseBook, mergeUpdate } = require('../core/book');
 const { isbnKey } = require('../core/isbn');
 const { parseCsv } = require('../core/csv');
@@ -55,7 +56,7 @@ function makeIsbnOf(handleDb = db) {
 
 // 建新书:body 来自 CSV 行,先过 core/parseBook 统一校验与推导
 // (阅读记录是唯一日期来源等规则也一并生效)。
-function createBook(body, customValues = null, handleDb = db) {
+function createBook(body, customValues = null, handleDb = db, collectionNames = []) {
   const { errors, values } = parseBook(body);
   if (errors.length) {
     throw Object.assign(new Error(errors.join(';')), { code: 'VALIDATION' });
@@ -64,7 +65,11 @@ function createBook(body, customValues = null, handleDb = db) {
   // 所以不需要单独传 tags;identifiers 则被 parseBook 放在 values.identifiers,
   // 由 books.addBook 内部处理 —— 这里不用再剔出来手动写一次
   // (早期版本剔了又写,会因为 idMap 为空而漏写,已修)。
-  return books.addBook(values, customValues, handleDb);
+  return inTransaction(handleDb, () => {
+    const row = books.addBook(values, customValues, handleDb);
+    collectionsRepo.addBookToCollections(handleDb, row.id, collectionNames);
+    return row;
+  });
 }
 
 /**
@@ -74,7 +79,9 @@ function createBook(body, customValues = null, handleDb = db) {
  *
  * @returns 更新后的行 | null(目标不存在)
  */
-function mergeBook(bookId, body, customValues = null, { overwrite = false } = {}, handleDb = db) {
+function mergeBook(
+  bookId, body, customValues = null, { overwrite = false } = {}, handleDb = db, collectionNames = [],
+) {
   const existing = books.getBook(bookId, handleDb);
   if (!existing) return null;
 
@@ -155,6 +162,7 @@ function mergeBook(bookId, body, customValues = null, { overwrite = false } = {}
       if (Object.keys(toSet).length) customFields.setValues(handleDb, bookId, toSet);
     }
 
+    collectionsRepo.addBookToCollections(handleDb, bookId, collectionNames);
     return books.getBook(bookId, handleDb);
   });
 }

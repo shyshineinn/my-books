@@ -78,13 +78,13 @@ async function handleImportCsv(req, res) {
     const out = importCsv({
       listExisting: () => dbImport.listExisting(db),
       isbnOf: dbImport.makeIsbnOf(db),
-      createBook: (body, custom) => {
+      createBook: (body, custom, meta) => {
         const clean = validateCustom(byLabel, custom);
-        return dbImport.createBook(body, clean, db);
+        return dbImport.createBook(body, clean, db, meta && meta.collections);
       },
-      mergeBook: (id, body, custom, opts) => {
+      mergeBook: (id, body, custom, opts, meta) => {
         const clean = validateCustom(byLabel, custom);
-        return dbImport.mergeBook(id, body, clean, opts, db);
+        return dbImport.mergeBook(id, body, clean, opts, db, meta && meta.collections);
       },
     }, {
       text,

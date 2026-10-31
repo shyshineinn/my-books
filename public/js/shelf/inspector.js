@@ -6,6 +6,10 @@
 (function () {
   const S = window.ShelfUI = window.ShelfUI || {};
   const state = () => S.state;
+  let loadSeq = 0;
+  let tagsBookId = null;
+  let tagsExpanded = false;
+  const TAG_PREVIEW = 8;
 
   function parseJson(value, fallback) {
     try { return JSON.parse(value); } catch { return fallback; }
@@ -24,8 +28,8 @@
     const root = $('#wbInspector');
     if (!root) return;
     state().inspectorOpen = true;
-    if (window.matchMedia('(max-width: 899px)').matches) {
-      $('#shelfWorkbench').classList.add('sidebar-collapsed');
+    if (window.matchMedia('(max-width: 1180px)').matches && S.hooks.closeSidebar) {
+      S.hooks.closeSidebar();
     }
     root.hidden = false;
     $('#shelfWorkbench').classList.add('inspector-open');
@@ -109,6 +113,12 @@
 
   function contentHtml(book) {
     const tags = tagsOf(book);
+    if (tagsBookId !== book.id) {
+      tagsBookId = book.id;
+      tagsExpanded = false;
+    }
+    const visibleTags = tagsExpanded ? tags : tags.slice(0, TAG_PREVIEW);
+    const moreTags = tags.length > TAG_PREVIEW;
     const rating = Number(book.rating) > 0 ? book.rating : '';
     const logs = parseJson(book.read_logs || '[]', []);
     const lastLog = Array.isArray(logs) && logs.length ? logs[logs.length - 1] : null;
@@ -119,7 +129,7 @@
       </div>
       <div class="wb-inspector-cover">${coverHtml(book)}</div>
       <h2 class="wb-inspector-title">${esc(book.title)}</h2>
-      ${book.author ? `<p class="wb-inspector-author">${esc(book.author)}</p>` : ''}
+      <p class="wb-inspector-author${book.author ? '' : ' is-empty'}">${book.author ? esc(book.author) : '未设置作者'}</p>
 
       <div class="wb-meta">
         <div class="wb-meta-row">
@@ -131,23 +141,24 @@
         </div>
         <div class="wb-meta-row">
           <span class="wb-meta-k">评分</span>
-          <span class="wb-meta-v"><input type="number" min="0" max="10" step="0.1" value="${esc(String(rating))}" placeholder="未评分" data-inspector-rating aria-label="评分"></span>
+          <span class="wb-meta-v wb-rating"><input type="number" min="0" max="10" step="0.1" value="${esc(String(rating))}" placeholder="未设置" data-inspector-rating aria-label="评分（满分 10）"><span class="wb-rating-unit">/ 10</span></span>
         </div>
         <div class="wb-meta-row">
           <span class="wb-meta-k">系列</span>
           <span class="wb-meta-v"><span class="wb-series-inputs">
-            <input type="text" value="${esc(book.series || '')}" placeholder="系列名" data-series-name aria-label="系列名">
-            <input type="text" value="${esc(book.series_index || '')}" placeholder="序号" data-series-index aria-label="系列序号">
+            <input type="text" value="${esc(book.series || '')}" placeholder="未设置" data-series-name aria-label="系列名">
+            <input type="text" value="${esc(book.series_index || '')}" placeholder="未设置" data-series-index aria-label="系列序号">
           </span></span>
         </div>
-        ${pub ? `<div class="wb-meta-row"><span class="wb-meta-k">出版</span><span class="wb-meta-v">${esc(pub)}</span></div>` : ''}
-        ${book.isbn ? `<div class="wb-meta-row"><span class="wb-meta-k">ISBN</span><span class="wb-meta-v">${esc(book.isbn)}</span></div>` : ''}
+        <div class="wb-meta-row"><span class="wb-meta-k">出版</span><span class="wb-meta-v${pub ? '' : ' is-empty'}">${pub ? esc(pub) : '未设置'}</span></div>
+        <div class="wb-meta-row"><span class="wb-meta-k">ISBN</span><span class="wb-meta-v${book.isbn ? '' : ' is-empty'}">${book.isbn ? esc(book.isbn) : '未设置'}</span></div>
         ${lastLog && (lastLog.start || lastLog.finish) ? `<div class="wb-meta-row"><span class="wb-meta-k">阅读</span><span class="wb-meta-v">${esc([lastLog.start, lastLog.finish].filter(Boolean).join(' → '))}</span></div>` : ''}
       </div>
 
       <div class="wb-section-title">标签</div>
       <div class="wb-chips">
-        ${tags.map((t) => `<span class="wb-chip">${esc(t)}<button type="button" data-remove-tag="${esc(t)}" aria-label="移除标签 ${esc(t)}">✕</button></span>`).join('')}
+        ${visibleTags.map((t) => `<span class="wb-chip">${esc(t)}<button type="button" data-remove-tag="${esc(t)}" aria-label="移除标签 ${esc(t)}">✕</button></span>`).join('')}
+        ${moreTags ? `<button type="button" class="wb-chip-more" data-tags-more>${tagsExpanded ? '收起' : `显示更多 (${tags.length - TAG_PREVIEW})`}</button>` : ''}
         <input type="text" class="wb-chip-input" placeholder="+ 标签" data-new-tag aria-label="添加标签">
       </div>
 
@@ -181,6 +192,7 @@
     if (!root) return;
     if (!state().inspectorOpen) { root.hidden = true; return; }
     root.hidden = false;
+    const previousScroll = root.querySelector('.wb-inspector-scroll')?.scrollTop || 0;
     const s = state();
     if (s.selection.size > 1) {
       root.innerHTML = `<div class="wb-inspector-scroll">${multiHtml()}</div>`;
@@ -199,10 +211,13 @@
       return;
     }
     root.innerHTML = `<div class="wb-inspector-scroll">${contentHtml(book)}</div>`;
+    const scroller = root.querySelector('.wb-inspector-scroll');
+    if (scroller) scroller.scrollTop = previousScroll;
   }
 
   async function loadSelection() {
     const s = state();
+    const seq = ++loadSeq;
     if (!s.inspectorOpen) return;
     if (s.selection.size !== 1) {
       s.inspectorBook = null;
@@ -210,20 +225,23 @@
       return;
     }
     const id = [...s.selection][0];
-    const existing = s.books.find((b) => b.id === id);
     if (s.inspectorBook && s.inspectorBook.id === id) { render(); return; }
     s.inspectorBook = null;
     s.inspectorLoading = true;
     render();
     try {
       const book = await S.loadDetail(id);
+      // 请求期间可能已经切到另一本书:过期的 A 不能覆盖 B。
+      if (seq !== loadSeq || !s.inspectorOpen || s.selection.size !== 1
+          || [...s.selection][0] !== id) return;
       s.inspectorBook = book;
       render();
     } catch (err) {
+      if (seq !== loadSeq) return;
       toast(err.message, true);
       hide();
     } finally {
-      s.inspectorLoading = false;
+      if (seq === loadSeq) s.inspectorLoading = false;
     }
   }
 
@@ -234,18 +252,33 @@
       const updated = await S.patchBook(book.id, patch);
       state().inspectorBook = updated;
       S.updateBook(updated);
-      render();
       invalidateSharedStats();
+
+      // q 依赖 FTS,虚拟书库依赖查询语法,客户端判不准:让服务端重查。
+      const needsServerRecheck = !!state().vl
+        || (!!state().q && Object.prototype.hasOwnProperty.call(patch, 'tags'));
+      if (needsServerRecheck) {
+        if (message) toast(message);
+        await S.hooks.filterChanged({ refreshFacets: true });
+        return;
+      }
+      if (!S.matchesFilters(updated)) {
+        await S.loadFacets();
+        S.hooks.facetsChanged();
+        S.hooks.bookRemoved(updated.id);
+        toast('修改后不再符合当前筛选,已从列表移除');
+        return;
+      }
+
+      render();
       await S.loadFacets();
       S.hooks.facetsChanged();
       if (message) toast(message);
     } catch (err) {
       toast(err.message, true);
       if (err.code === 'CONFLICT') {
-        try {
-          state().inspectorBook = await S.loadDetail(book.id);
-          render();
-        } catch { /* ignore */ }
+        state().inspectorBook = null;
+        await loadSelection();
       }
     }
   }
@@ -282,7 +315,12 @@
       if (e.target.closest('[data-multi="enrich"]')) { S.actions.runEnrich(); return; }
       if (e.target.closest('[data-multi="clear"]')) { S.hooks.clearSelection(); return; }
       const status = e.target.closest('[data-inspector-status]');
-      if (status) { await patch({ status: status.dataset.inspectorStatus }); return; }
+      if (status) { await patch({ status: status.dataset.inspectorStatus }, '状态已更新'); return; }
+      if (e.target.closest('[data-tags-more]')) {
+        tagsExpanded = !tagsExpanded;
+        render();
+        return;
+      }
       if (e.target.closest('[data-collection-add]')) {
         S.inspectorPop = !S.inspectorPop;
         render();

@@ -6,6 +6,10 @@
 (function () {
   const S = window.ShelfUI = window.ShelfUI || {};
   const PAGE_SIZE = 60;
+  const FACET_INITIAL = 80;
+  const FACET_SEARCH_LIMIT = 100;
+  const FACET_ENDPOINTS = { author: '/api/authors', tag: '/api/tags', series: '/api/series' };
+  const FACET_LISTS = { author: 'authors', tag: 'tags', series: 'series' };
   const SORTS = ['updated', 'created', 'title', 'author', 'series', 'finish', 'relevance'];
 
   S.PAGE_SIZE = PAGE_SIZE;
@@ -18,7 +22,11 @@
     series: '',
     vl: '',
     sort: 'updated',
+    sortExplicit: false,
     view: 'grid',
+    density: 'standard',
+    showInfo: false,
+    columns: ['series', 'rating', 'format'],
     books: [],
     total: null,
     start: 0,
@@ -26,6 +34,7 @@
     hasMore: true,
     selection: new Set(),
     anchorId: null,
+    focusId: null,
     selectMode: false,
     inspectorOpen: false,
     inspectorId: null,
@@ -41,8 +50,30 @@
       tags: [],
     },
   };
-  S.ui = { pageSeq: 0, facetSeq: 0, detailSeq: 0 };
-  S.facetUI = { expanded: {}, query: {} };
+  S.ui = { pageSeq: 0, facetSeq: 0, detailSeq: 0, facetSearchSeq: { author: 0, tag: 0 } };
+  S.facetUI = { expanded: {}, query: {}, results: {}, pinned: {} };
+
+  const LAYOUT_KEY = 'shelf.layout';
+  S.parseLayout = function () {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
+      if (saved && ['compact', 'standard', 'large'].includes(saved.density)) S.state.density = saved.density;
+      if (saved && saved.showInfo === true) S.state.showInfo = true;
+      if (saved && Array.isArray(saved.columns)) {
+        const allowed = ['series', 'rating', 'format', 'publisher', 'pubYear', 'isbn', 'tags', 'readCount'];
+        S.state.columns = saved.columns.filter((key) => allowed.includes(key));
+      }
+    } catch { /* ignore */ }
+  };
+  S.saveLayout = function () {
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify({
+        density: S.state.density,
+        showInfo: S.state.showInfo,
+        columns: S.state.columns,
+      }));
+    } catch { /* ignore */ }
+  };
 
   const COLLAPSE_KEY = 'shelf.sidebar.collapsed';
   function readCollapsed() {
@@ -67,9 +98,17 @@
     s.series = p.get('series') || '';
     s.vl = p.get('vl') || '';
     const sort = p.get('sort');
-    s.sort = SORTS.includes(sort) ? sort : 'updated';
-    if (s.q && s.sort === 'updated') s.sort = 'relevance';
-    if (!s.q && s.sort === 'relevance') s.sort = 'updated';
+    if (sort && SORTS.includes(sort)) {
+      s.sort = sort;
+      s.sortExplicit = true;
+    } else {
+      s.sort = s.q ? 'relevance' : 'updated';
+      s.sortExplicit = false;
+    }
+    if (!s.q && s.sort === 'relevance') {
+      s.sort = 'updated';
+      s.sortExplicit = false;
+    }
     s.view = p.get('view') === 'list' ? 'list' : 'grid';
     if (s.q) {
       const input = document.getElementById('searchInput');
@@ -130,28 +169,95 @@
 
   const vlQuery = () => (S.state.vl ? '?vl=' + encodeURIComponent(S.state.vl) : '');
 
+  async function pinActiveFacet(key, seq) {
+    const value = String(S.state[key] || '');
+    if (!value) { delete S.facetUI.pinned[key]; return; }
+    const list = S.state.facets[FACET_LISTS[key]] || [];
+    if (list.some((item) => String(item.name) === value)) return;
+    const endpoint = FACET_ENDPOINTS[key];
+    if (!endpoint) return;
+    const params = new URLSearchParams({ q: value, limit: '20' });
+    if (S.state.vl) params.set('vl', S.state.vl);
+    const page = await apiPage(endpoint + '?' + params).catch(() => null);
+    if (seq !== S.ui.facetSeq) return;
+    const match = page && Array.isArray(page.data)
+      ? page.data.find((item) => String(item.name).toLowerCase() === value.toLowerCase())
+      : null;
+    S.facetUI.pinned[key] = { name: value, count: match ? match.count : null };
+  }
+
+  S.searchFacet = async function (key, q) {
+    const endpoint = FACET_ENDPOINTS[key];
+    if (!endpoint) return null;
+    const text = String(q || '').trim();
+    const seq = (S.ui.facetSearchSeq[key] || 0) + 1;
+    S.ui.facetSearchSeq[key] = seq;
+    if (!text) { S.facetUI.results[key] = null; return null; }
+    const params = new URLSearchParams({ q: text, limit: String(FACET_SEARCH_LIMIT) });
+    if (S.state.vl) params.set('vl', S.state.vl);
+    let page;
+    try {
+      page = await apiPage(endpoint + '?' + params);
+    } catch {
+      return null;
+    }
+    if (seq !== S.ui.facetSearchSeq[key]) return null;
+    const items = Array.isArray(page.data) ? page.data : [];
+    const result = { q: text, items, total: page.total === null ? items.length : page.total };
+    S.facetUI.results[key] = result;
+    return result;
+  };
+
+  async function refreshFacetSearches() {
+    const tasks = [];
+    for (const key of ['author', 'tag', 'series']) {
+      const q = String(S.facetUI.query[key] || '').trim();
+      if (!q) { S.facetUI.results[key] = null; continue; }
+      tasks.push(S.searchFacet(key, q));
+    }
+    if (tasks.length) await Promise.all(tasks);
+  }
+
   S.loadFacets = async function () {
     const seq = ++S.ui.facetSeq;
     const query = vlQuery();
+    const params = new URLSearchParams();
+    if (S.state.vl) params.set('vl', S.state.vl);
+    params.set('limit', String(FACET_INITIAL));
+    const facetQuery = '?' + params.toString();
     const fallback = (value) => api(value).catch(() => null);
-    const [stats, collections, virtualLibraries, series, authors, tags] = await Promise.all([
+    const fallbackPage = (value) => apiPage(value).catch(() => null);
+    const [stats, collections, virtualLibraries, seriesPage, authorsPage, tagsPage] = await Promise.all([
       fallback('/api/stats' + query),
       fallback('/api/collections' + query),
       fallback('/api/virtual-libraries'),
-      fallback('/api/series' + query),
-      fallback('/api/authors' + query),
-      fallback('/api/tags' + query),
+      fallbackPage('/api/series' + facetQuery),
+      fallbackPage('/api/authors' + facetQuery),
+      fallbackPage('/api/tags' + facetQuery),
     ]);
     if (seq !== S.ui.facetSeq) return;
+    const series = seriesPage && Array.isArray(seriesPage.data) ? seriesPage.data : [];
+    const authors = authorsPage && Array.isArray(authorsPage.data) ? authorsPage.data : [];
+    const tags = tagsPage && Array.isArray(tagsPage.data) ? tagsPage.data : [];
     S.state.facets = {
       total: Number(stats && stats.total) || 0,
       byStatus: (stats && stats.byStatus) || { wish: 0, reading: 0, done: 0 },
       collections: Array.isArray(collections) ? collections : [],
       virtualLibraries: Array.isArray(virtualLibraries) ? virtualLibraries : [],
-      series: Array.isArray(series) ? series : [],
-      authors: Array.isArray(authors) ? authors : [],
-      tags: Array.isArray(tags) ? tags : [],
+      series,
+      authors,
+      tags,
+      seriesTotal: seriesPage && seriesPage.total !== null ? seriesPage.total : series.length,
+      authorTotal: authorsPage && authorsPage.total !== null ? authorsPage.total : authors.length,
+      tagTotal: tagsPage && tagsPage.total !== null ? tagsPage.total : tags.length,
     };
+    await Promise.all([
+      pinActiveFacet('author', seq),
+      pinActiveFacet('tag', seq),
+      pinActiveFacet('series', seq),
+    ]);
+    if (seq !== S.ui.facetSeq) return;
+    await refreshFacetSearches();
   };
 
   S.loadDetail = async function (id) {
@@ -163,6 +269,26 @@
     } finally {
       if (seq === S.ui.detailSeq) S.state.inspectorLoading = false;
     }
+  };
+
+  // 客户端能可靠判断的筛选轴(status/tag/author/series/collection)。
+  // q 与虚拟书库可能依赖 FTS/查询语法,由调用方走后端重查。
+  S.matchesFilters = function (book) {
+    if (!book) return false;
+    const s = S.state;
+    if (s.status && book.status !== s.status) return false;
+    if (s.tag) {
+      let tags = [];
+      try { tags = JSON.parse(book.tags || '[]'); } catch { tags = []; }
+      if (!Array.isArray(tags) || !tags.includes(s.tag)) return false;
+    }
+    if (s.author && !String(book.author || '').includes(s.author)) return false;
+    if (s.series && String(book.series || '').toLowerCase() !== String(s.series).toLowerCase()) return false;
+    if (s.collection) {
+      const memberships = Array.isArray(book.collections) ? book.collections : [];
+      if (!memberships.some((c) => String(c.id) === String(s.collection))) return false;
+    }
+    return true;
   };
 
   S.updateBook = function (book) {

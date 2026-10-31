@@ -9,7 +9,8 @@
  * 一本书可以同时属于多个藏书集,删除藏书集不会删除书。
  * ============================================================ */
 
-const { scopeClause } = require('../core/sql');
+const { inClause, scopeClause } = require('../core/sql');
+const { inTransaction } = require('./index');
 
 const MAX_NAME = 100;
 const MAX_BATCH = 1000;
@@ -111,7 +112,9 @@ function addBooks(handleDb, collectionId, ids) {
     SELECT ?, b.id, ? FROM books b WHERE b.id = ? AND b.deleted_at IS NULL
   `);
   let added = 0;
-  for (const bookId of values) added += insert.run(collectionId, ts, bookId).changes;
+  inTransaction(handleDb, () => {
+    for (const bookId of values) added += insert.run(collectionId, ts, bookId).changes;
+  });
   return added;
 }
 
@@ -119,7 +122,9 @@ function removeBooks(handleDb, collectionId, ids) {
   const values = normalizeIds(ids);
   const remove = handleDb.prepare('DELETE FROM book_collections WHERE collection_id = ? AND book_id = ?');
   let removed = 0;
-  for (const bookId of values) removed += remove.run(collectionId, bookId).changes;
+  inTransaction(handleDb, () => {
+    for (const bookId of values) removed += remove.run(collectionId, bookId).changes;
+  });
   return removed;
 }
 
@@ -133,6 +138,56 @@ function listForBook(handleDb, bookId) {
   `).all(bookId);
 }
 
+// CSV 导出:一次取完一批书的藏书集名称,避免逐本 N+1。
+function listNamesForBooks(handleDb, bookIds) {
+  const ids = [...new Set((bookIds || []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  const map = new Map();
+  if (!ids.length) return map;
+  const clause = inClause('bc.book_id', ids);
+  const rows = handleDb.prepare(`
+    SELECT bc.book_id AS book, c.name
+    FROM book_collections bc
+    JOIN collections c ON c.id = bc.collection_id
+    WHERE ${clause.sql}
+    ORDER BY c.name COLLATE NOCASE, c.id
+  `).all(...clause.params);
+  for (const row of rows) {
+    if (!map.has(row.book)) map.set(row.book, []);
+    map.get(row.book).push(row.name);
+  }
+  return map;
+}
+
+// CSV 导入:按名称找到或创建藏书集,再把书加入;已属于同一集时保持幂等。
+// 名称大小写去重,空名称/超长名称会在建集前抛 VALIDATION。
+function addBookToCollections(handleDb, bookId, names) {
+  const values = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(names) ? names : []) {
+    const name = normalizeName(raw);
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(name);
+  }
+  if (!values.length) return 0;
+  const find = handleDb.prepare('SELECT id FROM collections WHERE name = ? COLLATE NOCASE');
+  const insertLink = handleDb.prepare(`
+    INSERT OR IGNORE INTO book_collections(collection_id, book_id, added_at)
+    SELECT ?, id, ? FROM books WHERE id = ? AND deleted_at IS NULL
+  `);
+  const ts = now();
+  let added = 0;
+  inTransaction(handleDb, () => {
+    for (const name of values) {
+      let row = find.get(name);
+      if (!row) row = createCollection(handleDb, name);
+      added += insertLink.run(row.id, ts, bookId).changes;
+    }
+  });
+  return added;
+}
+
 // 合并书籍:把来源书的成员关系并到目标书;目标已在同一藏书集时保持一条。
 function mergeForBook(handleDb, sourceId, targetId) {
   return handleDb.prepare(`
@@ -144,5 +199,5 @@ function mergeForBook(handleDb, sourceId, targetId) {
 module.exports = {
   MAX_NAME, MAX_BATCH,
   listCollections, getCollection, createCollection, renameCollection, removeCollection,
-  addBooks, removeBooks, countBooks, listForBook, mergeForBook,
+  addBooks, removeBooks, countBooks, listForBook, listNamesForBooks, addBookToCollections, mergeForBook,
 };

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="My books">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/css/style.css?v=108">
+  <link rel="stylesheet" href="/css/style.css?v=110">
 </head>
 <body data-page="tags">
   <main>
@@ -19,11 +19,19 @@
     <div class="cats">
       <section class="cat-col is-collapsed" aria-labelledby="tagsHead">
         <header class="cat-head"><h2 id="tagsHead">标签</h2><span class="cat-count" id="tagsCount"></span></header>
+        <div class="cat-hint field">
+          <input type="text" id="tagsSearch" placeholder="搜索标签" aria-label="搜索标签" autocomplete="off">
+        </div>
         <div class="cat-list" id="tagsList"></div>
+        <div class="cat-actions" hidden><button type="button" class="btn btn-ghost btn-sm" id="tagsMore" hidden>加载更多</button></div>
       </section>
       <section class="cat-col is-collapsed" aria-labelledby="authorsHead">
         <header class="cat-head"><h2 id="authorsHead">作者</h2><span class="cat-count" id="authorsCount"></span></header>
+        <div class="cat-hint field">
+          <input type="text" id="authorsSearch" placeholder="搜索作者" aria-label="搜索作者" autocomplete="off">
+        </div>
         <div class="cat-list" id="authorsList"></div>
+        <div class="cat-actions" hidden><button type="button" class="btn btn-ghost btn-sm" id="authorsMore" hidden>加载更多</button></div>
       </section>
     </div>
 
@@ -74,12 +82,12 @@
       <header class="cat-head">
         <h2 id="exportHead">数据导入 / 导出</h2>
       </header>
-      <p class="cat-hint">导出全部在架书为 CSV(UTF-8 BOM,Excel 可直接打开)。包含阅读记录、系列、标识符、电子书格式与自定义字段;支持与书架相同的筛选参数,如 <code>/api/export.csv?status=done</code>。</p>
+      <p class="cat-hint">导出全部在架书为 CSV(UTF-8 BOM,Excel 可直接打开)。包含阅读记录、系列、标识符、电子书格式、手动藏书集与自定义字段;支持与书架相同的筛选参数,如 <code>/api/export.csv?status=done</code>。</p>
       <div class="cat-actions"><a class="btn btn-primary btn-sm" href="/api/export.csv">导出 CSV</a></div>
 
       <!-- 导入(导出功能的另一半):先「预览」再「确认导入」两步。
            预览走 dry_run,只校验与查重、不写库 —— 与 calibre 导入前的确认对话框同思路。 -->
-      <p class="cat-hint" style="margin-top:14px">导入 CSV:先把文件读一遍做校验与查重(<b>预览不会写库</b>),确认无误再真导。首行必须是表头,至少要有一列 <code>title</code> / <code>书名</code>。</p>
+      <p class="cat-hint" style="margin-top:14px">导入 CSV:先把文件读一遍做校验与查重(<b>预览不会写库</b>),确认无误再真导。首行必须是表头,至少要有一列 <code>title</code> / <code>书名</code>;带 <code>collections</code> / <code>藏书集</code> 列时按名称自动建集并加入。</p>
       <div class="cat-actions import-actions">
         <input type="file" id="importFile" accept=".csv,text/csv" hidden>
         <button type="button" class="btn btn-ghost btn-sm" id="importPickBtn">选择 CSV 文件</button>
@@ -171,6 +179,10 @@
       <div class="form-grid">
         <div class="field field-full">
           <p class="merge-desc" id="mergeDesc"></p>
+          <label for="mergeSearch">搜索目标</label>
+          <input type="text" id="mergeSearch" placeholder="输入名称查找要合并到的目标" autocomplete="off">
+        </div>
+        <div class="field field-full">
           <label for="mergeTarget">合并到</label>
           <select id="mergeTarget" aria-label="合并目标"></select>
         </div>
@@ -185,9 +197,15 @@
     </div>
   </div>
 
-  <script defer src="/js/chrome.js?v=34"></script>
-  <script defer src="/js/common.js?v=32"></script>
+  <script defer src="/js/chrome.js?v=35"></script>
+  <script defer src="/js/base.js?v=1"></script>
+  <script defer src="/js/api.js?v=1"></script>
+  <script defer src="/js/cover.js?v=1"></script>
+  <script defer src="/js/select.js?v=1"></script>
+  <script defer src="/js/modal.js?v=1"></script>
+  <script defer src="/js/overlay.js?v=1"></script>
+  <script defer src="/js/common.js?v=42"></script>
   <script defer src="/js/scanner.js?v=2"></script>
-  <script defer src="/js/page-tags.js?v=6"></script>
+  <script defer src="/js/page-tags.js?v=8"></script>
 </body>
 </html>

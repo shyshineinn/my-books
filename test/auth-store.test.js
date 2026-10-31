@@ -33,6 +33,20 @@ test('每台设备独立授权，重启后保留，撤销不影响另一设备',
   assert.ok(reopened.authenticate(b.token));
   assert.equal(JSON.stringify(reopened.listSessions()).includes('tokenHash'), false);
 });
+test('同一浏览器 device_key 重复登录替换旧会话', () => {
+  const file = path.join(root, 'same-device.json');
+  const store = createAuthStore(file);
+  const first = store.issueSession('网页浏览器', 'browser-key-1');
+  const second = store.issueSession('网页浏览器', 'browser-key-1');
+  const other = store.issueSession('网页浏览器', 'browser-key-2');
+  assert.equal(store.authenticate(first.token), null, '旧会话被替换');
+  assert.ok(store.authenticate(second.token));
+  assert.ok(store.authenticate(other.token));
+  const sessions = store.listSessions();
+  assert.equal(sessions.length, 2);
+  assert.equal(JSON.stringify(sessions).includes('deviceKeyHash'), false, '不暴露设备指纹');
+});
+
 test('旧令牌先签发设备会话后，仍能初始化账号并保留设备', async () => {
   const store = createAuthStore(path.join(root, 'legacy.json'));
   const session = store.issueSession('old device');

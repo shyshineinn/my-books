@@ -28,8 +28,20 @@ const coreIdent = require('../core/identifiers');
 const { db } = require('../db/index');
 const { getBookSnapshot } = require('../db/sync');
 const { checkBookPrecondition } = require('../core/revision');
+const { facetOptions } = require('./facet-params');
 
 const router = express.Router();
+
+function seriesDto(row) {
+  return {
+    name: row.name,
+    count: row.count,
+    // 0 表示"未指定序号",对外统一成 null,前端据此不显示 #
+    min_index: row.min_index || null,
+    max_index: row.max_index || null,
+    label: coreSeries.seriesLabel(row.name, row.max_index),
+  };
+}
 
 // 给书籍行附加文件信息 + 标识符 + 系列展示串:
 //   files          —— 该书全部文件 [{id, format, path, size}](详情弹窗下载区)
@@ -153,14 +165,26 @@ router.get('/api/books', (req, res) => {
 // A3:系列列表(带计数与序号范围)—— 等价于 calibre 的 tag browser 系列分类。
 // 不建 series 值表,GROUP BY 即可(count / min / max 一次查出)。
 router.get('/api/series', (req, res) => {
-  res.json(books.listSeries(db, { scopeIds: req.vlScope }).map((r) => ({
-    name: r.name,
-    count: r.count,
-    // 0 表示"未指定序号",对外统一成 null,前端据此不显示 #
-    min_index: r.min_index || null,
-    max_index: r.max_index || null,
-    label: coreSeries.seriesLabel(r.name, r.max_index),
-  })));
+  let options;
+  try {
+    options = facetOptions(req.query);
+  } catch (err) {
+    if (err && err.code === 'VALIDATION') {
+      return res.status(400).json({ error: err.message, code: 'VALIDATION' });
+    }
+    throw err;
+  }
+  if (!options.filtered) {
+    return res.json(books.listSeries(db, { scopeIds: req.vlScope }).map(seriesDto));
+  }
+  const { items, total } = books.searchSeries(db, {
+    scopeIds: req.vlScope,
+    q: options.q,
+    limit: options.limit,
+    offset: options.offset,
+  });
+  res.set('X-Total-Count', String(total));
+  res.json(items.map(seriesDto));
 });
 
 // A5:标识符冲突自检(同类型同值被多本书占用)—— 数据体检用,只读

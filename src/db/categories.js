@@ -199,6 +199,65 @@ function listAuthors(db, { scopeIds = null } = {}) {
   `).all();
 }
 
+// 为侧栏的"只取前 N 项 + 关键词搜索"服务。
+// 与上面的全量列表不同:内连接天然排除 0 本作者/标签,排序也贴合侧栏展示
+// (作者按名称、标签按引用数),默认无参数路径保持原样。
+function escapeLike(value) {
+  return String(value).replace(/[\\%_]/g, (ch) => '\\' + ch);
+}
+
+function facetFilter(column, q) {
+  const text = String(q || '').trim();
+  if (!text) return null;
+  return { sql: `${column} LIKE ? ESCAPE '\\'`, params: [`%${escapeLike(text)}%`] };
+}
+
+function searchTags(db, { scopeIds = null, q = '', limit = 100, offset = 0 } = {}) {
+  const scoped = scopeClause('b.id', scopeIds);
+  const name = facetFilter('t.name', q);
+  const clauses = [];
+  const params = [];
+  if (scoped) { clauses.push(scoped.sql); params.push(...scoped.params); }
+  if (name) { clauses.push(name.sql); params.push(...name.params); }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const from = `FROM tags t
+    JOIN book_tags bt ON bt.tag = t.id
+    JOIN books b ON b.id = bt.book AND b.deleted_at IS NULL
+    ${where}`;
+  const total = db.prepare(`SELECT COUNT(DISTINCT t.id) AS n ${from}`).get(...params).n;
+  const items = db.prepare(`
+    SELECT t.id, t.name, COUNT(b.id) AS count
+    ${from}
+    GROUP BY t.id
+    ORDER BY count DESC, t.name COLLATE NOCASE, t.id
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+  return { items, total };
+}
+
+function searchAuthors(db, { scopeIds = null, q = '', limit = 100, offset = 0 } = {}) {
+  const scoped = scopeClause('b.id', scopeIds);
+  const name = facetFilter('a.name', q);
+  const clauses = [];
+  const params = [];
+  if (scoped) { clauses.push(scoped.sql); params.push(...scoped.params); }
+  if (name) { clauses.push(name.sql); params.push(...name.params); }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const from = `FROM authors a
+    JOIN book_authors ba ON ba.author = a.id
+    JOIN books b ON b.id = ba.book AND b.deleted_at IS NULL
+    ${where}`;
+  const total = db.prepare(`SELECT COUNT(DISTINCT a.id) AS n ${from}`).get(...params).n;
+  const items = db.prepare(`
+    SELECT a.id, a.name, COUNT(b.id) AS count
+    ${from}
+    GROUP BY a.id
+    ORDER BY a.name COLLATE NOCASE, a.id
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+  return { items, total };
+}
+
 /* ---------- 变更操作:重命名 / 合并 / 删除 ----------
  * 统一模式:快照旧 FTS 行 → 改链接层 → 重算受影响书缓存 → 只重建这些书的索引。
  * 调用方负责事务边界(routes 层单条包一次,rebuildAll 迁移期已在事务内)。 */
@@ -331,6 +390,8 @@ module.exports = {
   recomputeBookCaches,
   listTags,
   listAuthors,
+  searchTags,
+  searchAuthors,
   renameTag,
   mergeTags,
   removeTag,

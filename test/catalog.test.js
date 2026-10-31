@@ -16,6 +16,7 @@ const categories = require('../src/db/categories.js');
 const identifiers = require('../src/db/identifiers.js');
 const bookFiles = require('../src/db/book_files.js');
 const customFields = require('../src/db/custom_fields.js');
+const collections = require('../src/db/collections.js');
 const { buildCatalog } = require('../src/db/catalog');
 
 const tmpDirs = [];
@@ -35,6 +36,7 @@ function freshDb() {
   db.exec('DELETE FROM authors');
   db.exec('DELETE FROM book_identifiers');
   db.exec('DELETE FROM book_files');
+  db.exec('DELETE FROM book_collections; DELETE FROM collections');
   search.reindexAll(db);
   return db;
 }
@@ -91,6 +93,10 @@ test('buildCatalog:固定列 + 自定义字段 + 标识符 + 文件格式', () =
     uuid: '11111111-1111-4111-8111-111111111111',
   });
   customFields.setValues(db, id, { mood: '震撼' });
+  const read = collections.createCollection(db, '待读');
+  const deep = collections.createCollection(db, '精读');
+  collections.addBooks(db, read.id, [id]);
+  collections.addBooks(db, deep.id, [id]);
 
   const { headers, rows } = buildCatalog(db, {});
   assert.equal(rows.length, 1);
@@ -102,6 +108,7 @@ test('buildCatalog:固定列 + 自定义字段 + 标识符 + 文件格式', () =
   assert.equal(row.status, 'done');
   assert.equal(row.status_label, '已读');
   assert.equal(row.tags, '小说, 科幻');
+  assert.equal(row.collections, '待读, 精读');
   assert.equal(row.series, '地球往事');
   assert.equal(row.series_index, 2.5);
   assert.equal(row.rating, 9.5);

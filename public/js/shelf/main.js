@@ -5,12 +5,37 @@
 (function () {
   const S = window.ShelfUI;
   const state = () => S.state;
-  const isMobile = () => window.matchMedia('(max-width: 899px)').matches;
+  const isMobile = () => window.matchMedia('(max-width: 819px)').matches;
   let viewSeq = 0;
   let longPressTimer = null;
   let longPressOrigin = null;
   let longPressId = null;
-  let longPressAt = 0;
+  let marqueeState = null;
+  let marqueeFrame = 0;
+  let marqueeGuard = false;
+
+  const SCROLL_KEY = 'shelf.scroll';
+
+  function saveScroll() {
+    const content = $('#wbContent');
+    if (!content) return;
+    try { sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ url: location.search, top: content.scrollTop })); } catch { /* ignore */ }
+  }
+
+  function restoreScroll() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SCROLL_KEY) || 'null');
+      if (!saved || saved.url !== location.search || !(saved.top > 0)) return;
+      const apply = () => {
+        const content = $('#wbContent');
+        if (content && content.scrollTop === 0) content.scrollTop = saved.top;
+      };
+      // 先同步应用;再给字体/图片布局一次修正机会(后台标签页的 rAF 可能被节流)。
+      apply();
+      requestAnimationFrame(apply);
+      setTimeout(apply, 80);
+    } catch { /* ignore */ }
+  }
 
   function activeFilters() {
     const s = state();
@@ -18,13 +43,52 @@
   }
 
   function updateCount() {
-    const el = $('#wbCount');
+    const el = $('#wbScope');
     if (!el) return;
     const s = state();
-    if (s.total === null || !activeFilters()) { el.textContent = ''; return; }
-    el.textContent = s.facets.total
-      ? `${s.total} 本 / 共 ${s.facets.total}`
-      : `${s.total} 本`;
+    const parts = [];
+    if (s.q) parts.push(`搜索「${s.q}」`);
+    if (s.status) parts.push(STATUS_LABEL[s.status] || s.status);
+    if (s.collection) {
+      const collection = (s.facets.collections || []).find((c) => String(c.id) === String(s.collection));
+      parts.push(collection ? collection.name : '分类');
+    }
+    if (s.tag) parts.push(s.tag);
+    if (s.author) parts.push(s.author);
+    if (s.series) parts.push(s.series);
+    if (s.vl) parts.push(s.vl);
+    const label = parts.length ? parts.join(' · ') : '全部图书';
+    el.textContent = s.total === null ? label : `${label} · ${s.total} 本`;
+    el.title = el.textContent;
+  }
+
+  function setSidebarOpen(open, { persist = true } = {}) {
+    const wb = $('#shelfWorkbench');
+    if (!wb) return;
+    wb.classList.toggle('sidebar-collapsed', !open);
+    const btn = $('#wbSidebarToggle');
+    if (btn) {
+      btn.setAttribute('aria-expanded', String(open));
+      btn.setAttribute('aria-label', open ? '隐藏资料库' : '显示资料库');
+    }
+    if (persist) {
+      try { localStorage.setItem('shelf.sidebar', open ? 'open' : 'closed'); } catch { /* ignore */ }
+    }
+  }
+
+  function closeSidebar(options = { persist: false }) {
+    setSidebarOpen(false, options);
+  }
+
+  function syncSearchPill() {
+    const label = $('#wbSearchLabel');
+    const pill = $('#shelfSearchBtn');
+    if (!label || !pill) return;
+    const q = state().q;
+    label.textContent = q || '搜索';
+    pill.classList.toggle('has-query', !!q);
+    pill.title = q ? `搜索：${q}` : '搜索';
+    pill.setAttribute('aria-label', q ? `当前搜索：${q}` : '搜索');
   }
 
   function updateEmpty() {
@@ -56,6 +120,15 @@
     else S.grid.render(state().books);
     updateEmpty();
     updateCount();
+    ensureFill();
+  }
+
+  function ensureFill() {
+    requestAnimationFrame(() => {
+      const sentinel = $('#shelfSentinel');
+      if (!sentinel || state().loading || !state().hasMore) return;
+      if (sentinel.getBoundingClientRect().top < window.innerHeight + 600) loadMore();
+    });
   }
 
   async function loadMore() {
@@ -84,13 +157,15 @@
     S.grid.render(state().books);
     updateEmpty();
     updateCount();
+    ensureFill();
   }
 
   async function filterChanged({ refreshFacets = false, reload = false } = {}) {
     const seq = ++viewSeq;
     syncSortUI();
+    syncSearchPill();
     clearSelectionAndInspector();
-    if (isMobile()) $('#shelfWorkbench').classList.add('sidebar-collapsed');
+    if (isMobile()) closeSidebar();
     S.syncUrl();
     if (refreshFacets) await S.loadFacets();
     if (seq !== viewSeq) return;
@@ -107,6 +182,7 @@
       S.grid.render(state().books);
       updateEmpty();
       updateCount();
+      ensureFill();
     } catch (err) {
       if (seq !== viewSeq) return;
       if (state().vl && /虚拟书库/.test(String(err.message || ''))) {
@@ -124,8 +200,13 @@
   async function applySearch(q, { resetSort = true } = {}) {
     const s = state();
     s.q = String(q || '');
-    if (resetSort && s.q && s.sort === 'updated') s.sort = 'relevance';
-    if (!s.q && s.sort === 'relevance') s.sort = 'updated';
+    if (resetSort) {
+      if (s.q && !s.sortExplicit && s.sort === 'updated') s.sort = 'relevance';
+      else if (!s.q && s.sort === 'relevance') {
+        s.sort = 'updated';
+        s.sortExplicit = false;
+      }
+    }
     syncSortUI();
     await filterChanged();
   }
@@ -141,7 +222,10 @@
       select.insertBefore(relevance, select.firstChild);
     } else if (!state().q && relevance) {
       relevance.remove();
-      if (state().sort === 'relevance') state().sort = 'updated';
+      if (state().sort === 'relevance') {
+        state().sort = 'updated';
+        state().sortExplicit = false;
+      }
     }
     select.value = state().sort;
     if (typeof syncCustomSelect === 'function') syncCustomSelect(select);
@@ -153,6 +237,53 @@
     if (!brand || !menu) return;
     brand.setAttribute('aria-expanded', 'false');
     menu.hidden = true;
+  }
+
+  function syncLayoutUI() {
+    const s = state();
+    $$('#wbLayoutView button').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.layoutView === s.view);
+    });
+    $$('#wbDensity button').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.density === s.density);
+    });
+    const info = $('#wbShowInfo');
+    if (info) info.checked = s.showInfo;
+    const densityRow = $('#wbDensity') && $('#wbDensity').closest('.wb-layout-row');
+    if (densityRow) densityRow.hidden = s.view === 'list';
+    if (info && info.closest('.wb-layout-check')) info.closest('.wb-layout-check').hidden = s.view === 'list';
+    $$('#wbColumns [data-column]').forEach((input) => {
+      input.checked = (s.columns || []).includes(input.dataset.column);
+    });
+    const columns = $('#wbColumns');
+    if (columns) columns.hidden = s.view !== 'list' || isMobile();
+  }
+
+  function applyLayoutPreferences() {
+    const wb = $('#shelfWorkbench');
+    if (!wb) return;
+    wb.dataset.density = state().density;
+    wb.dataset.coverInfo = state().showInfo ? '1' : '0';
+    syncLayoutUI();
+  }
+
+  function closeLayoutMenu() {
+    const menu = $('#wbLayoutMenu');
+    if (!menu) return;
+    menu.hidden = true;
+    $('#wbLayoutBtn').setAttribute('aria-expanded', 'false');
+  }
+
+  function setView(view) {
+    state().view = view;
+    applyView();
+    syncLayoutUI();
+    S.syncUrl();
+    S.grid.render(state().books);
+    S.actions.syncSelection();
+    updateEmpty();
+    ensureFill();
+    closeLayoutMenu();
   }
 
   function bindChrome() {
@@ -171,11 +302,13 @@
     });
 
     $('#wbAdd').addEventListener('click', () => {
+      if (isMobile()) closeSidebar();
       if (typeof openBookModal === 'function') openBookModal(null);
     });
 
     $('#wbSort').addEventListener('change', async (e) => {
-      state().sort = state().q && e.target.value === 'updated' ? 'relevance' : e.target.value;
+      state().sort = e.target.value;
+      state().sortExplicit = true;
       syncSortUI();
       S.syncUrl();
       await filterChanged();
@@ -183,22 +316,53 @@
 
     $('#wbViewToggle').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-view]');
+      if (btn) setView(btn.dataset.view);
+    });
+
+    $('#wbLayoutBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const menu = $('#wbLayoutMenu');
+      const open = menu.hidden;
+      menu.hidden = !open;
+      $('#wbLayoutBtn').setAttribute('aria-expanded', String(open));
+      closeBrandMenu();
+    });
+    $('#wbLayoutView').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-layout-view]');
+      if (btn) setView(btn.dataset.layoutView);
+    });
+    $('#wbDensity').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-density]');
       if (!btn) return;
-      state().view = btn.dataset.view;
-      applyView();
-      S.syncUrl();
-      S.grid.render(state().books);
-      S.actions.syncSelection();
-      updateEmpty();
+      state().density = btn.dataset.density;
+      S.saveLayout();
+      applyLayoutPreferences();
+    });
+    $('#wbShowInfo').addEventListener('change', (e) => {
+      state().showInfo = !!e.target.checked;
+      S.saveLayout();
+      applyLayoutPreferences();
+    });
+    $('#wbColumns').addEventListener('change', (e) => {
+      if (!e.target.matches('[data-column]')) return;
+      state().columns = $$('#wbColumns [data-column]')
+        .filter((input) => input.checked)
+        .map((input) => input.dataset.column);
+      S.saveLayout();
+      if (state().view === 'list') {
+        S.grid.render(state().books);
+        S.actions.syncSelection();
+        ensureFill();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#wbLayoutMenu') && !e.target.closest('#wbLayoutBtn')) closeLayoutMenu();
     });
 
     $('#wbSidebarToggle').addEventListener('click', () => {
-      const wb = $('#shelfWorkbench');
-      const collapsed = wb.classList.toggle('sidebar-collapsed');
-      $('#wbSidebarToggle').setAttribute('aria-pressed', String(!collapsed));
-      $('#wbSidebarToggle').setAttribute('aria-label', collapsed ? '显示资料库' : '隐藏资料库');
-      try { localStorage.setItem('shelf.sidebar', collapsed ? 'closed' : 'open'); } catch { /* ignore */ }
+      setSidebarOpen($('#shelfWorkbench').classList.contains('sidebar-collapsed'));
     });
+    $('#wbScrim').addEventListener('click', () => closeSidebar());
 
     $('#wbInspectorToggle').addEventListener('click', () => S.inspector.toggle());
     $('#shelfSearchBtn').addEventListener('click', () => {
@@ -213,17 +377,23 @@
       if (typeof window.closeSearchOverlay === 'function') window.closeSearchOverlay(false);
       $('#shelfSearchBtn').focus();
     });
-    const syncSearchClose = () => {
-      const open = document.body.classList.contains('search-open');
-      $('#wbSearchClose').hidden = !open;
+    const syncBodyUi = () => {
+      const searchOpen = document.body.classList.contains('search-open');
+      $('#wbSearchClose').hidden = !searchOpen;
+      if ((searchOpen || document.body.classList.contains('modal-open')) && isMobile()) closeSidebar();
     };
-    new MutationObserver(syncSearchClose).observe(document.body, { attributes: true, attributeFilter: ['class'] });
-    syncSearchClose();
+    new MutationObserver(syncBodyUi).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    syncBodyUi();
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && e.defaultPrevented) return;
       if (e.key === 'Escape') {
         closeBrandMenu();
+        closeLayoutMenu();
+        if (isMobile() && !$('#shelfWorkbench').classList.contains('sidebar-collapsed')) {
+          closeSidebar();
+          return;
+        }
         if (state().inspectorOpen) { S.inspector.hide(); return; }
         if (state().selection.size) { S.actions.clearSelection(); return; }
       }
@@ -233,30 +403,56 @@
       }
     });
 
-    if (isMobile()) {
-      $('#shelfWorkbench').classList.add('sidebar-collapsed');
-    } else {
-      let saved = 'open';
-      try { saved = localStorage.getItem('shelf.sidebar') || 'open'; } catch { /* ignore */ }
-      if (saved === 'closed') $('#shelfWorkbench').classList.add('sidebar-collapsed');
-    }
-    const collapsed = $('#shelfWorkbench').classList.contains('sidebar-collapsed');
-    $('#wbSidebarToggle').setAttribute('aria-pressed', String(!collapsed));
-    $('#wbSidebarToggle').setAttribute('aria-label', collapsed ? '显示资料库' : '隐藏资料库');
+    let saved = 'open';
+    try { saved = localStorage.getItem('shelf.sidebar') || 'open'; } catch { /* ignore */ }
+    setSidebarOpen(!isMobile() && saved !== 'closed', { persist: false });
 
     let wasMobile = isMobile();
+    let wasLandscape = window.innerWidth > window.innerHeight;
     window.addEventListener('resize', () => {
       const now = isMobile();
-      if (now && !wasMobile) {
-        $('#shelfWorkbench').classList.add('sidebar-collapsed');
-        $('#wbSidebarToggle').setAttribute('aria-pressed', 'false');
+      const landscape = window.innerWidth > window.innerHeight;
+      if (now && landscape !== wasLandscape) {
+        // 手机横竖屏切换时收起抽屉,避免旋转后侧栏与详情叠在一起。
+        closeSidebar();
       }
-      wasMobile = now;
+      if (now !== wasMobile) {
+        // 跨断点时同样收起;回到桌面宽度时恢复桌面侧栏偏好,
+        // 但若详情/弹窗/搜索正打开,则保持收起,避免叠加。
+        if (now || state().inspectorOpen || document.body.classList.contains('modal-open')
+          || document.body.classList.contains('search-open')) closeSidebar();
+        else setSidebarOpen(saved !== 'closed', { persist: false });
+        wasMobile = now;
+        if (state().view === 'list') {
+          S.grid.render(state().books);
+          S.actions.syncSelection();
+          ensureFill();
+        }
+        syncLayoutUI();
+      }
+      wasLandscape = landscape;
     });
   }
 
   function bindGridEvents() {
     const grid = $('#bookGrid');
+    grid.addEventListener('dragstart', (e) => {
+      if (isMobile()) { e.preventDefault(); return; }
+      const target = e.target.closest('[data-id]');
+      if (!target) return;
+      const id = Number(target.dataset.id);
+      const ids = state().selection.has(id) ? [...state().selection] : [id];
+      try {
+        e.dataTransfer.setData('application/x-mybooks-books', JSON.stringify(ids));
+        e.dataTransfer.setData('text/plain', ids.map((bookId) => `#${bookId}`).join(' '));
+        e.dataTransfer.effectAllowed = 'copy';
+      } catch { return; }
+      document.body.classList.add('dragging-books');
+    });
+    grid.addEventListener('dragend', () => {
+      document.body.classList.remove('dragging-books');
+      $$('#wbSidebar .is-drop-target').forEach((row) => row.classList.remove('is-drop-target'));
+    });
     grid.addEventListener('click', (e) => {
       if (e.target.closest('th')) return;
       const target = e.target.closest('[data-id]');
@@ -266,52 +462,146 @@
       }
       if (e.target.closest('th[data-sort]')) return;
       const id = Number(target.dataset.id);
-      if (longPressId === id && Date.now() - longPressAt < 500) { longPressId = null; return; }
-      if (e.ctrlKey || e.metaKey) { e.preventDefault(); S.actions.toggleSelected(id); return; }
-      if (e.shiftKey) { e.preventDefault(); S.actions.selectRange(id); return; }
-      if (state().selectMode) { S.actions.toggleSelected(id); return; }
-      if (isMobile()) {
-        if (typeof window.openDetail === 'function') window.openDetail(id);
-      } else {
-        S.actions.selectOnly(id);
-      }
+      // 长按触发后浏览器补发的 click 只吞一次;不用时间窗,
+      // 否则按住超过 1 秒松手后,click 会把刚选中的书取消。
+      if (longPressId === id) { longPressId = null; return; }
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); S.actions.toggleSelected(id); }
+      else if (e.shiftKey) { e.preventDefault(); S.actions.selectRange(id); }
+      else if (state().selectMode) S.actions.toggleSelected(id);
+      else S.actions.selectOnly(id);
+      S.grid.focusItem(id, { scroll: false });
     });
 
     grid.addEventListener('dblclick', (e) => {
+      if (isMobile()) return;
       const target = e.target.closest('[data-id]');
       if (!target) return;
       e.preventDefault();
       if (typeof window.openDetail === 'function') window.openDetail(Number(target.dataset.id));
     });
 
+    const isEditable = (el) => !!(el && el.closest
+      && el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+
+    function rowEntries() {
+      return $$('#bookGrid [data-id]').map((el) => ({
+        el, id: Number(el.dataset.id), rect: el.getBoundingClientRect(),
+      }));
+    }
+
+    function nearestInRow(row, centerX) {
+      let best = null;
+      row.items.forEach((item) => {
+        const distance = Math.abs(item.rect.left + item.rect.width / 2 - centerX);
+        if (!best || distance < best.distance) best = { item, distance };
+      });
+      return best ? best.item : null;
+    }
+
+    function nextEntry(key) {
+      const entries = rowEntries();
+      if (!entries.length) return null;
+      const current = entries.find((item) => item.el === document.activeElement)
+        || entries.find((item) => item.id === state().focusId)
+        || entries[0];
+      if (key === 'Home') return entries[0];
+      if (key === 'End') return entries[entries.length - 1];
+      if (state().view === 'list') {
+        const index = entries.indexOf(current);
+        if (key === 'ArrowDown' || key === 'ArrowRight') return entries[index + 1] || null;
+        if (key === 'ArrowUp' || key === 'ArrowLeft') return entries[index - 1] || null;
+        return null;
+      }
+      const rows = [];
+      entries.forEach((entry) => {
+        const row = rows.find((item) => Math.abs(item.top - entry.rect.top) <= 2);
+        if (row) row.items.push(entry);
+        else rows.push({ top: entry.rect.top, items: [entry] });
+      });
+      rows.sort((a, b) => a.top - b.top);
+      rows.forEach((row) => row.items.sort((a, b) => a.rect.left - b.rect.left));
+      if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        const row = rows.find((item) => item.items.includes(current));
+        if (!row) return null;
+        const index = row.items.indexOf(current);
+        return row.items[index + (key === 'ArrowRight' ? 1 : -1)] || null;
+      }
+      const rowIndex = rows.findIndex((row) => row.items.includes(current));
+      const row = rows[rowIndex + (key === 'ArrowDown' ? 1 : -1)];
+      if (!row) return null;
+      return nearestInRow(row, current.rect.left + current.rect.width / 2);
+    }
+
+    function moveFocus(key, e) {
+      const next = nextEntry(key);
+      if (!next) return;
+      if (e.shiftKey) {
+        if (state().anchorId == null) state().anchorId = state().focusId;
+        S.actions.selectRange(next.id);
+      } else if (!(e.ctrlKey || e.metaKey)) {
+        S.actions.selectOnly(next.id, { openInspector: false });
+      }
+      S.grid.focusItem(next.id);
+    }
+
     grid.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.altKey || isEditable(e.target)) return;
+      const th = e.target.closest('th[data-sort]');
+      if (th) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          th.click();
+        }
+        return;
+      }
       const target = e.target.closest('[data-id]');
       if (!target) return;
-      e.preventDefault();
-      S.actions.selectOnly(Number(target.dataset.id));
+      const id = Number(target.dataset.id);
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.repeat) return;
+        state().focusId = id;
+        if (state().selection.size > 1 && state().selection.has(id)) S.actions.openBulk();
+        else S.actions.selectOnly(id);
+        return;
+      }
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        state().focusId = id;
+        S.actions.toggleSelected(id);
+        return;
+      }
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+        e.preventDefault();
+        state().focusId = id;
+        moveFocus(e.key, e);
+      }
     });
 
-    grid.addEventListener('click', (e) => {
+    grid.addEventListener('click', async (e) => {
       const th = e.target.closest('th[data-sort]');
       if (!th) return;
-      state().sort = th.dataset.sort === 'updated' ? 'updated' : th.dataset.sort;
+      const key = th.dataset.sort === 'updated' ? 'updated' : th.dataset.sort;
+      state().sort = key;
       syncSortUI();
       S.syncUrl();
-      filterChanged();
+      await filterChanged();
+      const head = $(`#bookGrid th[data-sort="${key}"]`);
+      if (head) head.focus({ preventScroll: true });
     });
 
     grid.addEventListener('pointerdown', (e) => {
-      const target = e.target.closest('.wb-card');
+      const target = e.target.closest('.wb-card, .wb-list-row');
       if (!target || e.button !== 0 || e.pointerType === 'mouse') return;
+      const id = Number(target.dataset.id);
       longPressOrigin = { x: e.clientX, y: e.clientY };
-      longPressId = Number(target.dataset.id);
+      longPressId = null;
       clearTimeout(longPressTimer);
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
-        longPressAt = Date.now();
+        longPressId = id;
         if (navigator.vibrate) navigator.vibrate(10);
-        S.actions.toggleSelected(longPressId);
+        S.actions.toggleSelected(id);
       }, 500);
     });
     const cancelLongPress = (e) => {
@@ -328,6 +618,163 @@
     grid.addEventListener('contextmenu', (e) => {
       if (longPressId && e.pointerType !== 'mouse') e.preventDefault();
     });
+    bindMarquee();
+  }
+
+  function bindMarquee() {
+    const content = $('#wbContent');
+    const main = $('.wb-main');
+    if (!content || !main) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'wb-marquee';
+    overlay.hidden = true;
+    main.appendChild(overlay);
+
+    const sameSelection = (a, b) => a.size === b.size && [...a].every((id) => b.has(id));
+
+    function paint() {
+      const m = marqueeState;
+      if (!m || !m.active) return;
+      const left = Math.min(m.startX, m.x);
+      const right = Math.max(m.startX, m.x);
+      const top = Math.min(m.startY, m.y);
+      const bottom = Math.max(m.startY, m.y);
+      const clip = content.getBoundingClientRect();
+      const mainRect = main.getBoundingClientRect();
+      const x1 = Math.max(clip.left, left) - mainRect.left;
+      const y1 = Math.max(clip.top, top) - mainRect.top;
+      const x2 = Math.min(clip.right, right) - mainRect.left;
+      const y2 = Math.min(clip.bottom, bottom) - mainRect.top;
+      if (x2 > x1 && y2 > y1) {
+        overlay.hidden = false;
+        overlay.style.transform = `translate(${x1}px, ${y1}px)`;
+        overlay.style.width = `${x2 - x1}px`;
+        overlay.style.height = `${y2 - y1}px`;
+      } else {
+        overlay.hidden = true;
+      }
+
+      // 命中按内容坐标计算:自动滚动时已扫过的书不会因为移出视口而被取消。
+      const endX = m.x - clip.left + content.scrollLeft;
+      const endY = m.y - clip.top + content.scrollTop;
+      const hitLeft = Math.min(m.startContentX, endX);
+      const hitRight = Math.max(m.startContentX, endX);
+      const hitTop = Math.min(m.startContentY, endY);
+      const hitBottom = Math.max(m.startContentY, endY);
+      const next = new Set(m.additive ? m.base : []);
+      let firstHit = null;
+      $$('#bookGrid [data-id]').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return;
+        const left = r.left - clip.left + content.scrollLeft;
+        const top = r.top - clip.top + content.scrollTop;
+        if (left + r.width < hitLeft || left > hitRight
+          || top + r.height < hitTop || top > hitBottom) return;
+        const id = Number(el.dataset.id);
+        next.add(id);
+        if (firstHit === null) firstHit = id;
+      });
+      if (firstHit !== null) state().anchorId = firstHit;
+      else if (!m.additive) state().anchorId = null;
+      if (sameSelection(next, state().selection)) return;
+      state().selection = next;
+      S.grid.updateSelection();
+      S.actions.refreshBulkBar();
+    }
+
+    function scrollStep() {
+      marqueeFrame = 0;
+      const m = marqueeState;
+      if (!m || !m.active) return;
+      const rect = content.getBoundingClientRect();
+      const edge = 34;
+      let dy = 0;
+      if (m.y < rect.top + edge) dy = -Math.ceil(Math.min(18, (rect.top + edge - m.y) / 2));
+      else if (m.y > rect.bottom - edge) dy = Math.ceil(Math.min(18, (m.y - (rect.bottom - edge)) / 2));
+      if (!dy) return;
+      content.scrollTop += dy;
+      paint();
+      marqueeFrame = requestAnimationFrame(scrollStep);
+    }
+
+    function queueScroll() {
+      if (!marqueeFrame && marqueeState && marqueeState.active) {
+        marqueeFrame = requestAnimationFrame(scrollStep);
+      }
+    }
+
+    content.addEventListener('pointerdown', (e) => {
+      if (isMobile() || e.pointerType !== 'mouse' || e.button !== 0 || marqueeState) return;
+      if (e.target.closest('[data-id], th, a, button, input, select, textarea, label')) return;
+      const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+      const rect = content.getBoundingClientRect();
+      marqueeState = {
+        pointerId: e.pointerId,
+        startX: e.clientX, startY: e.clientY,
+        startContentX: e.clientX - rect.left + content.scrollLeft,
+        startContentY: e.clientY - rect.top + content.scrollTop,
+        x: e.clientX, y: e.clientY,
+        active: false, additive,
+        base: additive ? new Set(state().selection) : new Set(),
+      };
+      try { content.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    });
+
+    content.addEventListener('pointermove', (e) => {
+      const m = marqueeState;
+      if (!m || e.pointerId !== m.pointerId) return;
+      m.x = e.clientX;
+      m.y = e.clientY;
+      if (!m.active) {
+        if (Math.hypot(m.x - m.startX, m.y - m.startY) < 5) return;
+        m.active = true;
+        document.body.classList.add('marquee-selecting');
+        if (window.getSelection) window.getSelection().removeAllRanges();
+      }
+      e.preventDefault();
+      paint();
+      queueScroll();
+    });
+
+    const finish = (e, cancelled) => {
+      const m = marqueeState;
+      if (!m || e.pointerId !== m.pointerId) return;
+      marqueeState = null;
+      if (marqueeFrame) { cancelAnimationFrame(marqueeFrame); marqueeFrame = 0; }
+      overlay.hidden = true;
+      document.body.classList.remove('marquee-selecting');
+      try { content.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      if (m.active && !cancelled) {
+        // 拖拽结束后浏览器仍会补发一次 click，别让它把框选结果改成单选。
+        marqueeGuard = true;
+        setTimeout(() => { marqueeGuard = false; }, 0);
+        if (state().selection.size && !state().selection.has(state().focusId)) {
+          state().focusId = state().anchorId ?? [...state().selection][0];
+        }
+        if (state().selection.size === 1) {
+          S.actions.selectOnly([...state().selection][0]);
+        } else {
+          if (state().selection.size) state().selectMode = true;
+          S.actions.syncSelection();
+        }
+        if (state().selection.size && state().selection.has(state().focusId)) {
+          S.grid.focusItem(state().focusId, { scroll: false });
+        }
+      } else if (!m.active && !cancelled && !m.additive) {
+        if (state().selection.size || state().selectMode) S.actions.clearSelection();
+      } else if (cancelled && m.active) {
+        S.actions.syncSelection();
+      }
+    };
+    content.addEventListener('pointerup', (e) => finish(e, false));
+    content.addEventListener('pointercancel', (e) => finish(e, true));
+
+    $('#bookGrid').addEventListener('click', (e) => {
+      if (!marqueeGuard) return;
+      marqueeGuard = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
   }
 
   function bindSearchEvents() {
@@ -342,8 +789,11 @@
       const detail = e.detail || {};
       state().q = detail.vl ? '' : String(detail.q || '');
       state().vl = String(detail.vl || '');
+      const input = document.getElementById('searchInput');
+      if (input) input.value = state().q;
       if (['updated', 'finish', 'title', 'author', 'series', 'created', 'relevance'].includes(detail.sort)) {
         state().sort = detail.sort;
+        state().sortExplicit = true;
       }
       syncSortUI();
       await filterChanged({ refreshFacets: true });
@@ -367,11 +817,29 @@
     facetsChanged: () => { S.sidebar.render(); updateCount(); },
     reloadAll: () => reloadAll(),
     clearSelection: () => S.actions.clearSelection(),
+    closeSidebar: () => closeSidebar(),
+    bookRemoved: (id) => {
+      const s = state();
+      s.books = s.books.filter((b) => b.id !== id);
+      if (s.total !== null && s.total > 0) s.total -= 1;
+      s.start = s.books.length;
+      s.hasMore = s.total === null ? s.hasMore : s.books.length < s.total;
+      S.actions.clearSelection();
+      S.inspector.hide();
+      S.grid.render(s.books);
+      updateEmpty();
+      updateCount();
+    },
   };
+
+  window.addEventListener('pagehide', saveScroll);
 
   async function boot() {
     S.parseUrl();
+    S.parseLayout();
+    syncSearchPill();
     applyView();
+    applyLayoutPreferences();
     bindChrome();
     bindGridEvents();
     bindSearchEvents();
@@ -388,7 +856,8 @@
       updateEmpty();
       updateCount();
       S.grid.setupSentinel(loadMore);
-      if (page && page.rows.length && state().hasMore) requestAnimationFrame(loadMore);
+      restoreScroll();
+      if (page && page.rows.length && state().hasMore) ensureFill();
     } catch (err) {
       toast(err.message, true);
       updateEmpty();

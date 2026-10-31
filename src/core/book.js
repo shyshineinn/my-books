@@ -19,13 +19,24 @@ const { parseIdentifiers } = require('./identifiers');
 const AUTHOR_SEP = /[&，、,/]+/;
 const AUTHOR_JOIN = '、';
 
+// 作者名的空格归一化:国家/地区标记内的空白不承载语义,
+// `[美] 约翰` 与 `[美]约翰` 应视为同一位作者;普通姓名内部保留单个空格。
+function normalizeAuthorName(value) {
+  return String(value == null ? '' : value)
+    .replace(/\s+/g, ' ')
+    .replace(/([\[【])\s+/g, '$1')
+    .replace(/\s+([\]】])/g, '$1')
+    .replace(/([\]】])\s+/g, '$1')
+    .trim();
+}
+
 // 把作者串按分隔符拆成去重去空的数组(纯函数)。单作者原样返回单元素。
 function splitAuthors(input) {
   const raw = Array.isArray(input) ? input : String(input || '').split(AUTHOR_SEP);
   const out = [];
   const seen = new Set();
   for (const a of raw) {
-    const name = String(a == null ? '' : a).trim();
+    const name = normalizeAuthorName(a);
     if (!name) continue;
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
@@ -228,4 +239,4 @@ function coverUploadFile(cover) {
   return rel;
 }
 
-module.exports = { STATUSES, parseBook, mergeUpdate, coverUploadFile, splitAuthors };
+module.exports = { STATUSES, parseBook, mergeUpdate, coverUploadFile, splitAuthors, normalizeAuthorName };

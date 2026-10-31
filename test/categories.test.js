@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const { openDb } = require('../src/db/index.js');
+const { openDb, migrations } = require('../src/db/index.js');
 const categories = require('../src/db/categories.js');
 const search = require('../src/db/search.js');
 const { splitAuthors } = require('../src/core/book.js');
@@ -63,7 +63,37 @@ test('splitAuthors:多分隔符拆分、去重(大小写不敏感)、间隔号�
   assert.deepEqual(splitAuthors([' 余华 ', '余华', '']), ['余华'], '数组入参去空白、去重');
 });
 
+test('splitAuthors:国家标记内外的空格不影响作者身份', () => {
+  assert.deepEqual(splitAuthors('[美] 约翰·斯坦贝克 / [美]约翰·斯坦贝克'), ['[美]约翰·斯坦贝克']);
+  assert.deepEqual(splitAuthors('[ 美 ]  约翰'), ['[美]约翰']);
+  assert.deepEqual(splitAuthors('John  Smith'), ['John Smith'], '普通姓名内部只保留单个空格');
+  assert.deepEqual(splitAuthors('[美] 约翰'), ['[美]约翰'], '标记后的空格被归一化');
+});
+
 /* ---------- 归一化真源 + 派生缓存 ---------- */
+
+test('v23:历史作者空格重复在重建后合并为一位作者', () => {
+  const db = freshDb();
+  const now = new Date().toISOString();
+  const insert = db.prepare(`
+    INSERT INTO books (title, author, author_sort, status, tags, read_logs, created_at, updated_at)
+    VALUES (?, ?, '', 'wish', '[]', '[]', ?, ?)
+  `);
+  for (const [title, name] of [['甲', '[美] 约翰·斯坦贝克'], ['乙', '[美]约翰·斯坦贝克']]) {
+    const id = Number(insert.run(title, name, now, now).lastInsertRowid);
+    categories.syncBookAuthors(db, id, [name]);
+    categories.recomputeBookCaches(db, id);
+    search.indexBook(db, db.prepare('SELECT * FROM books WHERE id = ?').get(id));
+  }
+  assert.equal(categories.listAuthors(db).length, 2, '归一化前是两条历史作者');
+
+  migrations[22](db);
+  const authors = categories.listAuthors(db).filter((a) => a.name.includes('斯坦贝克'));
+  assert.deepEqual(authors.map((a) => a.name), ['[美]约翰·斯坦贝克']);
+  assert.equal(authors[0].count, 2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM books WHERE author LIKE '%[美] 约翰%'").get().n, 0);
+  db.close();
+});
 
 test('addBook:每位作者/每个标签各建一行,缓存为派生(、连接 + 首作者 sort)', () => {
   const db = freshDb();
@@ -78,6 +108,38 @@ test('addBook:每位作者/每个标签各建一行,缓存为派生(、连接 + 
   assert.equal(a.author, '余华、莫言');
   assert.equal(a.author_sort, '余华');
   assert.deepEqual(cacheTags(a), ['小说', '获奖'], '标签缓存按名排序');
+  db.close();
+});
+
+test('searchAuthors/searchTags:关键词、分页、作用域与 LIKE 通配符转义', () => {
+  const db = freshDb();
+  const a = addBook(db, { title: '甲', author: '王小明、李四', tags: ['科幻', '100%'] });
+  const b = addBook(db, { title: '乙', author: '王大明', tags: ['科幻', '_测试'] });
+  addBook(db, { title: '丙', author: '张三', tags: ['文学'] });
+
+  const first = categories.searchAuthors(db, { q: '王', limit: 1 });
+  assert.equal(first.total, 2, '总数是匹配的作者数,不是书数');
+  assert.deepEqual(first.items.map((x) => x.name), ['王大明']);
+
+  const second = categories.searchAuthors(db, { q: '王', limit: 1, offset: 1 });
+  assert.deepEqual(second.items.map((x) => x.name), ['王小明']);
+  assert.equal(second.total, 2);
+  assert.deepEqual(categories.searchAuthors(db, { q: '不存在' }), { items: [], total: 0 });
+
+  const scoped = categories.searchAuthors(db, { q: '王', scopeIds: [a.id] });
+  assert.equal(scoped.total, 1);
+  assert.deepEqual(scoped.items.map((x) => x.name), ['王小明']);
+
+  const science = categories.searchTags(db, { q: '科幻' });
+  assert.equal(science.total, 1, '总数是匹配的标签数,不是关联书数');
+  assert.equal(science.items[0].count, 2);
+  assert.deepEqual(categories.searchTags(db, { q: '%' }).items.map((x) => x.name), ['100%']);
+  assert.deepEqual(categories.searchTags(db, { q: '_' }).items.map((x) => x.name), ['_测试']);
+  assert.equal(categories.searchTags(db, { q: '科幻', scopeIds: [b.id] }).items[0].count, 1);
+
+  db.prepare('INSERT INTO authors (name, sort) VALUES (?, ?)').run('孤儿作者', '孤儿作者');
+  assert.ok(categories.listAuthors(db).some((x) => x.name === '孤儿作者'), '默认全量保留 0 本作者');
+  assert.equal(categories.searchAuthors(db, { q: '孤儿' }).total, 0, '分页检索排除 0 本作者');
   db.close();
 });
 

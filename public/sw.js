@@ -12,7 +12,7 @@
  * 激活阶段删除旧版本缓存。skipWaiting + clients.claim 让新 SW 立即接管。
  * ============================================================ */
 
-const CACHE_VERSION = 'v122';
+const CACHE_VERSION = 'v162';
 const SHELL_CACHE = `mybooks-shell-${CACHE_VERSION}`;
 const API_CACHE = `mybooks-api-${CACHE_VERSION}`;
 const IMG_CACHE = `mybooks-img-${CACHE_VERSION}`;
@@ -23,21 +23,27 @@ const IMG_LIMIT = 60;
 // 注意:**不缓存 / *.html 与 /notes/*** —— HTML 必须每次向服务器验证,
 // 否则新内容(备案号/新功能)发布后用户要强刷才能看到。
 const SHELL_ASSETS = [
-  '/css/style.css?v=108',
-  '/css/shelf-workbench.css?v=6',
-  '/js/chrome.js?v=34',
-  '/js/common.js?v=32',
+  '/css/style.css?v=110',
+  '/css/shelf-workbench.css?v=33',
+  '/js/chrome.js?v=35',
+  '/js/base.js?v=1',
+  '/js/api.js?v=1',
+  '/js/cover.js?v=1',
+  '/js/select.js?v=1',
+  '/js/modal.js?v=1',
+  '/js/overlay.js?v=1',
+  '/js/common.js?v=42',
   '/js/scanner.js?v=2',
   '/js/page-home.js?v=3',
-  '/js/shelf/store.js?v=6',
-  '/js/shelf/sidebar.js?v=6',
-  '/js/shelf/grid.js?v=6',
-  '/js/shelf/inspector.js?v=6',
-  '/js/shelf/actions.js?v=6',
-  '/js/shelf/main.js?v=6',
+  '/js/shelf/store.js?v=33',
+  '/js/shelf/sidebar.js?v=33',
+  '/js/shelf/grid.js?v=33',
+  '/js/shelf/inspector.js?v=33',
+  '/js/shelf/actions.js?v=33',
+  '/js/shelf/main.js?v=33',
   '/js/page-rank.js?v=2',
   '/js/page-stats.js?v=4',
-  '/js/page-tags.js?v=6',
+  '/js/page-tags.js?v=8',
   '/js/page-notes.js?v=3',
   '/js/endless-gallery.js?v=19',
   '/vendor/marked.umd.js',

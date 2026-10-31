@@ -102,6 +102,28 @@ test('藏书集:软删除隐藏计数,恢复保留关系,彻底删除级联清�
   db.close();
 });
 
+test('藏书集:批量加入/移除失败时整体回滚', () => {
+  const db = freshDb();
+  const a = makeBook(db, { title: '甲' });
+  const b = makeBook(db, { title: '乙' });
+  const c = collections.createCollection(db, '待读');
+  const count = () => db.prepare('SELECT COUNT(*) AS n FROM book_collections').get().n;
+
+  db.exec(`CREATE TRIGGER fail_insert BEFORE INSERT ON book_collections
+    WHEN NEW.book_id = ${b} BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
+  assert.throws(() => collections.addBooks(db, c.id, [a, b]), /boom/);
+  assert.equal(count(), 0, '第二条失败时第一条也必须回滚');
+
+  db.exec('DROP TRIGGER fail_insert');
+  collections.addBooks(db, c.id, [a, b]);
+  assert.equal(count(), 2);
+  db.exec(`CREATE TRIGGER fail_delete BEFORE DELETE ON book_collections
+    WHEN OLD.book_id = ${b} BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
+  assert.throws(() => collections.removeBooks(db, c.id, [a, b]), /boom/);
+  assert.equal(count(), 2, '第二条删除失败时第一条也必须回滚');
+  db.close();
+});
+
 test('书架筛选:collection 精确成员、series 精确匹配、非法 id', () => {
   const db = freshDb();
   const a = makeBook(db, { title: '基地', series: '基地', status: 'done' });
